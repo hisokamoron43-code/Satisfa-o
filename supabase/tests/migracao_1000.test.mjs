@@ -1,0 +1,403 @@
+import { PGlite } from '@electric-sql/pglite';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+const MIG = path.join(HERE, '../migrations/1000_producao_consolidada.sql');
+const migSql = fs.readFileSync(MIG, 'utf8');
+
+const R = [];
+const rec = (id, title, ok, detail) => {
+  R.push({ id, title, ok });
+  console.log(`${ok ? 'PASS' : 'FAIL'} [${id}] ${title}\n      ${detail}`);
+};
+
+const db = new PGlite();
+
+// ---------- Ambiente Supabase simulado ----------
+await db.exec(`
+  DO $$ BEGIN
+    CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
+  EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  CREATE SCHEMA auth;
+  CREATE TABLE auth.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text);
+  CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
+  CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+    SELECT NULLIF(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', '')::uuid $$;
+  CREATE SCHEMA storage;
+  CREATE TABLE storage.buckets (id text PRIMARY KEY, name text, public boolean DEFAULT false, file_size_limit bigint, allowed_mime_types text[]);
+  CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text, name text);
+  ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+  GRANT USAGE ON SCHEMA public, auth, storage TO anon, authenticated, service_role;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO anon, authenticated;
+  GRANT SELECT ON storage.buckets TO anon, authenticated;
+`);
+
+// ---------- 1. Execução limpa numa base vazia (sem alterações à migração) ----------
+let err1 = null;
+try { await db.exec(migSql); } catch (e) { err1 = e.message; }
+rec('M1', 'Migração 1000 executa numa base vazia sem erros', !err1, err1 ? `ERRO: ${err1}` : 'OK');
+
+// Simular Supabase: privilégios por defeito do schema public (o Supabase concede a anon/authenticated)
+await db.exec(`GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+               GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+               GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO PUBLIC;`);
+
+// ---------- Seed (equivalente ao que a Edge Function faz) ----------
+const A = {
+  admin: '00000000-0000-0000-0000-0000000000a1',
+  hr: '00000000-0000-0000-0000-0000000000a2',
+  op: '00000000-0000-0000-0000-0000000000a3',
+  prov: '00000000-0000-0000-0000-0000000000a4',
+};
+await db.exec(`
+  INSERT INTO auth.users (id, email) VALUES
+    ('${A.admin}','admin@sicsc.aeternu.internal'),('${A.hr}','hr@sicsc.aeternu.internal'),
+    ('${A.op}','op@sicsc.aeternu.internal'),('${A.prov}','prest@sicsc.aeternu.internal');
+  INSERT INTO public.profiles (id, name, email, role, active, allowed_pages) VALUES
+    ('${A.admin}','Admin','admin@sicsc.aeternu.internal','ADMIN',true,'{}'),
+    ('${A.hr}','HR','hr@sicsc.aeternu.internal','HR',true,'{employees,evaluation_analysis}'),
+    ('${A.op}','Operacional','op@sicsc.aeternu.internal','OPERATIONAL',true,'{clients}'),
+    ('${A.prov}','Prestador','prest@sicsc.aeternu.internal','PROVIDER',true,'{dashboard,evaluations}');
+  INSERT INTO public.services (name, code, status) VALUES ('Limpeza','LMP','ACTIVE');
+  INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Cliente Antigo','CLI-1','ACTIVE');
+  INSERT INTO public.providers (internal_code, name, professional_email, status) VALUES ('P1','Tec Um','tec1@t.ao','ACTIVE');
+`);
+const svc = (await db.query(`SELECT id FROM public.services LIMIT 1`)).rows[0].id;
+const provId = (await db.query(`SELECT id FROM public.providers LIMIT 1`)).rows[0].id;
+
+async function as(role, sub, fn) {
+  await db.exec(`RESET ROLE;`);
+  const claims = JSON.stringify({ sub, role, email: '' });
+  await db.query(`SELECT set_config('request.jwt.claims', $1, false)`, [claims]);
+  await db.exec(`SET ROLE ${role};`);
+  try { return await fn(); } finally { await db.exec(`RESET ROLE;`); }
+}
+const tryq = async (fn) => { try { return { ok: true, r: await fn() }; } catch (e) { return { ok: false, err: e.message }; } };
+
+// ---------- 2. Idempotência: segunda execução não pode falhar nem apagar dados ----------
+await db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Cliente Sobrevive','CLI-2','ACTIVE');`);
+const before = (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n;
+const second = await tryq(() => db.exec(migSql));
+const after = (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n;
+rec('M2', 'Segunda execução da migração é idempotente e preserva os dados', second.ok && before === after,
+  second.ok ? `OK. Clientes antes=${before}, depois=${after}` : `ERRO: ${second.err}`);
+
+// ---------- 3. Submissão pública ----------
+const sub1 = await tryq(() => as('anon', '', async () =>
+  (await db.query(`SELECT public.submit_evaluation($1::jsonb) AS r`, [JSON.stringify({
+    clientName: 'Cliente Teste', serviceId: svc, satisfactionRating: 4, npsScore: 9, comment: 'ok',
+    detailedAnswers: { q1: { rating: 4 } }, questionsSnapshot: [{ id: 'q1' }] })])).rows[0].r));
+rec('S0', 'submit_evaluation aceita submissão anónima válida', sub1.ok && sub1.r.success === true,
+  sub1.ok ? `Referência ${sub1.r.reference}` : `ERRO: ${sub1.err}`);
+const evalId = sub1.ok ? sub1.r.id : null;
+
+const subNoSat = await tryq(() => as('anon', '', async () =>
+  db.query(`SELECT public.submit_evaluation($1::jsonb)`, [JSON.stringify({ clientName: 'Sem Satisfacao', serviceId: svc })])));
+rec('D1', 'Submissão sem classificação de satisfação é recusada (sem valor inventado)', !subNoSat.ok,
+  subNoSat.ok ? 'ACEITE (falha)' : `Recusada: ${subNoSat.err}`);
+
+const subNoNps = await tryq(() => as('anon', '', async () =>
+  (await db.query(`SELECT public.submit_evaluation($1::jsonb) AS r`, [JSON.stringify({ clientName: 'Sem NPS', serviceId: svc, satisfactionRating: 5 })])).rows[0].r));
+let npsStored = 'n/a';
+if (subNoNps.ok) npsStored = (await db.query(`SELECT nps_score FROM public.evaluations WHERE id=$1`, [subNoNps.r.id])).rows[0].nps_score;
+rec('D2', 'NPS não respondido fica NULL (não é gravado como 10)', subNoNps.ok && npsStored === null,
+  `nps_score gravado = ${npsStored}`);
+
+const badAudio = await tryq(() => as('anon', '', async () =>
+  db.query(`SELECT public.submit_evaluation($1::jsonb)`, [JSON.stringify({ clientName: 'Audio Mau', serviceId: svc, satisfactionRating: 3, audioRecordingUrl: 'https://x/y.webm' })])));
+rec('S1', 'Áudio com URL pública externa é recusado', !badAudio.ok, badAudio.ok ? 'ACEITE (falha)' : `Recusado: ${badAudio.err}`);
+
+const longAudio = await tryq(() => as('anon', '', async () =>
+  db.query(`SELECT public.submit_evaluation($1::jsonb)`, [JSON.stringify({ clientName: 'Audio Longo', serviceId: svc, satisfactionRating: 3, audioRecordingUrl: 'submissions/a.webm', audioDurationSeconds: 60 })])));
+rec('S2', 'Áudio com mais de 45 segundos é recusado', !longAudio.ok, longAudio.ok ? 'ACEITE (falha)' : `Recusado: ${longAudio.err}`);
+
+// ---------- 4. Escrita direta e forja de auditoria (anon) ----------
+const directIns = await tryq(() => as('anon', '', async () =>
+  db.query(`INSERT INTO public.evaluations (client_name, service_name, satisfaction_rating, status, final_classification, finalized_at, technical_score)
+            VALUES ('Forjado','X',5,'APPROVED','POSITIVE',now(),99.9)`)));
+rec('S3', 'Anónimo NÃO consegue inserir avaliação diretamente (nem já homologada)', !directIns.ok,
+  directIns.ok ? 'INSERT ACEITE (falha)' : `Bloqueado: ${directIns.err}`);
+
+const forgeAnon = await tryq(() => as('anon', '', async () =>
+  db.query(`SELECT public.log_audit_event('DELETE','evaluations','x','SUCCESS','apagado','admin@x.ao')`)));
+rec('S4', 'Anónimo NÃO consegue chamar log_audit_event', !forgeAnon.ok,
+  forgeAnon.ok ? 'CHAMADA ACEITE (falha)' : `Bloqueado: ${forgeAnon.err}`);
+
+// ---------- 5. Isolamento de prestador ----------
+const provEvals = await as('authenticated', A.prov, async () => (await db.query(`SELECT count(*)::int n FROM public.evaluations`)).rows[0].n);
+rec('S5', 'Prestador NÃO vê avaliações (apenas as que lhe forem homologadas/atribuídas)', provEvals === 0,
+  `Prestador vê ${provEvals} avaliações`);
+const provProfiles = await as('authenticated', A.prov, async () => (await db.query(`SELECT count(*)::int n FROM public.profiles`)).rows[0].n);
+rec('S6', 'Prestador vê apenas o seu próprio perfil', provProfiles === 1, `Prestador vê ${provProfiles} perfis`);
+const provProviders = await as('authenticated', A.prov, async () => (await db.query(`SELECT count(*)::int n FROM public.providers`)).rows[0].n);
+rec('S7', 'Prestador NÃO lista prestadores (contactos)', provProviders === 0, `Prestador vê ${provProviders}`);
+const provAuditIns = await tryq(() => as('authenticated', A.prov, async () =>
+  db.query(`INSERT INTO public.audit_logs (operation_type,affected_entity,user_email,user_name,result,details)
+            VALUES ('DELETE','Client','admin@x','Admin','SUCCESS','forjado')`)));
+rec('S8', 'Autenticado NÃO insere diretamente em audit_logs', !provAuditIns.ok,
+  provAuditIns.ok ? 'INSERT ACEITE (falha)' : `Bloqueado: ${provAuditIns.err}`);
+const provAuditRead = await as('authenticated', A.prov, async () => (await db.query(`SELECT count(*)::int n FROM public.audit_logs`)).rows[0].n);
+rec('S9', 'Prestador NÃO lê a auditoria', provAuditRead === 0, `Prestador vê ${provAuditRead} registos`);
+
+// ---------- 6. Operacional ----------
+const opClients = await as('authenticated', A.op, async () => (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n);
+rec('P1', 'Operacional (equipa interna) lê clientes', opClients >= 1, `Vê ${opClients} clientes`);
+const opEvals = await as('authenticated', A.op, async () => (await db.query(`SELECT count(*)::int n FROM public.evaluations`)).rows[0].n);
+rec('P2', 'Operacional lê avaliações internas', opEvals >= 1, `Vê ${opEvals} avaliações`);
+
+// ---------- 7. Homologação ----------
+await as('authenticated', A.admin, async () => db.query(`SELECT 1`)); // sanidade
+const crit = await tryq(() => as('authenticated', A.hr, async () =>
+  (await db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL) AS r`,
+    [evalId, JSON.stringify({ 'crit-qualidade': 4, 'crit-pontualidade': 4, 'crit-seguranca': 5, 'crit-atendimento': 3 })])).rows[0].r));
+const k = crit.ok ? Object.keys(crit.r).sort().join(',') : '';
+rec('F1', 'Homologação (RH) executa e devolve as chaves que o frontend espera', crit.ok && crit.r.finalScore !== undefined && crit.r.finalClassification && crit.r.snapshot && crit.r.finalizedBy && crit.r.finalizedAt,
+  crit.ok ? `finalScore=${crit.r.finalScore} classe=${crit.r.finalClassification} chaves=[${k}]` : `ERRO: ${crit.err}`);
+// Esperado: 4/5*40 + 4/5*20 + 5/5*25 + 3/5*15 = 32+16+25+9 = 82
+rec('F2', 'Pontuação calculada corretamente (esperado 82.00)', crit.ok && Number(crit.r.finalScore) === 82,
+  crit.ok ? `obtido ${crit.r.finalScore}` : 'n/a');
+
+const st = (await db.query(`SELECT status FROM public.evaluations WHERE id=$1`, [evalId])).rows[0];
+rec('F3', 'Estado após homologação é REVIEWED (alinhado com o frontend)', st.status === 'REVIEWED', `status=${st.status}`);
+
+const recalc = await tryq(() => as('authenticated', A.hr, async () =>
+  db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL)`, [evalId, JSON.stringify({ 'crit-qualidade': 1, 'crit-pontualidade': 1, 'crit-seguranca': 1, 'crit-atendimento': 1 })])));
+rec('I1', 'Avaliação homologada NÃO pode ser re-homologada', !recalc.ok && /homologada/.test(recalc.err),
+  recalc.ok ? 'ACEITE (falha)' : `Bloqueado: ${recalc.err}`);
+
+const tamper = await tryq(() => as('authenticated', A.hr, async () =>
+  db.query(`UPDATE public.evaluations SET technical_score = 100, final_classification='POSITIVE' WHERE id=$1`, [evalId])));
+const curScore = (await db.query(`SELECT technical_score FROM public.evaluations WHERE id=$1`, [evalId])).rows[0].technical_score;
+rec('I2', 'Alteração direta da pontuação homologada é bloqueada pelo trigger', !tamper.ok && Number(curScore) === 82,
+  tamper.ok ? `UPDATE aceite (falha). Pontuação agora ${curScore}` : `Bloqueado: ${tamper.err}`);
+
+const delFin = await tryq(() => as('authenticated', A.admin, async () =>
+  db.query(`DELETE FROM public.evaluations WHERE id=$1`, [evalId])));
+const stillThere = (await db.query(`SELECT count(*)::int n FROM public.evaluations WHERE id=$1`, [evalId])).rows[0].n;
+rec('I3', 'Avaliação homologada NÃO pode ser eliminada (a linha permanece)', stillThere === 1,
+  `${delFin.ok ? 'DELETE sem erro (RLS sem política de DELETE)' : 'Bloqueado: ' + delFin.err} | linhas existentes = ${stillThere}`);
+
+const provCalc = await tryq(() => as('authenticated', A.prov, async () =>
+  db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL)`, [evalId])));
+rec('A1', 'Prestador NÃO consegue homologar', !provCalc.ok, provCalc.ok ? 'ACEITE (falha)' : `Bloqueado: ${provCalc.err}`);
+
+// Mensagem de erro de pesos (antes: "too many parameters for RAISE")
+await db.exec(`UPDATE public.evaluation_criteria SET active=false WHERE id='crit-atendimento'`);
+const wId = (await db.query(`INSERT INTO public.evaluations (client_name, service_name, satisfaction_rating) VALUES ('W','W',3) RETURNING id`)).rows[0].id;
+const weightErr = await tryq(() => as('authenticated', A.hr, async () =>
+  (await db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL) AS r`, [wId])).rows));
+rec('B1', 'Erro de soma de pesos devolve mensagem legível com a soma atual',
+  !weightErr.ok && /soma atual: 85/.test(weightErr.err) && !/too many parameters/.test(weightErr.err),
+  weightErr.ok ? 'Sem erro (falha)' : `Mensagem: "${weightErr.err}"`);
+await db.exec(`UPDATE public.evaluation_criteria SET active=true WHERE id='crit-atendimento'`);
+
+// Atribuição de prestador
+const aId = (await db.query(`INSERT INTO public.evaluations (client_name, service_name, satisfaction_rating) VALUES ('A','A',4) RETURNING id`)).rows[0].id;
+const assign = await tryq(() => as('authenticated', A.admin, async () =>
+  (await db.query(`SELECT public.assign_evaluation_provider($1::uuid, $2::uuid) AS r`, [aId, provId])).rows[0].r));
+rec('F4', 'assign_evaluation_provider funciona (antes: erro de sintaxe)', assign.ok && assign.r.success === true,
+  assign.ok ? `OK ${assign.r.providerName}` : `ERRO: ${assign.err}`);
+
+// ---------- 8. Critérios e limiar ----------
+const saveBad = await tryq(() => as('authenticated', A.hr, async () =>
+  db.query(`SELECT public.save_evaluation_criteria($1::jsonb)`, [JSON.stringify([
+    { id: 'c1', categoryName: 'Q', weightPercentage: 50, maxScore: 5, minScore: 0, active: true, order: 1 }])])));
+rec('C1', 'save_evaluation_criteria recusa soma diferente de 100 com mensagem clara',
+  !saveBad.ok && /soma atual: 150/.test(saveBad.err), saveBad.ok ? 'Aceite (falha)' : `Mensagem: "${saveBad.err}"`);
+
+const thr = await tryq(() => as('authenticated', A.hr, async () =>
+  (await db.query(`SELECT public.set_criteria_passing_threshold(80) AS r`)).rows[0].r));
+const thrRows = (await db.query(`SELECT count(*)::int n FROM public.criteria_configurations WHERE is_active`)).rows[0].n;
+rec('C2', 'set_criteria_passing_threshold grava o limiar sem duplicar a configuração ativa',
+  thr.ok && thrRows === 1, thr.ok ? `ativas=${thrRows}` : `ERRO: ${thr.err}`);
+
+// ---------- 9. Sessão e permissões ----------
+const accAdmin = await as('authenticated', A.admin, async () => (await db.query(`SELECT public.get_my_access() AS r`)).rows[0].r);
+rec('G1', 'get_my_access (ADMIN) devolve todas as páginas e chaves snake_case', Array.isArray(accAdmin.pages) && accAdmin.pages.length >= 15 && accAdmin.base_role === 'ADMIN',
+  `pages=${accAdmin.pages.length} base_role=${accAdmin.base_role}`);
+const accOp = await as('authenticated', A.op, async () => (await db.query(`SELECT public.get_my_access() AS r`)).rows[0].r);
+rec('G2', 'get_my_access (OPERATIONAL com página clients) devolve só as páginas atribuídas', JSON.stringify(accOp.pages) === '["clients"]',
+  `pages=${JSON.stringify(accOp.pages)}`);
+const hasOk = await as('authenticated', A.op, async () => (await db.query(`SELECT public.has_page('clients') AS a, public.has_page('audit') AS b`)).rows[0]);
+rec('G3', 'has_page confirma página atribuída e recusa a não atribuída', hasOk.a === true && hasOk.b === false, JSON.stringify(hasOk));
+const anonAccess = await tryq(() => as('anon', '', async () => db.query(`SELECT public.get_my_access()`)));
+rec('G4', 'Anónimo NÃO consegue chamar get_my_access', !anonAccess.ok, anonAccess.ok ? 'ACEITE (falha)' : `Bloqueado: ${anonAccess.err}`);
+
+const sysAudit = await as('authenticated', A.hr, async () => {
+  await db.query(`SELECT public.log_system_audit('UPDATE','Teste','1','SUCCESS','teste de ator')`);
+  return (await db.query(`SELECT user_email FROM public.audit_logs WHERE details='teste de ator'`)).rows[0];
+});
+rec('L1', 'log_system_audit regista o utilizador autenticado (não aceita e-mail do cliente)',
+  sysAudit && sysAudit.user_email === 'hr@sicsc.aeternu.internal', `user_email=${sysAudit && sysAudit.user_email}`);
+
+const nNum = await tryq(() => as('authenticated', A.hr, async () => db.query(`SELECT public.next_employee_number()`)));
+rec('E1', 'next_employee_number NÃO é executável por utilizadores autenticados', !nNum.ok, nNum.ok ? 'ACEITE (falha)' : `Bloqueado: ${nNum.err}`);
+const num1 = (await db.query(`SELECT public.next_employee_number() AS n`)).rows[0].n;
+const num2 = (await db.query(`SELECT public.next_employee_number() AS n`)).rows[0].n;
+rec('E2', 'Números de funcionário sequenciais e sem colisão', num1 !== num2, `${num1} / ${num2}`);
+
+await db.query(`INSERT INTO public.employees (employee_number, full_name, category) VALUES ('AET-T1','Teste','TECNICO')`);
+const empHr = await as('authenticated', A.hr, async () => (await db.query(`SELECT count(*)::int n FROM public.employees`)).rows[0].n);
+rec('E3', 'HR lê funcionários', empHr >= 1, `vê ${empHr}`);
+const empProv = await as('authenticated', A.prov, async () => (await db.query(`SELECT count(*)::int n FROM public.employees`)).rows[0].n);
+rec('E4', 'Prestador NÃO lê funcionários', empProv === 0, `vê ${empProv}`);
+
+// ---------- 10. Storage privado ----------
+const bucket = (await db.query(`SELECT public FROM storage.buckets WHERE id='evaluation-audio'`)).rows[0];
+rec('T1', 'Bucket de áudio é privado', bucket && bucket.public === false, `public=${bucket && bucket.public}`);
+const upOk = await tryq(() => as('anon', '', async () =>
+  db.query(`INSERT INTO storage.objects (bucket_id, name) VALUES ('evaluation-audio','submissions/a.webm')`)));
+rec('T2', 'Anónimo pode enviar áudio para submissions/', upOk.ok, upOk.ok ? 'OK' : `ERRO: ${upOk.err}`);
+const upBad = await tryq(() => as('anon', '', async () =>
+  db.query(`INSERT INTO storage.objects (bucket_id, name) VALUES ('evaluation-audio','outro/x.webm')`)));
+rec('T3', 'Anónimo NÃO pode enviar fora de submissions/', !upBad.ok, upBad.ok ? 'ACEITE (falha)' : `Bloqueado: ${upBad.err}`);
+const anonRead = await as('anon', '', async () => (await db.query(`SELECT count(*)::int n FROM storage.objects`)).rows[0].n).catch(() => 'bloqueado');
+rec('T4', 'Anónimo NÃO consegue listar objetos do storage', anonRead === 'bloqueado' || anonRead === 0, `resultado=${anonRead}`);
+
+// ---------- 11. Vistas públicas e acesso direto ----------
+const viewAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.v_public_clients`)));
+rec('V1', 'Vista pública v_public_clients acessível ao formulário', viewAnon.ok, viewAnon.ok ? 'OK' : `ERRO: ${viewAnon.err}`);
+const tblAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.clients`)));
+rec('V2', 'Anónimo NÃO lê a tabela clients (apenas a vista)', !tblAnon.ok, tblAnon.ok ? 'LEU (falha)' : `Bloqueado: ${tblAnon.err}`);
+
+// ---------- 12. Ausência de funções obsoletas e parâmetro esperado pelo frontend ----------
+const sig = (await db.query(`SELECT pg_get_function_arguments(oid) a FROM pg_proc WHERE proname='calculate_and_finalize_evaluation'`)).rows[0].a;
+rec('X1', 'Parâmetro p_threshold_override_reason existe (o frontend o envia)', /p_threshold_override_reason/.test(sig), sig);
+const frontFns = ['calculate_and_finalize_evaluation','submit_evaluation','associate_evaluation_client','assign_evaluation_provider',
+  'save_evaluation_criteria','set_criteria_passing_threshold','log_system_audit','get_my_access','has_page','touch_last_login'];
+const existing = (await db.query(`SELECT DISTINCT proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'`)).rows.map(r => r.proname);
+const missing = frontFns.filter(f => !existing.includes(f));
+rec('X2', 'Todas as RPCs chamadas pelo frontend existem', missing.length === 0, missing.length ? `Em falta: ${missing}` : 'OK');
+
+const rls = (await db.query(`SELECT count(*)::int n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND c.relkind='r' AND NOT c.relrowsecurity`)).rows[0].n;
+rec('X3', 'Todas as tabelas de public têm RLS ativo', rls === 0, `tabelas sem RLS: ${rls}`);
+
+
+// ---------- 13. Troca obrigatória da palavra-passe inicial ----------
+await db.exec(`UPDATE public.profiles SET must_change_password = true WHERE id='${A.op}'`);
+const clr = await tryq(() => as('authenticated', A.op, async () =>
+  (await db.query(`SELECT public.clear_must_change_password() AS r`)).rows[0].r));
+const mcp = (await db.query(`SELECT must_change_password FROM public.profiles WHERE id='${A.op}'`)).rows[0].must_change_password;
+rec('Q1', 'clear_must_change_password limpa a flag da própria conta', clr.ok && clr.r === true && mcp === false,
+  clr.ok ? `retorno=${clr.r}, flag=${mcp}` : `ERRO: ${clr.err}`);
+const clrAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT public.clear_must_change_password()`)));
+rec('Q2', 'Anónimo NÃO consegue limpar a flag', !clrAnon.ok, clrAnon.ok ? 'ACEITE (falha)' : `Bloqueado: ${clrAnon.err}`);
+
+
+// ---------- 14. Calendário: payload real do frontend ----------
+const act = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
+  `INSERT INTO public.activities (title, description, client_id, service_id, location, activity_date, start_time, end_time,
+     team_id, team_name, assigned_provider_ids, supervisor_name, status)
+   VALUES ('Desinfeção','x',NULL,NULL,'Porto',CURRENT_DATE,'08:00','12:00',NULL,'Equipa Alpha',$1::uuid[],'Eng. X','SCHEDULED') RETURNING id`,
+  [[provId]])).rows[0]));
+rec('K1', 'Atividade do calendário grava com o payload do frontend', act.ok, act.ok ? 'OK' : `ERRO: ${act.err}`);
+
+// ---------- 15. Mensagens: diretas, grupos, membros ----------
+const B = { ops: '00000000-0000-0000-0000-0000000000b1' };
+await db.exec(`INSERT INTO auth.users (id,email) VALUES ('${B.ops}','outro@sicsc.aeternu.internal');
+  INSERT INTO public.profiles (id,name,email,role,active,allowed_pages) VALUES ('${B.ops}','Outro Colega','outro@sicsc.aeternu.internal','OPERATIONAL',true,'{messages}');`);
+const ph = await as('authenticated', A.op, async () => (await db.query(`SELECT count(*)::int n FROM public.list_message_recipients()`)).rows[0].n);
+rec('M3', 'Diretório lista destinatários sem o próprio utilizador', ph === 4, `vê ${ph} destinatários (5 perfis menos o próprio)`);
+const d1 = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation('DIRECT',NULL,$1::uuid[]) AS r`, [[A.hr]])).rows[0].r));
+const d2 = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation('DIRECT',NULL,$1::uuid[]) AS r`, [[A.hr]])).rows[0].r));
+rec('M4', 'Conversa direta reutiliza a existente entre os mesmos dois utilizadores', d1.ok && d2.ok && d1.r === d2.r, `${d1.r} / ${d2.r}`);
+const g = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation('GROUP','Equipa Alpha',$1::uuid[]) AS r`, [[A.hr, B.ops]])).rows[0].r));
+rec('M5', 'Grupo com nome e vários membros é criado', g.ok, g.ok ? `id ${g.r}` : `ERRO: ${g.err}`);
+const gBad = await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.create_conversation('GROUP','A',$1::uuid[])`, [[A.hr]])));
+rec('M6', 'Grupo sem nome válido é recusado', !gBad.ok, gBad.ok ? 'ACEITE (falha)' : `Recusado: ${gBad.err}`);
+const selfOnly = await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.create_conversation('DIRECT',NULL,$1::uuid[])`, [[A.op]])));
+rec('M7', 'Não é possível criar conversa só consigo próprio', !selfOnly.ok, selfOnly.ok ? 'ACEITE (falha)' : `Recusado: ${selfOnly.err}`);
+const msg = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.send_message($1::uuid,'Olá equipa') AS r`, [g.r])).rows[0].r));
+rec('M8', 'Membro envia mensagem para o grupo', msg.ok, msg.ok ? 'OK' : `ERRO: ${msg.err}`);
+const readByMember = await as('authenticated', B.ops, async () => (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1`, [g.r])).rows[0].n);
+rec('M9', 'Outro membro lê a mensagem do grupo', readByMember === 1, `lê ${readByMember}`);
+const readOutsider = await as('authenticated', A.prov, async () => (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1`, [g.r])).rows[0].n);
+rec('M10', 'Não-membro NÃO lê mensagens do grupo', readOutsider === 0, `lê ${readOutsider}`);
+const sendOutsider = await tryq(() => as('authenticated', A.prov, async () => db.query(`SELECT public.send_message($1::uuid,'intruso')`, [g.r])));
+rec('M11', 'Não-membro NÃO envia mensagens para o grupo', !sendOutsider.ok, sendOutsider.ok ? 'ACEITE (falha)' : `Bloqueado: ${sendOutsider.err}`);
+const insDirect = await tryq(() => as('authenticated', A.op, async () => db.query(`INSERT INTO public.messages (conversation_id, body) VALUES ($1,'direto')`, [g.r])));
+rec('M12', 'Inserção direta em messages é bloqueada (só via send_message)', !insDirect.ok, insDirect.ok ? 'ACEITE (falha)' : `Bloqueado: ${insDirect.err}`);
+const addByMember = await tryq(() => as('authenticated', B.ops, async () => (await db.query(`SELECT public.add_group_members($1::uuid,$2::uuid[]) AS r`, [g.r, [A.prov]])).rows[0].r));
+rec('M13', 'Membro que não é criador nem ADMIN NÃO acrescenta membros', !addByMember.ok, addByMember.ok ? 'ACEITE (falha)' : `Bloqueado: ${addByMember.err}`);
+const addByCreator = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.add_group_members($1::uuid,$2::uuid[]) AS r`, [g.r, [A.prov]])).rows[0].r));
+rec('M14', 'Criador do grupo acrescenta membro', addByCreator.ok && addByCreator.r === 1, addByCreator.ok ? `adicionados ${addByCreator.r}` : `ERRO: ${addByCreator.err}`);
+const anonConv = await tryq(() => as('anon', '', async () => db.query(`SELECT public.create_conversation('DIRECT',NULL,'{}'::uuid[])`)));
+rec('M15', 'Anónimo NÃO cria conversas', !anonConv.ok, anonConv.ok ? 'ACEITE (falha)' : `Bloqueado: ${anonConv.err}`);
+
+
+// ---------- 16. Login por identificador, nome ou número de funcionário ----------
+await db.exec(`UPDATE public.profiles SET name='João Neto Silva' WHERE id='${A.op}';
+  INSERT INTO public.employees (employee_number, full_name, access_identifier, category, account_status, user_id)
+  VALUES ('AET-010','João Neto Silva','joao.neto','OUTRO','ATIVA','${A.op}');`);
+const OPEMAIL='op@sicsc.aeternu.internal';
+const resolveAs = (login) => as('anon', '', async () => (await db.query(`SELECT public.resolve_login_email($1) AS e`, [login])).rows[0].e);
+rec('L2', 'Login pelo identificador de acesso resolve a conta', (await resolveAs('joao.neto')) === OPEMAIL, 'joao.neto');
+rec('L3', 'Login pelo nome completo (com acentos e maiúsculas) resolve a conta', (await resolveAs('JOÃO NETO SILVA')) === OPEMAIL, 'JOÃO NETO SILVA');
+rec('L4', 'Login pelo número de funcionário resolve a conta', (await resolveAs('aet-010')) === OPEMAIL, 'aet-010');
+rec('L5', 'Login por e-mail válido da conta resolve a conta', (await resolveAs(OPEMAIL)) === OPEMAIL, OPEMAIL);
+rec('L6', 'Identificador desconhecido NÃO resolve', (await resolveAs('ninguem.aqui')) === null, 'ninguem.aqui');
+rec('L7', 'Texto com e-mail inválido NÃO resolve', (await resolveAs('a@b')) === null, 'a@b');
+await db.exec(`UPDATE public.profiles SET active=false WHERE id='${A.op}'`);
+rec('L8', 'Conta desativada NÃO resolve', (await resolveAs('joao.neto')) === null, 'joao.neto (inativa)');
+await db.exec(`UPDATE public.profiles SET active=true WHERE id='${A.op}'`);
+const hrSet = await tryq(() => as('authenticated', A.hr, async () => db.query(`SELECT public.update_login_settings('{"employee_number":false}'::jsonb)`)));
+rec('L9', 'HR NÃO altera a configuração de login', !hrSet.ok, hrSet.ok ? 'ACEITE (falha)' : `Bloqueado: ${hrSet.err}`);
+await as('authenticated', A.admin, async () => db.query(`SELECT public.update_login_settings('{"employee_number":false}'::jsonb)`));
+rec('L10', 'Administrador desativa o login por número de funcionário', (await resolveAs('aet-010')) === null, 'aet-010 deve deixar de resolver');
+rec('L11', 'Métodos ativos refletem a configuração (público)', (await db.query(`SELECT public.get_login_methods() AS m`)).rows[0].m.employee_number === false, 'get_login_methods');
+const allOff = await tryq(() => as('authenticated', A.admin, async () => db.query(`SELECT public.update_login_settings('{"access_identifier":false,"full_name":false,"employee_number":false,"email":false}'::jsonb)`)));
+rec('L12', 'Não é possível desativar todos os métodos de login', !allOff.ok, allOff.ok ? 'ACEITE (falha)' : `Bloqueado: ${allOff.err}`);
+await as('authenticated', A.admin, async () => db.query(`SELECT public.update_login_settings('{"employee_number":true}'::jsonb)`));
+rec('L13', 'Administrador reativa o login por número de funcionário', (await resolveAs('aet-010')) === OPEMAIL, 'aet-010');
+await db.exec(`UPDATE public.employees SET full_name='João Neto Silva', access_identifier='joao.neto' WHERE employee_number='AET-010'`);
+
+// ---------- 17. Limite de submissões públicas por endereço ----------
+await db.exec(`SELECT set_config('request.headers', '{"x-forwarded-for":"10.9.8.7"}', false)`);
+let blocked = null, okCount = 0;
+for (let i = 0; i < 31; i++) {
+  const r = await tryq(() => as('anon', '', async () => db.query(`SELECT public.submit_evaluation($1::jsonb)`, [JSON.stringify({ clientName: 'Lote '+i, serviceId: svc, satisfactionRating: 4 })])));
+  if (r.ok) okCount++; else { blocked = r.err; break; }
+}
+rec('R1', 'Até 30 submissões por hora são aceites a partir de um endereço', okCount === 30, `aceites=${okCount}`);
+rec('R2', 'A 31.ª submissão do mesmo endereço é bloqueada', !!blocked && /Demasiadas/.test(blocked), blocked || 'não bloqueada');
+await db.exec(`SELECT set_config('request.headers', '{}', false)`);
+
+// ---------- 18. Limites de upload nos buckets ----------
+const lim = (await db.query(`SELECT file_size_limit, allowed_mime_types FROM storage.buckets WHERE id='evaluation-audio'`)).rows[0];
+rec('U1', 'Bucket de áudio limita tamanho e tipo de ficheiro', lim && Number(lim.file_size_limit) === 10485760 && lim.allowed_mime_types.includes('audio/webm') && !lim.allowed_mime_types.includes('application/x-msdownload'), JSON.stringify(lim));
+
+
+// ---------- 19. Clientes: cadastro obrigatório e metas ----------
+const cl = (extra) => as('authenticated', A.op, async () => (await db.query(
+  `INSERT INTO public.clients (company_name, internal_code, contact_person, email, phone, nif, address, sector, contract_start, contract_end, status)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE') RETURNING id`, extra)).rows[0].id);
+const okClient = await tryq(() => cl(['Empresa Válida Lda','CLI-V1','Ana Costa','ana@empresa.ao','+244 923 000 000','5417000123','Rua 1, Maianga','Industria','2026-01-01','2026-12-31']));
+rec('C10', 'Cliente com todos os dados obrigatórios é gravado', okClient.ok, okClient.ok ? 'OK' : `ERRO: ${okClient.err}`);
+const badNif = await tryq(() => cl(['Empresa NIF Mau','CLI-V2','X','a@b.ao','+244 923 000 001','ABC','R','S','2026-01-01','2026-12-31']));
+rec('C11', 'NIF inválido é recusado', !badNif.ok, badNif.ok ? 'ACEITE (falha)' : `Recusado: ${badNif.err}`);
+const badMail = await tryq(() => cl(['Empresa Email Mau','CLI-V3','X','email-invalido','+244 923 000 002','5417000124','R','S','2026-01-01','2026-12-31']));
+rec('C12', 'E-mail inválido é recusado', !badMail.ok, badMail.ok ? 'ACEITE (falha)' : `Recusado: ${badMail.err}`);
+const badDates = await tryq(() => cl(['Empresa Datas Mau','CLI-V4','X','c@d.ao','+244 923 000 003','5417000125','R','S','2026-12-31','2026-01-01']));
+rec('C13', 'Contrato com fim anterior ao início é recusado', !badDates.ok, badDates.ok ? 'ACEITE (falha)' : `Recusado: ${badDates.err}`);
+const cid = okClient.ok ? okClient.r : null;
+const goal = await tryq(() => as('authenticated', A.op, async () => (await db.query(
+  `INSERT INTO public.client_goals (client_id, title, metric, target_value, due_date, created_by)
+   VALUES ($1,'CSAT acima de 80%','CSAT',80,'2026-12-31','op') RETURNING id`, [cid])).rows[0].id));
+rec('G1', 'Equipa interna cria meta com prazo para um cliente', goal.ok, goal.ok ? 'OK' : `ERRO: ${goal.err}`);
+const goalBad = await tryq(() => as('authenticated', A.op, async () => db.query(
+  `INSERT INTO public.client_goals (client_id, title, metric, target_value, due_date) VALUES ($1,'Meta zero','CSAT',0,'2026-12-31')`, [cid])));
+rec('G2', 'Meta com valor alvo zero é recusada', !goalBad.ok, goalBad.ok ? 'ACEITE (falha)' : `Recusada: ${goalBad.err}`);
+const goalProv = await tryq(() => as('authenticated', A.prov, async () => db.query(`SELECT count(*) FROM public.client_goals`)));
+rec('G3', 'Prestador NÃO lê metas de clientes', goalProv.ok && Number(goalProv.r.rows[0].count) === 0, goalProv.ok ? `vê ${goalProv.r.rows[0].count}` : `Bloqueado: ${goalProv.err}`);
+const goalAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.client_goals`)));
+rec('G4', 'Anónimo NÃO lê metas', !goalAnon.ok, goalAnon.ok ? 'LEU (falha)' : `Bloqueado: ${goalAnon.err}`);
+
+// ---------- Resumo ----------
+const falhas = R.filter(r => !r.ok);
+console.log(`\nRESUMO: ${R.length - falhas.length}/${R.length} OK` + (falhas.length ? ` | Falhas: ${falhas.map(f => f.id).join(', ')}` : ''));
+fs.writeFileSync(path.join(HERE, 'resultados.json'), JSON.stringify(R, null, 2));
+if (falhas.length) process.exitCode = 1;

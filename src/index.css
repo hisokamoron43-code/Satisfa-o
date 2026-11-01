@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Cores da marca: fonte única de verdade para todo o sistema */
+@theme {
+  --color-brand: #8CBF26;
+  --color-brand-dark: #2D6A28;
+  --color-brand-deep: #1B4D1B;
+}
+
+/* Modo escuro: remapeia as cores de superfície, texto e bordas (classes Tailwind existentes) */
+html.dark { color-scheme: dark; }
+html.dark body { background-color: #0b1220; color: #e2e8f0; }
+html.dark .bg-white { background-color: #111a2b; }
+html.dark .bg-slate-50 { background-color: #0f1828; }
+html.dark .bg-slate-100 { background-color: #17223a; }
+html.dark .bg-slate-200 { background-color: #1e2b44; }
+html.dark .bg-emerald-50 { background-color: #0f2a1f; }
+html.dark .bg-emerald-100 { background-color: #14382a; }
+html.dark .bg-rose-50 { background-color: #2a1419; }
+html.dark .bg-rose-100 { background-color: #3a1a22; }
+html.dark .bg-amber-50 { background-color: #2a2110; }
+html.dark .bg-amber-100 { background-color: #3a2e14; }
+html.dark .bg-slate-900\/50 { background-color: rgba(2, 6, 23, 0.7); }
+html.dark .text-slate-950, html.dark .text-slate-900, html.dark .text-black { color: #f1f5f9; }
+html.dark .text-slate-800 { color: #e2e8f0; }
+html.dark .text-slate-700 { color: #cbd5e1; }
+html.dark .text-slate-600, html.dark .text-slate-500 { color: #94a3b8; }
+html.dark .text-slate-400 { color: #64748b; }
+html.dark .text-emerald-800, html.dark .text-emerald-900 { color: #8CBF26; }
+html.dark .text-brand-dark, html.dark .text-brand-deep { color: #8CBF26; }
+html.dark .border-slate-100, html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #263447; }
+html.dark .border-black, html.dark .border-brand-dark { border-color: #334155; }
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #263447; }
+html.dark .hover\:bg-slate-50:hover { background-color: #17223a; }
+html.dark .hover\:bg-slate-100:hover { background-color: #1e2b44; }
+html.dark input, html.dark select, html.dark textarea, html.dark .inp {
+  background-color: #0f1828; color: #e2e8f0; border-color: #334155;
+}
+html.dark input::placeholder, html.dark textarea::placeholder { color: #64748b; }
+html.dark pre { color: #e2e8f0; }
+html.dark ::-webkit-scrollbar-thumb { background: #334155; }
+
+/* Campos de formulário partilhados */
+.inp { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 400; text-transform: none; background: #fff; color: #0f172a; }
+.inp:focus { outline: 2px solid #8CBF26; outline-offset: 0; }
