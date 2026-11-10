@@ -23,7 +23,7 @@ Se existir um projeto Supabase de teste, restaure o backup nele e execute os pas
 
 ## 3. Executar a migração 1000
 
-No **SQL Editor** do Supabase, cole e execute `supabase/migrations/1000_producao_consolidada.sql` (ou `supabase db push` se usar o CLI). A migração:
+No **SQL Editor** do Supabase, cole e execute, por esta ordem, `supabase/migrations/1000_producao_consolidada.sql` e depois `supabase/migrations/1001_formularios_pesos_servicos.sql` e por fim `supabase/migrations/1002_notificacao_avaliacao.sql` (ou `supabase db push` se usar o CLI). Não volte a executar só a 1000 depois da 1001. A migração:
 
 - acrescenta tabelas, colunas e índices em falta, sem apagar nada;
 - cria o catálogo de páginas, as funções usadas pelo frontend e as políticas RLS;
@@ -51,11 +51,26 @@ O utilizador tem de existir previamente em **Authentication → Users**.
 ## 5. Publicar a Edge Function
 
 ```bash
-supabase functions deploy admin-employees --project-ref <ref-do-projeto>
+supabase functions deploy admin-employees --no-verify-jwt --project-ref <ref-do-projeto>
 supabase secrets set ALLOWED_ORIGINS=https://<dominio-do-render> --project-ref <ref-do-projeto>
+# Exemplo: ALLOWED_ORIGINS=https://sicsc.onrender.com (sem barra no fim; vários separados por vírgula)
 ```
 
 `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` são fornecidos pelo Supabase às Edge Functions. Não os coloque no frontend.
+
+### 5.1 Notificação por e-mail ao gestor (`notify-evaluation`)
+
+O aviso ao gestor quando entra uma avaliação é enviado por uma Edge Function (o Render só serve o frontend estático). Requer uma conta no Resend (https://resend.com) com o domínio do remetente verificado.
+
+```bash
+supabase functions deploy notify-evaluation --no-verify-jwt --project-ref <ref-do-projeto>
+supabase secrets set RESEND_API_KEY=<chave-resend> MANAGER_EMAIL=gestor@exemplo.co.ao MAIL_FROM="Sistema de Qualidade Aeternu <no-reply@aeternu.co.ao>" --project-ref <ref-do-projeto>
+```
+
+- `MANAGER_EMAIL` aceita vários endereços separados por vírgula.
+- `ALLOWED_ORIGINS` (passo 5) é partilhado com a função `admin-employees`.
+- A função é chamada pelo formulário público, sem sessão iniciada, com a chave publicável (`sb_publishable_...`), que não é um JWT; por isso tem de ser publicada com `--no-verify-jwt` (no painel: desligar *Verify JWT*). Não depende de login: valida o identificador, cada avaliação gera no máximo um e-mail e só avaliações com menos de 15 minutos podem ser notificadas.
+- O ficheiro `server.ts` (rota `/api/send-evaluation-notification`) deixa de ser usado em produção.
 
 ## 6. Render (frontend)
 
@@ -76,3 +91,20 @@ Com um utilizador de cada papel, confirme:
 4. **Formulário público**: submeter com e sem NPS e com áudio. Sem NPS, o campo fica vazio na base de dados. O áudio aparece em `evaluation-audio/submissions/` e é reproduzido na análise.
 5. **Homologação**: a pontuação e a classificação aparecem; uma avaliação homologada não pode ser alterada.
 6. **Auditoria**: as ações ficam registadas com o e-mail técnico do utilizador real.
+7. **Notificação**: submeter uma avaliação de teste no formulário público; o gestor recebe o e-mail e, na tabela `evaluations`, `manager_notified_at` fica preenchido.
+
+
+## Diagnóstico: criar funcionários ou definir acessos falha
+
+O ecrã passa a mostrar a causa real. Mapa das mensagens:
+
+| Mensagem | Causa | Solução |
+|---|---|---|
+| "não está publicada neste projeto" (404) | A função não existe no Supabase | `supabase functions deploy admin-employees --no-verify-jwt` |
+| "Não foi possível contactar a função administrativa" | CORS: `ALLOWED_ORIGINS` em falta ou diferente do endereço do site | `supabase secrets set ALLOWED_ORIGINS=https://sicsc.onrender.com` |
+| "Invalid JWT" | A função foi publicada com verificação de JWT ativa | Republicar com `--no-verify-jwt` (o ficheiro `supabase/config.toml` já fixa isto) |
+| "Conta sem perfil ativo" / "Acesso negado" | O utilizador não tem perfil ADMIN ou RH ativo em `profiles` | Ver o passo 4 (criar administrador) |
+| Mensagens de validação (palavra-passe, identificador, página) | Dados do formulário | Corrigir o campo indicado |
+
+Para ver o erro do lado do servidor: Supabase → Edge Functions → `admin-employees` → **Logs**.
+Para ver o pedido no navegador: F12 → Network → filtro `admin-employees` → Status e Response.

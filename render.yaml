@@ -2,7 +2,7 @@ services:
   - type: web
     name: sicsc-aeternu-angola
     env: static
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     headers:
       - path: /*

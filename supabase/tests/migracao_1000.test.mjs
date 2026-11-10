@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-const MIG = path.join(HERE, '../migrations/1000_producao_consolidada.sql');
-const migSql = fs.readFileSync(MIG, 'utf8');
+// As migrações 1000 e 1001 executam-se SEMPRE juntas e por esta ordem (a 1000 recria funções que a 1001 altera).
+const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql']
+  .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8')).join('\n;\n');
 
 const R = [];
 const rec = (id, title, ok, detail) => {
@@ -395,6 +396,76 @@ const goalProv = await tryq(() => as('authenticated', A.prov, async () => db.que
 rec('G3', 'Prestador NÃO lê metas de clientes', goalProv.ok && Number(goalProv.r.rows[0].count) === 0, goalProv.ok ? `vê ${goalProv.r.rows[0].count}` : `Bloqueado: ${goalProv.err}`);
 const goalAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.client_goals`)));
 rec('G4', 'Anónimo NÃO lê metas', !goalAnon.ok, goalAnon.ok ? 'LEU (falha)' : `Bloqueado: ${goalAnon.err}`);
+
+
+// ---------- 20. Formulários, pesos e parecer do auditor (migração 1001) ----------
+const newCat = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `INSERT INTO public.form_categories (id, code, name) VALUES ('cat-ambiente','AMBIENTE','Ambiente') RETURNING id`)));
+rec('T0', 'RH cria categoria de formulário', newCat.ok, newCat.ok ? 'OK' : `ERRO: ${newCat.err}`);
+
+for (const t of ['RATING_10', 'SINGLE_CHOICE', 'MULTI_CHOICE', 'YES_NO_NA']) {
+  const r = await tryq(() => as('authenticated', A.hr, async () => db.query(
+    `INSERT INTO public.form_questions (id, text, category, type, option_scores, yes_score, no_score, affects_score)
+     VALUES ($1,'Pergunta','QUALIDADE',$2,'{"A":1,"B":0}'::jsonb,1,0.2,true)`, ['tq-' + t, t])));
+  rec('T1-' + t, `Questão do tipo ${t} é aceite`, r.ok, r.ok ? 'OK' : `ERRO: ${r.err}`);
+}
+const badType = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `INSERT INTO public.form_questions (id, text, category, type) VALUES ('tq-x','P','QUALIDADE','TIPO_INEXISTENTE')`)));
+rec('T1-BAD', 'Tipo de questão desconhecido é recusado', !badType.ok, badType.ok ? 'ACEITE (falha)' : `Recusado: ${badType.err}`);
+const badYes = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `INSERT INTO public.form_questions (id, text, category, type, yes_score) VALUES ('tq-y','P','QUALIDADE','YES_NO_NA',1.5)`)));
+rec('T1-RNG', 'Valor de conformidade fora de 0..1 é recusado', !badYes.ok, badYes.ok ? 'ACEITE (falha)' : `Recusado: ${badYes.err}`);
+
+const link = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `INSERT INTO public.service_categories (service_id, category_id) VALUES ($1,'cat-ambiente')`, [svc])));
+rec('T2', 'RH associa categoria a um serviço', link.ok, link.ok ? 'OK' : `ERRO: ${link.err}`);
+const linkProv = await tryq(() => as('authenticated', A.prov, async () => db.query(
+  `DELETE FROM public.service_categories`)));
+const remaining = (await db.query(`SELECT count(*)::int n FROM public.service_categories`)).rows[0].n;
+rec('T3', 'Prestador NÃO altera as associações serviço-categoria', remaining === 1, `restam ${remaining} (esperado 1)`);
+const linkAnon = await tryq(() => as('anon', '', async () => (await db.query(`SELECT count(*)::int n FROM public.service_categories`)).rows[0].n));
+rec('T4', 'Formulário anónimo consegue ler as associações', linkAnon.ok && linkAnon.r === 1, linkAnon.ok ? `vê ${linkAnon.r}` : `ERRO: ${linkAnon.err}`);
+
+const codes = (await db.query(`SELECT id, category_code FROM public.evaluation_criteria ORDER BY display_order`)).rows;
+rec('T5', 'Critérios do RH ficam ligados às categorias (category_code)',
+  codes.length === 4 && codes.every((c) => c.category_code), codes.map((c) => c.category_code).join(','));
+
+const saveBadSum = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `SELECT public.save_evaluation_criteria($1::jsonb)`, [JSON.stringify([
+    { id: 'crit-qualidade', categoryCode: 'qualidade', categoryName: 'Qualidade', weightPercentage: 50, maxScore: 5, minScore: 0, active: true, order: 1 }])])));
+rec('T6', 'Gravar critérios com soma diferente de 100 % é recusado no servidor', !saveBadSum.ok, saveBadSum.ok ? 'ACEITE (falha)' : `Recusado: ${saveBadSum.err}`);
+const stillCode = (await db.query(`SELECT category_code FROM public.evaluation_criteria WHERE id='crit-qualidade'`)).rows[0].category_code;
+rec('T6b', 'Recusa não deixa alterações parciais', stillCode === 'QUALIDADE', `category_code=${stillCode}`);
+
+const submitNew = async (name) => (await db.query(`SELECT public.submit_evaluation($1::jsonb) AS r`, [JSON.stringify({
+  clientName: name, serviceId: svc, satisfactionRating: 4,
+  detailedAnswers: { 'tq-YES_NO_NA': { yesNo: 'YES' }, 'tq-SINGLE_CHOICE': { choice: 'A' } } })])).rows[0].r.id;
+const e2 = await as('anon', '', () => submitNew('Cliente Auditoria 1'));
+const ratings = JSON.stringify({ 'crit-qualidade': 4, 'crit-pontualidade': 4, 'crit-seguranca': 5, 'crit-atendimento': 3 });
+const review = JSON.stringify({ audio: { score: 4, transcript: 'Serviço rápido', notes: 'Áudio claro' }, writtenArguments: { score: 3.5, notes: 'Argumento genérico' } });
+const fin2 = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL, $3::jsonb) AS r`, [e2, ratings, review])).rows[0].r));
+rec('T7', 'Homologação com parecer qualitativo do auditor', fin2.ok && fin2.r.finalScore !== undefined, fin2.ok ? `score=${fin2.r.finalScore}` : `ERRO: ${fin2.err}`);
+const stored = (await db.query(`SELECT auditor_review, criteria_snapshot FROM public.evaluations WHERE id=$1`, [e2])).rows[0];
+rec('T8', 'Parecer gravado na avaliação e no snapshot imutável',
+  stored.auditor_review?.audio?.score === 4 && stored.criteria_snapshot?.auditorReview?.writtenArguments?.score === 3.5, JSON.stringify(stored.auditor_review));
+const mutate = await tryq(() => db.query(`UPDATE public.evaluations SET auditor_review = '{}'::jsonb WHERE id=$1`, [e2]));
+rec('T9', 'Parecer do auditor é imutável após a homologação', !mutate.ok, mutate.ok ? 'ALTERADO (falha)' : `Recusado: ${mutate.err}`);
+
+const e3 = await as('anon', '', () => submitNew('Cliente Auditoria 2'));
+const badScore = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL, $3::jsonb)`, [e3, ratings, JSON.stringify({ audio: { score: 7 } })])));
+rec('T10', 'Nota qualitativa acima de 5 é recusada', !badScore.ok, badScore.ok ? 'ACEITE (falha)' : `Recusada: ${badScore.err}`);
+const stillOpen = (await db.query(`SELECT finalized_at FROM public.evaluations WHERE id=$1`, [e3])).rows[0].finalized_at;
+rec('T10b', 'Recusa não homologa a avaliação', stillOpen === null, stillOpen === null ? 'OK' : 'ficou homologada (falha)');
+const noReview = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL) AS r`, [e3, ratings])).rows[0].r));
+rec('T11', 'Homologação sem parecer continua a funcionar (compatibilidade)', noReview.ok, noReview.ok ? `score=${noReview.r.finalScore}` : `ERRO: ${noReview.err}`);
+const prov2 = await tryq(() => as('authenticated', A.prov, async () => db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL, '{}'::jsonb)`, [e3, ratings])));
+rec('T12', 'Prestador continua sem poder homologar', !prov2.ok, prov2.ok ? 'HOMOLOGOU (falha)' : `Recusado: ${prov2.err}`);
+const overloads = (await db.query(`SELECT count(*)::int n FROM pg_proc WHERE proname='calculate_and_finalize_evaluation'`)).rows[0].n;
+rec('T13', 'Existe uma única assinatura da função de homologação (sem ambiguidade no PostgREST)', overloads === 1, `assinaturas=${overloads}`);
 
 // ---------- Resumo ----------
 const falhas = R.filter(r => !r.ok);

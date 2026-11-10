@@ -121,29 +121,36 @@ export const DashboardPage: React.FC = () => {
     ? Math.min(100, Math.round((uniqueClientsResponded / activeClientsCount) * 100))
     : (totalEvaluations > 0 ? 100 : 0);
 
-  // Chart data for satisfaction trend over time (computed chronologically from database evaluations)
+  // Chart data for satisfaction trend over time (aggregated by date)
   const trendData = useMemo(() => {
     if (filteredEvaluations.length === 0) {
       return [{ name: 'Sem registos', satisfaction: 0 }];
     }
-    const sorted = [...filteredEvaluations].sort((a, b) => (a.evaluationDate || '').localeCompare(b.evaluationDate || ''));
-    const buckets: { name: string; sum: number; count: number }[] = [
-      { name: 'Fase 1', sum: 0, count: 0 },
-      { name: 'Fase 2', sum: 0, count: 0 },
-      { name: 'Fase 3', sum: 0, count: 0 },
-      { name: 'Fase 4', sum: 0, count: 0 },
-    ];
 
-    sorted.forEach((ev, idx) => {
-      const bucketIdx = Math.min(3, Math.floor((idx / sorted.length) * 4));
-      buckets[bucketIdx].sum += ev.satisfactionRating;
-      buckets[bucketIdx].count += 1;
+    const groups: Record<string, { sum: number; count: number }> = {};
+    
+    filteredEvaluations.forEach((ev) => {
+      const dateStr = (ev.evaluationDate || '').substring(0, 10);
+      if (!dateStr) return;
+      
+      const key = dateStr; // Sortable YYYY-MM-DD
+      
+      if (!groups[key]) {
+        groups[key] = { sum: 0, count: 0 };
+      }
+      groups[key].sum += ev.satisfactionRating;
+      groups[key].count += 1;
     });
 
-    return buckets.map((b, i) => ({
-      name: `Período ${i + 1}`,
-      satisfaction: b.count > 0 ? Number((b.sum / b.count).toFixed(1)) : 0
-    }));
+    return Object.entries(groups)
+      .sort((a, b) => a[0].localeCompare(b[0])) // Sort by YYYY-MM-DD
+      .map(([dateStr, b]) => {
+        const date = new Date(dateStr);
+        return {
+          name: date.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }),
+          satisfaction: b.count > 0 ? Number((b.sum / b.count).toFixed(1)) : 0
+        };
+      });
   }, [filteredEvaluations]);
 
   // Chart data by service
@@ -402,7 +409,7 @@ export const DashboardPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-base font-black text-slate-900">Evolução Temporal da Satisfação</h3>
-              <p className="text-xs text-slate-500 font-medium">Média de pontuação nas últimas semanas</p>
+              <p className="text-xs text-slate-500 font-medium">Média de pontuação por data</p>
             </div>
             <span className="text-xs bg-slate-100 text-slate-800 font-extrabold px-3 py-1 rounded-xl">Média (1-5★)</span>
           </div>

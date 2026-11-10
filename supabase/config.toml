@@ -1,0 +1,13 @@
+# Configuração mínima do projeto Supabase (usada pelo CLI em `supabase link` e `supabase functions deploy`).
+project_id = "sicsc"
+
+# As duas funções validam a identidade por conta própria:
+# - admin-employees: lê o token da sessão (auth.getUser) e exige perfil ativo ADMIN/RH;
+# - notify-evaluation: pública (formulário sem login), protegida por identificador, janela de 15 min e idempotência.
+# Com as chaves novas do Supabase (sb_publishable_...), a verificação de JWT do gateway pode recusar
+# pedidos válidos; por isso fica desligada aqui e não é preciso lembrar a flag no deploy.
+[functions.admin-employees]
+verify_jwt = false
+
+[functions.notify-evaluation]
+verify_jwt = false

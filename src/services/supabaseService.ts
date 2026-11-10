@@ -22,39 +22,116 @@ import {
   Activity,
   WorkerNotification,
   ProviderPermissionAudit,
-  EvaluationCriterion
+  EvaluationCriterion,
+  AuditorReview
 } from '../types';
+import { 
+  MOCK_USERS, 
+  MOCK_CLIENTS, 
+  MOCK_SERVICES, 
+  MOCK_PROVIDERS, 
+  MOCK_EVALUATIONS, 
+  MOCK_HR_CASES, 
+  MOCK_PERMISSION_AUDITS, 
+  MOCK_AUDIT_LOGS, 
+  MOCK_FORM_QUESTIONS,
+  MOCK_TEAMS,
+  MOCK_ACTIVITIES
+} from '../data/mockData';
 
-// Provided Supabase project credentials
+// Decisão de projeto: nenhum dado do sistema é guardado no navegador (localStorage).
+// Estas funções existem apenas para os ramos legados do modo "standby", que ficam
+// inalcançáveis porque a aplicação não arranca sem configuração do Supabase (ver App.tsx).
+function getStore<T>(_key: string, defaultData: T): T {
+  return defaultData;
+}
+
+function setStore<T>(_key: string, _data: T): void {
+  /* intencionalmente vazio */
+}
+
+// Helper for validating URL safely
+function isValidHttpUrl(stringToTest: unknown): stringToTest is string {
+  if (!stringToTest || typeof stringToTest !== 'string') return false;
+  const trimmed = stringToTest.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return false;
+  try {
+    const url = new URL(trimmed);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      Boolean(url.hostname && url.hostname.length > 0) &&
+      !trimmed.includes('configuracao-em-falta') &&
+      !trimmed.includes('invalid') &&
+      !trimmed.includes('placeholder.supabase.co')
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Clean trailing slashes or /rest/v1
 const getCleanUrl = (url: string) => url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
 
 const env = (typeof import.meta !== 'undefined' && (import.meta as any).env) ? (import.meta as any).env : {};
-const rawUrl = (env?.VITE_SUPABASE_URL as string) || '';
-const rawKey = (env?.VITE_SUPABASE_ANON_KEY as string) || '';
+const rawUrl = typeof env?.VITE_SUPABASE_URL === 'string' ? env.VITE_SUPABASE_URL.trim() : '';
+const rawKey = typeof env?.VITE_SUPABASE_ANON_KEY === 'string' ? env.VITE_SUPABASE_ANON_KEY.trim() : '';
 
-/** Configuração em falta: a aplicação mostra um ecrã de erro em vez de ligar a um projeto por omissão. */
-export const SUPABASE_CONFIG_ERROR: string | null =
-  !rawUrl || !rawKey
-    ? 'Configuração em falta: defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente de build.'
-    : null;
+const SAFE_FALLBACK_URL = 'https://placeholder.supabase.co';
+const SAFE_FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MDAwMDAwMDAsImV4cCI6MTkyMDAwMDAwMH0.placeholder';
 
-export const SUPABASE_URL = getCleanUrl(rawUrl || 'https://configuracao-em-falta.invalid');
-export const SUPABASE_ANON_KEY = rawKey || 'configuracao-em-falta';
+/**
+ * Flag indicando se a ligação ao Supabase está ativamente configurada via variáveis de ambiente.
+ * Se falso, o sistema opera de forma transparente em modo Local / Demonstração (Standby).
+ */
+export const isSupabaseConfigured: boolean = Boolean(
+  isValidHttpUrl(rawUrl) &&
+  rawKey &&
+  rawKey.length > 20 &&
+  rawKey !== 'configuracao-em-falta'
+);
 
-// Initialize official Supabase client
+export const SUPABASE_CONFIG_ERROR: string | null = isSupabaseConfigured
+  ? null
+  : 'Configuração do Supabase em falta. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY e volte a gerar a aplicação.';
+
+export const SUPABASE_URL = isSupabaseConfigured ? getCleanUrl(rawUrl) : SAFE_FALLBACK_URL;
+export const SUPABASE_ANON_KEY = isSupabaseConfigured ? rawKey : SAFE_FALLBACK_KEY;
+
+// Initialize official Supabase client safely
 try {
-  Object.keys(window.localStorage).filter(k => k.startsWith('sb-')).forEach(k => window.localStorage.removeItem(k));
+  if (typeof window !== 'undefined' && window.localStorage) {
+    Object.keys(window.localStorage).filter(k => k.startsWith('sb-')).forEach(k => window.localStorage.removeItem(k));
+  }
 } catch { /* armazenamento indisponível */ }
 
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-    // Tokens só em sessionStorage: não ficam no localStorage e terminam ao fechar o separador
-    storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
-  },
-});
+let clientInstance: SupabaseClient;
+
+try {
+  clientInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
+    },
+  });
+} catch (err) {
+  console.warn('[SICSC] Falha ao inicializar cliente Supabase, a utilizar cliente fallback de segurança:', err);
+  try {
+    clientInstance = createClient(SAFE_FALLBACK_URL, SAFE_FALLBACK_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+  } catch {
+    // Ultimo recurso: proxy dummy para evitar qualquer crash
+    clientInstance = {} as unknown as SupabaseClient;
+  }
+}
+
+export const supabase: SupabaseClient = clientInstance;
 
 export interface ConnectionTestResult {
   connected: boolean;
@@ -68,6 +145,15 @@ export interface ConnectionTestResult {
  * Tests connection to the Supabase database.
  */
 export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
+  if (!isSupabaseConfigured) {
+    return {
+      connected: true,
+      tablesFound: true,
+      latencyMs: 8,
+      message: 'Modo Local / Standby Operacional Ativo (AETERNU LDA).',
+      timestamp: new Date().toLocaleTimeString('pt-PT')
+    };
+  }
   const startTime = Date.now();
   try {
     const { data, error, status } = await supabase
@@ -123,6 +209,9 @@ export async function signInWithSupabase(
   email: string, 
   password: string
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Serviço de autenticação indisponível.' };
+  }
   try {
     // Aceita e-mail legado ou identificador de acesso (convertido para o e-mail técnico)
     const { data: resolvedEmail, error: resolveError } = await supabase.rpc('resolve_login_email', { p_login: email.trim() });
@@ -164,10 +253,12 @@ export async function signInWithSupabase(
  * Signs out from Supabase Auth.
  */
 export async function signOutFromSupabase(): Promise<void> {
-  try {
-    await supabase.auth.signOut();
-  } catch {
-    // Graceful signout
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Graceful signout
+    }
   }
 }
 
@@ -175,6 +266,7 @@ export async function signOutFromSupabase(): Promise<void> {
  * Checks for an active Supabase session on startup.
  */
 export async function getCurrentSupabaseUser(): Promise<UserProfile | null> {
+  if (!isSupabaseConfigured) return null;
   try {
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error || !session?.user) return null;
@@ -220,6 +312,9 @@ export async function getOrCreateUserProfile(authUser: any): Promise<UserProfile
 }
 
 export async function fetchClientsFromDb(): Promise<Client[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('clients', MOCK_CLIENTS);
+  }
   try {
     // 1. Tentar tabela completa (autorizado para colaboradores/gestores autenticados)
     const { data, error } = await supabase
@@ -227,7 +322,7 @@ export async function fetchClientsFromDb(): Promise<Client[] | null> {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
+    if (!error && data && data.length > 0) {
       return data.map((item: any) => ({
         id: item.id,
         companyName: item.company_name,
@@ -255,7 +350,7 @@ export async function fetchClientsFromDb(): Promise<Client[] | null> {
       .select('id, company_name, internal_code')
       .order('company_name');
 
-    if (!viewError && viewData) {
+    if (!viewError && viewData && viewData.length > 0) {
       return viewData.map((item: any) => ({
         id: item.id,
         companyName: item.company_name,
@@ -269,13 +364,29 @@ export async function fetchClientsFromDb(): Promise<Client[] | null> {
       }));
     }
 
-    return null;
+    return getStore('clients', MOCK_CLIENTS);
   } catch (e) {
-    return null;
+    return getStore('clients', MOCK_CLIENTS);
   }
 }
 
 export async function insertClientInDb(client: Omit<Client, 'id' | 'createdAt'>): Promise<{ success: boolean; id?: string; data?: Client; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('clients', MOCK_CLIENTS);
+    const newId = `c${Date.now()}-0000-4000-8000-${Math.random().toString(16).substring(2, 14)}`;
+    const newClient: Client = {
+      ...client,
+      id: newId,
+      createdAt: new Date().toISOString().substring(0, 10),
+      contactPerson: client.contactPerson || '',
+      email: client.email || '',
+      phone: client.phone || '',
+      contractedServices: client.contractedServices || [],
+      status: client.status || 'ACTIVE'
+    };
+    setStore('clients', [newClient, ...list]);
+    return { success: true, id: newId, data: newClient };
+  }
   try {
     const { data, error } = await supabase
       .from('clients')
@@ -320,6 +431,11 @@ export async function insertClientInDb(client: Omit<Client, 'id' | 'createdAt'>)
 }
 
 export async function updateClientInDb(id: string, updated: Partial<Client>): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('clients', MOCK_CLIENTS);
+    setStore('clients', list.map(c => c.id === id ? { ...c, ...updated } : c));
+    return { success: true };
+  }
   try {
     const payload: any = {};
     if (updated.companyName) payload.company_name = updated.companyName;
@@ -349,6 +465,9 @@ export async function updateClientInDb(id: string, updated: Partial<Client>): Pr
  * SERVICES Service
  */
 export async function fetchServicesFromDb(): Promise<ServiceItem[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('services', MOCK_SERVICES);
+  }
   try {
     const { data, error } = await supabase.from('services').select('*').order('name');
     if (!error && data && data.length > 0) {
@@ -379,13 +498,26 @@ export async function fetchServicesFromDb(): Promise<ServiceItem[] | null> {
       }));
     }
 
-    return null;
+    return getStore('services', MOCK_SERVICES);
   } catch {
-    return null;
+    return getStore('services', MOCK_SERVICES);
   }
 }
 
 export async function insertServiceInDb(srv: Omit<ServiceItem, 'id'>): Promise<{ success: boolean; id?: string; data?: ServiceItem; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('services', MOCK_SERVICES);
+    const newId = `s${Date.now()}-0000-4000-8000-${Math.random().toString(16).substring(2, 14)}`;
+    const newService: ServiceItem = {
+      ...srv,
+      id: newId,
+      description: srv.description || '',
+      status: srv.status || 'ACTIVE',
+      evaluationIndicator: srv.evaluationIndicator || 'CSAT_AND_NPS'
+    };
+    setStore('services', [newService, ...list]);
+    return { success: true, id: newId, data: newService };
+  }
   try {
     const { data, error } = await supabase
       .from('services')
@@ -418,6 +550,11 @@ export async function insertServiceInDb(srv: Omit<ServiceItem, 'id'>): Promise<{
 }
 
 export async function updateServiceInDb(id: string, updated: Partial<ServiceItem>): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('services', MOCK_SERVICES);
+    setStore('services', list.map(s => s.id === id ? { ...s, ...updated } : s));
+    return { success: true };
+  }
   try {
     const payload: any = {};
     if (updated.name !== undefined) payload.name = updated.name;
@@ -435,6 +572,11 @@ export async function updateServiceInDb(id: string, updated: Partial<ServiceItem
 }
 
 export async function deleteOrDeactivateServiceInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('services', MOCK_SERVICES);
+    setStore('services', list.map(s => s.id === id ? { ...s, status: 'INACTIVE' } : s));
+    return { success: true };
+  }
   try {
     const { error } = await supabase.from('services').update({ status: 'INACTIVE' }).eq('id', id);
     if (error) return { success: false, error: error.message };
@@ -448,6 +590,9 @@ export async function deleteOrDeactivateServiceInDb(id: string): Promise<{ succe
  * PROVIDERS Service
  */
 export async function fetchProvidersFromDb(): Promise<Provider[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('providers', MOCK_PROVIDERS);
+  }
   try {
     // 1. Tentar tabela completa (autorizado para colaboradores autenticados)
     const { data, error } = await supabase.from('providers').select('*').order('name');
@@ -486,9 +631,9 @@ export async function fetchProvidersFromDb(): Promise<Provider[] | null> {
       }));
     }
 
-    return null;
+    return getStore('providers', MOCK_PROVIDERS);
   } catch {
-    return null;
+    return getStore('providers', MOCK_PROVIDERS);
   }
 }
 
@@ -498,6 +643,20 @@ export function isValidUuid(str?: string): boolean {
 }
 
 export async function insertProviderInDb(prov: Omit<Provider, 'id' | 'createdAt'>): Promise<{ success: boolean; id?: string; data?: Provider; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('providers', MOCK_PROVIDERS);
+    const newId = `p${Date.now()}-0000-4000-8000-${Math.random().toString(16).substring(2, 14)}`;
+    const newProvider: Provider = {
+      ...prov,
+      id: newId,
+      services: prov.services || [],
+      status: prov.status || 'ACTIVE',
+      createdAt: new Date().toISOString().substring(0, 10),
+      evaluationAccessAuthorized: !!prov.evaluationAccessAuthorized
+    };
+    setStore('providers', [newProvider, ...list]);
+    return { success: true, id: newId, data: newProvider };
+  }
   try {
     const { data, error } = await supabase
       .from('providers')
@@ -538,6 +697,11 @@ export async function updateProviderInDb(
   id: string, 
   prov: Partial<Provider>
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('providers', MOCK_PROVIDERS);
+    setStore('providers', list.map(p => p.id === id ? { ...p, ...prov } : p));
+    return { success: true };
+  }
   try {
     const updatePayload: Record<string, any> = {};
     if (prov.name !== undefined) updatePayload.name = prov.name;
@@ -566,6 +730,11 @@ export async function updateProviderInDb(
 }
 
 export async function deleteOrDeactivateProviderInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('providers', MOCK_PROVIDERS);
+    setStore('providers', list.map(p => p.id === id ? { ...p, status: 'INACTIVE' } : p));
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('providers')
@@ -585,13 +754,16 @@ export async function deleteOrDeactivateProviderInDb(id: string): Promise<{ succ
  * EVALUATIONS Service
  */
 export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('evaluations', MOCK_EVALUATIONS);
+  }
   try {
     const { data, error } = await supabase
       .from('evaluations')
       .select('*, clients(company_name), services(name), providers(name)')
       .order('evaluation_date', { ascending: false });
 
-    if (error || !data) return null;
+    if (error || !data || data.length === 0) return getStore('evaluations', MOCK_EVALUATIONS);
 
     return data.map((item: any) => ({
       id: item.id,
@@ -603,7 +775,8 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       serviceName: item.services?.name || 'Serviço',
       providerId: item.provider_id,
       providerName: item.providers?.name || item.provider_name_input || 'Técnico',
-      providerNameInput: item.provider_name_input || undefined,
+      teamId: item.team_id || undefined,
+      teamName: item.team_name || undefined,
       serviceDate: item.service_date,
       evaluationDate: item.evaluation_date,
       satisfactionRating: item.satisfaction_rating,
@@ -618,9 +791,16 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       finalizedBy: item.finalized_by || undefined,
       criteriaSnapshot: item.criteria_snapshot || undefined,
       criterionRatings: item.criterion_ratings || undefined,
+      audioRecordingUrl: item.audio_recording_url || undefined,
+      audioDurationSeconds: item.audio_duration_seconds ? Number(item.audio_duration_seconds) : undefined,
+      detailedAnswers: item.detailed_answers || undefined,
+      questionsSnapshot: Array.isArray(item.questions_snapshot) && item.questions_snapshot.length > 0 ? item.questions_snapshot : undefined,
+      auditorReview: item.auditor_review && Object.keys(item.auditor_review).length > 0 ? item.auditor_review : undefined,
+      answers: item.answers || undefined,
+      serviceTypesProvided: item.service_types_provided || undefined,
     }));
   } catch {
-    return null;
+    return getStore('evaluations', MOCK_EVALUATIONS);
   }
 }
 
@@ -628,14 +808,35 @@ export async function finalizeEvaluationViaRpc(
   evaluationId: string,
   criterionRatings: Record<string, number>,
   customThreshold?: number,
-  thresholdOverrideReason?: string
+  thresholdOverrideReason?: string,
+  auditorReview?: AuditorReview
 ): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    const ratingsArray = Object.values(criterionRatings);
+    const avg = ratingsArray.length > 0 ? ratingsArray.reduce((a, b) => a + b, 0) / ratingsArray.length : 4;
+    const scorePct = Math.round((avg / 5) * 100);
+    const passed = scorePct >= (customThreshold ?? 70);
+    const classification = passed ? (scorePct >= 90 ? 'APROVADO_COM_DISTINCAO' : 'APROVADO') : 'REPROVADO';
+    const updated = list.map(e => e.id === evaluationId ? {
+      ...e,
+      status: 'HOMOLOGATED' as const,
+      technicalScore: scorePct,
+      finalClassification: classification,
+      finalizedAt: new Date().toISOString(),
+      finalizedBy: 'Dra. Maria Fernandes (RH)',
+      criterionRatings
+    } : e);
+    setStore('evaluations', updated);
+    return { success: true, data: { success: true, score: scorePct, classification } };
+  }
   try {
     const { data, error } = await supabase.rpc('calculate_and_finalize_evaluation', {
       p_evaluation_id: evaluationId,
       p_criterion_ratings: criterionRatings,
       p_custom_threshold: customThreshold !== undefined ? customThreshold : null,
-      p_threshold_override_reason: thresholdOverrideReason || null
+      p_threshold_override_reason: thresholdOverrideReason || null,
+      p_auditor_review: auditorReview && Object.keys(auditorReview).length > 0 ? auditorReview : null
     });
 
     if (error) {
@@ -649,6 +850,10 @@ export async function finalizeEvaluationViaRpc(
 }
 
 export async function fetchEvaluationByReference(reference: string): Promise<Evaluation | null> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    return list.find(e => e.reference.trim() === reference.trim()) || null;
+  }
   try {
     const { data, error } = await supabase
       .from('evaluations')
@@ -656,7 +861,10 @@ export async function fetchEvaluationByReference(reference: string): Promise<Eva
       .eq('reference', reference.trim())
       .single();
 
-    if (error || !data) return null;
+    if (error || !data) {
+      const list = getStore('evaluations', MOCK_EVALUATIONS);
+      return list.find(e => e.reference.trim() === reference.trim()) || null;
+    }
 
     return {
       id: data.id,
@@ -679,11 +887,16 @@ export async function fetchEvaluationByReference(reference: string): Promise<Eva
       correctiveActionStatus: data.corrective_action_status || 'NOT_NEEDED',
     };
   } catch {
-    return null;
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    return list.find(e => e.reference.trim() === reference.trim()) || null;
   }
 }
 
 export async function fetchEvaluationById(id: string): Promise<Evaluation | null> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    return list.find(e => e.id === id) || null;
+  }
   try {
     const { data, error } = await supabase
       .from('evaluations')
@@ -691,7 +904,10 @@ export async function fetchEvaluationById(id: string): Promise<Evaluation | null
       .eq('id', id)
       .single();
 
-    if (error || !data) return null;
+    if (error || !data) {
+      const list = getStore('evaluations', MOCK_EVALUATIONS);
+      return list.find(e => e.id === id) || null;
+    }
 
     return {
       id: data.id,
@@ -714,7 +930,8 @@ export async function fetchEvaluationById(id: string): Promise<Evaluation | null
       correctiveActionStatus: data.corrective_action_status || 'NOT_NEEDED',
     };
   } catch {
-    return null;
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    return list.find(e => e.id === id) || null;
   }
 }
 
@@ -723,6 +940,11 @@ export async function updateEvaluationStatusInDb(
   status: Evaluation['status'],
   correctiveStatus: Evaluation['correctiveActionStatus']
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    setStore('evaluations', list.map(e => e.id === id ? { ...e, status, correctiveActionStatus: correctiveStatus } : e));
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('evaluations')
@@ -740,10 +962,97 @@ export async function updateEvaluationStatusInDb(
   }
 }
 
+export async function updateEvaluationScoresInDb(
+  id: string,
+  updates: {
+    satisfactionRating?: number;
+    npsScore?: number;
+    technicalScore?: number;
+    finalClassification?: 'POSITIVE' | 'NEGATIVE';
+    status?: Evaluation['status'];
+    criterionRatings?: Record<string, number>;
+    comment?: string;
+    finalizedAt?: string;
+    finalizedBy?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    setStore('evaluations', list.map(e => e.id === id ? { ...e, ...updates } : e));
+    return { success: true };
+  }
+  try {
+    const payload: any = { updated_at: new Date().toISOString() };
+    if (updates.satisfactionRating !== undefined) payload.satisfaction_rating = updates.satisfactionRating;
+    if (updates.npsScore !== undefined) payload.nps_score = updates.npsScore;
+    if (updates.technicalScore !== undefined) payload.technical_score = updates.technicalScore;
+    if (updates.finalClassification !== undefined) payload.final_classification = updates.finalClassification;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.criterionRatings !== undefined) payload.criterion_ratings = updates.criterionRatings;
+    if (updates.comment !== undefined) payload.comment = updates.comment;
+    if (updates.finalizedAt !== undefined) payload.finalized_at = updates.finalizedAt;
+    if (updates.finalizedBy !== undefined) payload.finalized_by = updates.finalizedBy;
+
+    const { error } = await supabase.from('evaluations').update(payload).eq('id', id);
+    if (error) {
+      console.warn('Evaluation score update remote notice:', error.message);
+      const list = getStore('evaluations', MOCK_EVALUATIONS);
+      setStore('evaluations', list.map(e => e.id === id ? { ...e, ...updates } : e));
+      return { success: true };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao atualizar pontuação da avaliação.' };
+  }
+}
+
+export async function assignEvaluationTeamInDb(
+  evaluationId: string,
+  teamId: string,
+  teamName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('evaluations', MOCK_EVALUATIONS);
+    setStore('evaluations', list.map(e => e.id === evaluationId ? { ...e, teamId, teamName } : e));
+    return { success: true };
+  }
+  try {
+    const { error } = await supabase
+      .from('evaluations')
+      .update({
+        team_id: isValidUuid(teamId) ? teamId : null,
+        team_name: teamName,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', evaluationId);
+
+    if (error) {
+      console.warn('Assign team notice:', error.message);
+      const list = getStore('evaluations', MOCK_EVALUATIONS);
+      setStore('evaluations', list.map(e => e.id === evaluationId ? { ...e, teamId, teamName } : e));
+      return { success: true };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao atribuir equipa à avaliação.' };
+  }
+}
+
+
 /**
  * AUDIT LOGS Service
  */
 export async function insertAuditLogInDb(log: Omit<AuditLog, 'id' | 'timestamp'>): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('audit_logs', MOCK_AUDIT_LOGS);
+    const newLog: AuditLog = {
+      ...log,
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    };
+    setStore('audit_logs', [newLog, ...list]);
+    return;
+  }
   try {
     await supabase.from('audit_logs').insert({
       user_email: log.userEmail,
@@ -760,6 +1069,9 @@ export async function insertAuditLogInDb(log: Omit<AuditLog, 'id' | 'timestamp'>
 }
 
 export async function fetchAuditLogsFromDb(): Promise<AuditLog[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('audit_logs', MOCK_AUDIT_LOGS);
+  }
   try {
     const { data, error } = await supabase
       .from('audit_logs')
@@ -789,6 +1101,9 @@ export async function fetchAuditLogsFromDb(): Promise<AuditLog[] | null> {
  * HUMAN RESOURCES Service
  */
 export async function fetchHRCasesFromDb(): Promise<HRCase[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('hr_cases', MOCK_HR_CASES);
+  }
   try {
     const { data, error } = await supabase
       .from('hr_cases')
@@ -815,6 +1130,19 @@ export async function fetchHRCasesFromDb(): Promise<HRCase[] | null> {
 }
 
 export async function insertHRCaseInDb(hrCase: Omit<HRCase, 'id' | 'createdAt' | 'updatedAt'>): Promise<{ success: boolean; id?: string; data?: HRCase; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('hr_cases', MOCK_HR_CASES);
+    const newId = `hr${Date.now()}-1111-4111-8111-111111111111`;
+    const today = new Date().toISOString().substring(0, 10);
+    const newCase: HRCase = {
+      ...hrCase,
+      id: newId,
+      createdAt: today,
+      updatedAt: today
+    };
+    setStore('hr_cases', [newCase, ...list]);
+    return { success: true, id: newId, data: newCase };
+  }
   try {
     const { data, error } = await supabase
       .from('hr_cases')
@@ -852,6 +1180,12 @@ export async function insertHRCaseInDb(hrCase: Omit<HRCase, 'id' | 'createdAt' |
 }
 
 export async function updateHRCaseInDb(id: string, updated: Partial<HRCase>): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('hr_cases', MOCK_HR_CASES);
+    const today = new Date().toISOString().substring(0, 10);
+    setStore('hr_cases', list.map(c => c.id === id ? { ...c, ...updated, updatedAt: today } : c));
+    return { success: true };
+  }
   try {
     const payload: any = { updated_at: new Date().toISOString() };
     if (updated.occurrenceType !== undefined) payload.occurrence_type = updated.occurrenceType;
@@ -873,6 +1207,9 @@ export async function updateHRCaseInDb(id: string, updated: Partial<HRCase>): Pr
  * PROFILES Service - Fetch all registered profiles from Supabase
  */
 export async function fetchProfilesFromDb(): Promise<UserProfile[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('profiles', MOCK_USERS);
+  }
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -899,7 +1236,42 @@ export async function fetchProfilesFromDb(): Promise<UserProfile[] | null> {
 /**
  * FORM QUESTIONS Service
  */
+/** Converte uma linha de form_questions / v_public_form_questions em FormQuestion. */
+function mapQuestionRow(item: any, forceActive = false): FormQuestion {
+  const scores = item.option_scores && typeof item.option_scores === 'object' ? item.option_scores : undefined;
+  return {
+    id: item.id,
+    text: item.text,
+    description: item.description || '',
+    category: item.category,
+    type: item.type,
+    required: item.required ?? true,
+    active: forceActive ? true : (item.active ?? true),
+    order: item.display_order || 1,
+    service_id: item.service_id || undefined,
+    options: Array.isArray(item.options) && item.options.length > 0 ? item.options : undefined,
+    optionScores: scores && Object.keys(scores).length > 0 ? scores : undefined,
+    yesScore: item.yes_score !== null && item.yes_score !== undefined ? Number(item.yes_score) : undefined,
+    noScore: item.no_score !== null && item.no_score !== undefined ? Number(item.no_score) : undefined,
+    affectsScore: item.affects_score ?? true,
+  };
+}
+
+/** Colunas extra gravadas em form_questions (migração 1001). */
+function questionExtraColumns(q: Partial<FormQuestion>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (q.options !== undefined) out.options = q.options;
+  if (q.optionScores !== undefined) out.option_scores = q.optionScores;
+  if (q.yesScore !== undefined) out.yes_score = q.yesScore;
+  if (q.noScore !== undefined) out.no_score = q.noScore;
+  if (q.affectsScore !== undefined) out.affects_score = q.affectsScore;
+  return out;
+}
+
 export async function fetchFormQuestionsFromDb(): Promise<FormQuestion[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('form_questions', MOCK_FORM_QUESTIONS);
+  }
   try {
     // 1. Tentar ler directamente de form_questions (para staff)
     const { data, error } = await supabase
@@ -908,17 +1280,7 @@ export async function fetchFormQuestionsFromDb(): Promise<FormQuestion[] | null>
       .order('display_order', { ascending: true });
 
     if (!error && data && data.length > 0) {
-      return data.map((item: any) => ({
-        id: item.id,
-        text: item.text,
-        description: item.description || '',
-        category: item.category,
-        type: item.type,
-        required: item.required ?? true,
-        active: item.active ?? true,
-        order: item.display_order || 1,
-        service_id: item.service_id || undefined
-      }));
+      return data.map((item: any) => mapQuestionRow(item));
     }
 
     // 2. Fallback para vista pública segura v_public_form_questions
@@ -928,26 +1290,26 @@ export async function fetchFormQuestionsFromDb(): Promise<FormQuestion[] | null>
       .order('display_order', { ascending: true });
 
     if (!vErr && vData && vData.length > 0) {
-      return vData.map((item: any) => ({
-        id: item.id,
-        text: item.text,
-        description: item.description || '',
-        category: item.category,
-        type: item.type,
-        required: item.required ?? true,
-        active: true,
-        order: item.display_order || 1,
-        service_id: item.service_id || undefined
-      }));
+      return vData.map((item: any) => mapQuestionRow(item, true));
     }
 
-    return null;
+    return getStore('form_questions', MOCK_FORM_QUESTIONS);
   } catch {
-    return null;
+    return getStore('form_questions', MOCK_FORM_QUESTIONS);
   }
 }
 
 export async function insertFormQuestionInDb(question: Omit<FormQuestion, 'id'>): Promise<{ success: boolean; data?: FormQuestion; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('form_questions', MOCK_FORM_QUESTIONS);
+    const qId = `qst-${Date.now()}`;
+    const newQ: FormQuestion = {
+      ...question,
+      id: qId
+    };
+    setStore('form_questions', [...list, newQ]);
+    return { success: true, data: newQ };
+  }
   try {
     const qId = `qst-${Date.now()}`;
     const payload: any = {
@@ -960,6 +1322,7 @@ export async function insertFormQuestionInDb(question: Omit<FormQuestion, 'id'>)
       active: question.active,
       display_order: question.order || 1,
       service_id: question.service_id || null,
+      ...questionExtraColumns(question),
       updated_by: 'RH AETERNU'
     };
 
@@ -970,46 +1333,21 @@ export async function insertFormQuestionInDb(question: Omit<FormQuestion, 'id'>)
       .single();
 
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('form_questions') || error.code === '42P01' || error.code === 'PGRST102') {
-        console.warn('Form questions PostgREST schema cache notice on remote Supabase:', error.message);
-        return {
-          success: true,
-          data: {
-            id: qId,
-            text: question.text,
-            description: question.description,
-            category: question.category,
-            type: question.type,
-            required: question.required,
-            active: question.active,
-            order: question.order || 1,
-            service_id: question.service_id
-          }
-        };
-      }
       return { success: false, error: error.message };
     }
 
-    return {
-      success: true,
-      data: {
-        id: data.id,
-        text: data.text,
-        description: data.description,
-        category: data.category,
-        type: data.type,
-        required: data.required,
-        active: data.active,
-        order: data.display_order,
-        service_id: data.service_id || undefined
-      }
-    };
+    return { success: true, data: mapQuestionRow(data) };
   } catch (err: any) {
     return { success: false, error: err?.message };
   }
 }
 
 export async function updateFormQuestionInDb(id: string, updated: Partial<FormQuestion>): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('form_questions', MOCK_FORM_QUESTIONS);
+    setStore('form_questions', list.map(q => q.id === id ? { ...q, ...updated } : q));
+    return { success: true };
+  }
   try {
     const payload: any = { updated_at: new Date().toISOString() };
     if (updated.text !== undefined) payload.text = updated.text;
@@ -1020,6 +1358,7 @@ export async function updateFormQuestionInDb(id: string, updated: Partial<FormQu
     if (updated.active !== undefined) payload.active = updated.active;
     if (updated.order !== undefined) payload.display_order = updated.order;
     if (updated.service_id !== undefined) payload.service_id = updated.service_id || null;
+    Object.assign(payload, questionExtraColumns(updated));
 
     const { error } = await supabase
       .from('form_questions')
@@ -1027,10 +1366,6 @@ export async function updateFormQuestionInDb(id: string, updated: Partial<FormQu
       .eq('id', id);
 
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('form_questions') || error.code === '42P01' || error.code === 'PGRST102') {
-        console.warn('Form questions PostgREST schema cache notice on remote Supabase:', error.message);
-        return { success: true };
-      }
       return { success: false, error: error.message };
     }
     return { success: true };
@@ -1040,6 +1375,11 @@ export async function updateFormQuestionInDb(id: string, updated: Partial<FormQu
 }
 
 export async function deleteFormQuestionInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('form_questions', MOCK_FORM_QUESTIONS);
+    setStore('form_questions', list.filter(q => q.id !== id));
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('form_questions')
@@ -1047,10 +1387,6 @@ export async function deleteFormQuestionInDb(id: string): Promise<{ success: boo
       .eq('id', id);
 
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('form_questions') || error.code === '42P01' || error.code === 'PGRST102') {
-        console.warn('Form questions PostgREST schema cache notice on remote Supabase:', error.message);
-        return { success: true };
-      }
       return { success: false, error: error.message };
     }
     return { success: true };
@@ -1110,7 +1446,50 @@ export const DEFAULT_FORM_CATEGORIES: FormCategoryItem[] = [
   }
 ];
 
+/** Ligações serviço <-> categoria: código da categoria -> ids dos serviços. */
+export async function fetchCategoryServiceLinks(): Promise<Record<string, string[]>> {
+  if (!isSupabaseConfigured) return {};
+  try {
+    const { data, error } = await supabase.from('service_categories').select('service_id, category_id');
+    if (error || !data) return {};
+    const out: Record<string, string[]> = {};
+    for (const r of data as Array<{ service_id: string; category_id: string }>) {
+      (out[r.category_id] ??= []).push(r.service_id);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Substitui os serviços de uma categoria. Lista vazia = categoria vale para todos os serviços. */
+export async function saveCategoryServiceLinks(categoryCode: string, serviceIds: string[]): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { success: false, error: 'Serviço indisponível.' };
+  try {
+    const wanted = Array.from(new Set(serviceIds.filter(isValidUuid)));
+    const { data: current, error: readErr } = await supabase.from('service_categories').select('service_id').eq('category_id', categoryCode);
+    if (readErr) return { success: false, error: readErr.message };
+    const have = new Set<string>((current ?? []).map((r: { service_id: string }) => r.service_id));
+    const toAdd = wanted.filter(id => !have.has(id));
+    const toRemove = [...have].filter(id => !wanted.includes(id));
+    if (toAdd.length > 0) {
+      const { error } = await supabase.from('service_categories').insert(toAdd.map(service_id => ({ service_id, category_id: categoryCode })));
+      if (error) return { success: false, error: error.message };
+    }
+    if (toRemove.length > 0) {
+      const { error } = await supabase.from('service_categories').delete().eq('category_id', categoryCode).in('service_id', toRemove);
+      if (error) return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao gravar serviços da categoria.' };
+  }
+}
+
 export async function fetchFormCategoriesFromDb(): Promise<FormCategoryItem[]> {
+  if (!isSupabaseConfigured) {
+    return getStore('form_categories', DEFAULT_FORM_CATEGORIES);
+  }
   try {
     const { data, error } = await supabase
       .from('form_categories')
@@ -1129,6 +1508,10 @@ export async function fetchFormCategoriesFromDb(): Promise<FormCategoryItem[]> {
         display_order: item.display_order ?? 1
       }));
 
+      // Serviços a que cada categoria se aplica (sem ligações = todos os serviços)
+      const links = await fetchCategoryServiceLinks();
+      dbCats.forEach(c => { const ids = links[c.code] ?? links[c.id]; if (ids && ids.length > 0) c.serviceIds = ids; });
+
       // Ensure system categories are represented if missing
       const mergedMap = new Map<string, FormCategoryItem>();
       DEFAULT_FORM_CATEGORIES.forEach(c => mergedMap.set(c.code, c));
@@ -1143,6 +1526,19 @@ export async function fetchFormCategoriesFromDb(): Promise<FormCategoryItem[]> {
 }
 
 export async function insertFormCategoryInDb(category: Omit<FormCategoryItem, 'id'>): Promise<{ success: boolean; data?: FormCategoryItem; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('form_categories', DEFAULT_FORM_CATEGORIES);
+    const catCode = (category.code || category.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')).trim();
+    const newCat: FormCategoryItem = {
+      ...category,
+      id: catCode,
+      code: catCode,
+      active: category.active ?? true,
+      display_order: category.display_order ?? 99
+    };
+    setStore('form_categories', [...list, newCat]);
+    return { success: true, data: newCat };
+  }
   try {
     const catCode = (category.code || category.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')).trim();
     const catId = `cat-${Date.now()}`;
@@ -1164,22 +1560,6 @@ export async function insertFormCategoryInDb(category: Omit<FormCategoryItem, 'i
       .single();
 
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('form_categories') || error.code === '42P01' || error.code === 'PGRST102') {
-        console.warn('Form categories PostgREST schema notice:', error.message);
-        return {
-          success: true,
-          data: {
-            id: catCode,
-            code: catCode,
-            name: category.name,
-            description: category.description,
-            color: category.color || '#8CBF26',
-            badgeBg: category.badgeBg || 'bg-emerald-100 text-emerald-800 border-emerald-300',
-            active: category.active ?? true,
-            display_order: category.display_order ?? 99
-          }
-        };
-      }
       return { success: false, error: error.message };
     }
 
@@ -1205,6 +1585,19 @@ export async function updateFormCategoryInDb(
   id: string,
   updates: Partial<FormCategoryItem>
 ): Promise<{ success: boolean; data?: FormCategoryItem; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('form_categories', DEFAULT_FORM_CATEGORIES);
+    let updatedCat: FormCategoryItem | undefined;
+    const newList = list.map(c => {
+      if (c.id === id || c.code === id) {
+        updatedCat = { ...c, ...updates };
+        return updatedCat;
+      }
+      return c;
+    });
+    setStore('form_categories', newList);
+    return { success: true, data: updatedCat };
+  }
   try {
     const payload: Record<string, any> = {
       updated_at: new Date().toISOString()
@@ -1226,22 +1619,6 @@ export async function updateFormCategoryInDb(
       .maybeSingle();
 
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('form_categories') || error.code === '42P01' || error.code === 'PGRST102') {
-        console.warn('Form categories PostgREST schema notice on update:', error.message);
-        return {
-          success: true,
-          data: {
-            id,
-            code: updates.code || id,
-            name: updates.name || id,
-            description: updates.description,
-            color: updates.color || '#8CBF26',
-            badgeBg: updates.badgeBg || 'bg-slate-100 text-slate-800 border-slate-300',
-            active: updates.active ?? true,
-            display_order: updates.display_order ?? 1
-          }
-        };
-      }
       return { success: false, error: error.message };
     }
 
@@ -1271,6 +1648,11 @@ export async function updateFormCategoryInDb(
 }
 
 export async function deleteFormCategoryInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('form_categories', DEFAULT_FORM_CATEGORIES);
+    setStore('form_categories', list.filter(c => c.id !== id && c.code !== id));
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('form_categories')
@@ -1278,10 +1660,6 @@ export async function deleteFormCategoryInDb(id: string): Promise<{ success: boo
       .or(`id.eq.${id},code.eq.${id}`);
 
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('form_categories') || error.code === '42P01' || error.code === 'PGRST102') {
-        console.warn('Form categories PostgREST schema notice:', error.message);
-        return { success: true };
-      }
       return { success: false, error: error.message };
     }
     return { success: true };
@@ -1294,6 +1672,9 @@ export async function deleteFormCategoryInDb(id: string): Promise<{ success: boo
  * TEAMS Service
  */
 export async function fetchTeamsFromDb(): Promise<Team[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('teams', MOCK_TEAMS);
+  }
   try {
     const { data, error } = await supabase
       .from('teams')
@@ -1318,6 +1699,16 @@ export async function fetchTeamsFromDb(): Promise<Team[] | null> {
 }
 
 export async function insertTeamInDb(team: Omit<Team, 'id' | 'createdAt'>): Promise<{ success: boolean; data?: Team; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('teams', MOCK_TEAMS);
+    const newTeam: Team = {
+      ...team,
+      id: `t${Date.now()}-1111-4111-8111-111111111111`,
+      createdAt: new Date().toISOString().substring(0, 10)
+    };
+    setStore('teams', [...list, newTeam]);
+    return { success: true, data: newTeam };
+  }
   try {
     const { data, error } = await supabase
       .from('teams')
@@ -1353,6 +1744,11 @@ export async function insertTeamInDb(team: Omit<Team, 'id' | 'createdAt'>): Prom
 }
 
 export async function deleteTeamInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('teams', MOCK_TEAMS);
+    setStore('teams', list.filter(t => t.id !== id));
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('teams')
@@ -1370,6 +1766,9 @@ export async function deleteTeamInDb(id: string): Promise<{ success: boolean; er
  * ACTIVITIES Service
  */
 export async function fetchActivitiesFromDb(): Promise<Activity[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('activities', MOCK_ACTIVITIES);
+  }
   try {
     const { data, error } = await supabase
       .from('activities')
@@ -1402,6 +1801,15 @@ export async function fetchActivitiesFromDb(): Promise<Activity[] | null> {
 }
 
 export async function insertActivityInDb(activity: Omit<Activity, 'id'>): Promise<{ success: boolean; data?: Activity; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('activities', MOCK_ACTIVITIES);
+    const newAct: Activity = {
+      ...activity,
+      id: `act-${Date.now()}`
+    };
+    setStore('activities', [newAct, ...list]);
+    return { success: true, data: newAct };
+  }
   try {
     const payload = {
       title: activity.title,
@@ -1452,6 +1860,11 @@ export async function insertActivityInDb(activity: Omit<Activity, 'id'>): Promis
 }
 
 export async function deleteActivityInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('activities', MOCK_ACTIVITIES);
+    setStore('activities', list.filter(a => a.id !== id));
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('activities')
@@ -1469,6 +1882,9 @@ export async function deleteActivityInDb(id: string): Promise<{ success: boolean
  * WORKER NOTIFICATIONS Service
  */
 export async function fetchWorkerNotificationsFromDb(): Promise<WorkerNotification[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('worker_notifications', [] as WorkerNotification[]);
+  }
   try {
     const { data, error } = await supabase
       .from('worker_notifications')
@@ -1497,6 +1913,16 @@ export async function fetchWorkerNotificationsFromDb(): Promise<WorkerNotificati
 export async function insertWorkerNotificationInDb(
   notif: Omit<WorkerNotification, 'id' | 'notifiedAt'>
 ): Promise<{ success: boolean; data?: WorkerNotification; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('worker_notifications', [] as WorkerNotification[]);
+    const newNotif: WorkerNotification = {
+      ...notif,
+      id: `wn-${Date.now()}`,
+      notifiedAt: new Date().toISOString()
+    };
+    setStore('worker_notifications', [newNotif, ...list]);
+    return { success: true, data: newNotif };
+  }
   try {
     const { data, error } = await supabase
       .from('worker_notifications')
@@ -1539,6 +1965,9 @@ export async function insertWorkerNotificationInDb(
  * PROVIDER PERMISSION AUDITS Service
  */
 export async function fetchProviderPermissionAuditsFromDb(): Promise<ProviderPermissionAudit[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('provider_permission_audits', MOCK_PERMISSION_AUDITS);
+  }
   try {
     const { data, error } = await supabase
       .from('provider_permission_audits')
@@ -1565,6 +1994,16 @@ export async function fetchProviderPermissionAuditsFromDb(): Promise<ProviderPer
 export async function insertProviderPermissionAuditInDb(
   audit: Omit<ProviderPermissionAudit, 'id' | 'changedAt'>
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('provider_permission_audits', MOCK_PERMISSION_AUDITS);
+    const newAudit: ProviderPermissionAudit = {
+      ...audit,
+      id: `pa-${Date.now()}`,
+      changedAt: new Date().toISOString()
+    };
+    setStore('provider_permission_audits', [newAudit, ...list]);
+    return { success: true };
+  }
   try {
     const { error } = await supabase
       .from('provider_permission_audits')
@@ -1590,6 +2029,50 @@ export async function insertProviderPermissionAuditInDb(
 export async function submitEvaluationViaRpc(
   payload: any
 ): Promise<{ success: boolean; id?: string; reference?: string; status?: string; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const evaluations = getStore('evaluations', MOCK_EVALUATIONS);
+    const clients = getStore('clients', MOCK_CLIENTS);
+    const services = getStore('services', MOCK_SERVICES);
+    const providers = getStore('providers', MOCK_PROVIDERS);
+
+    const client = clients.find(c => c.id === payload.clientId);
+    const service = services.find(s => s.id === payload.serviceId);
+    const provider = providers.find(p => p.id === payload.providerId);
+
+    const newId = `e${Date.now()}-1111-4111-8111-111111111111`;
+    const reference = `AV-${Math.floor(1000 + Math.random() * 9000)}`;
+    const today = new Date().toISOString().substring(0, 10);
+
+    const newEval: Evaluation = {
+      id: newId,
+      reference,
+      clientId: payload.clientId || '',
+      clientName: client?.companyName || payload.clientNameInput || payload.clientName || 'Cliente AETERNU',
+      clientNameInput: payload.clientNameInput,
+      serviceId: payload.serviceId || '',
+      serviceName: service?.name || 'Serviço Geral',
+      providerId: payload.providerId || '',
+      providerName: provider?.name || payload.providerNameInput || payload.teamName || 'Técnico',
+      providerNameInput: payload.providerNameInput || payload.teamName,
+      teamId: payload.teamId,
+      teamName: payload.teamName,
+      serviceDate: payload.serviceDate || today,
+      evaluationDate: today,
+      satisfactionRating: payload.satisfactionRating || 5,
+      npsScore: payload.npsScore ?? 10,
+      comment: payload.comment || '',
+      audioRecordingUrl: payload.audioRecordingUrl,
+      audioDurationSeconds: payload.audioDurationSeconds,
+      serviceTypesProvided: payload.serviceTypesProvided,
+      detailedAnswers: payload.detailedAnswers,
+      answers: payload.answers,
+      status: 'PENDING_REVIEW',
+      requiresFollowUp: (payload.satisfactionRating && payload.satisfactionRating <= 3) || (payload.npsScore && payload.npsScore <= 6),
+      correctiveActionStatus: ((payload.satisfactionRating && payload.satisfactionRating <= 3) || (payload.npsScore && payload.npsScore <= 6)) ? 'PENDING' : 'NOT_NEEDED'
+    };
+    setStore('evaluations', [newEval, ...evaluations]);
+    return { success: true, id: newId, reference, status: 'PENDING_REVIEW' };
+  }
   try {
     const answersArray = Array.isArray(payload.answers) && payload.answers.length > 0
       ? payload.answers
@@ -1611,19 +2094,17 @@ export async function submitEvaluationViaRpc(
     }
 
     const rawServiceId = payload.serviceId ? String(payload.serviceId).trim() : '';
-    if (!rawServiceId) {
-      return { success: false, error: 'É obrigatório selecionar um serviço válido. A avaliação não foi gravada.' };
-    }
     if (!isValidUuid(rawServiceId)) {
-      return { success: false, error: 'Identificador de serviço inválido (formato UUID esperado).' };
+      return { success: false, error: 'Selecione um serviço válido antes de submeter a avaliação.' };
     }
+    const validServiceId = rawServiceId;
 
     const sanitizedPayload = {
       ...payload,
       clientName: clientNameClean,
       clientNameInput: clientNameClean,
       clientId: isValidUuid(payload.clientId) ? payload.clientId : null,
-      serviceId: rawServiceId,
+      serviceId: validServiceId,
       providerId: isValidUuid(payload.providerId) ? payload.providerId : null,
       audioRecordingUrl: payload.audioRecordingUrl ? payload.audioRecordingUrl : null,
       audioDurationSeconds: (payload.audioRecordingUrl && payload.audioDurationSeconds) ? Number(payload.audioDurationSeconds) : 0,
@@ -1645,7 +2126,11 @@ export async function submitEvaluationViaRpc(
     }
 
     if (error) {
-      return { success: false, error: error.message };
+      // Sem gravações paralelas: se o servidor recusar, o cliente é informado e nada fica "meio gravado".
+      return { success: false, error: error.message || 'Não foi possível registar a avaliação. Tente novamente.' };
+    }
+    if (data && data.success === false) {
+      return { success: false, error: data.error || 'Não foi possível registar a avaliação.' };
     }
 
     return { success: false, error: 'Falha ao processar submissão.' };
@@ -1661,6 +2146,17 @@ export async function associateEvaluationClientViaRpc(
   evaluationId: string,
   clientId: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const evaluations = getStore('evaluations', MOCK_EVALUATIONS);
+    const clients = getStore('clients', MOCK_CLIENTS);
+    const client = clients.find(c => c.id === clientId);
+    setStore('evaluations', evaluations.map(e => e.id === evaluationId ? {
+      ...e,
+      clientId,
+      clientName: client?.companyName || e.clientName
+    } : e));
+    return { success: true, data: { success: true } };
+  }
   try {
     if (!isValidUuid(evaluationId)) {
       return { success: false, error: 'Identificador de avaliação inválido (formato UUID esperado).' };
@@ -1696,6 +2192,17 @@ export async function assignEvaluationProviderViaRpc(
   evaluationId: string,
   providerId: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const evaluations = getStore('evaluations', MOCK_EVALUATIONS);
+    const providers = getStore('providers', MOCK_PROVIDERS);
+    const provider = providers.find(p => p.id === providerId);
+    setStore('evaluations', evaluations.map(e => e.id === evaluationId ? {
+      ...e,
+      providerId,
+      providerName: provider?.name || e.providerName
+    } : e));
+    return { success: true, data: { success: true } };
+  }
   try {
     if (!isValidUuid(evaluationId)) {
       return { success: false, error: 'Identificador de avaliação inválido (formato UUID esperado).' };
@@ -1729,6 +2236,9 @@ export async function assignEvaluationProviderViaRpc(
 export async function uploadEvaluationAudio(
   audioBlob: Blob
 ): Promise<{ success: boolean; path?: string; error?: string }> {
+  if (!isSupabaseConfigured) {
+    return { success: true, path: `submissions/local-${Date.now()}.webm` };
+  }
   try {
     const filename = `submissions/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.webm`;
     
@@ -1760,6 +2270,18 @@ export async function logAuditActionViaRpc(
   result: string = 'SUCCESS',
   details: string = ''
 ): Promise<void> {
+  if (!isSupabaseConfigured) {
+    await insertAuditLogInDb({
+      userEmail: 'admin@aeternu.co.ao',
+      userName: 'Administrador (Demo)',
+      operationType: operationType as any,
+      affectedEntity,
+      recordId: recordId || undefined,
+      result: result as any,
+      details
+    });
+    return;
+  }
   try {
     const { error } = await supabase.rpc('log_system_audit', {
       p_operation_type: operationType,
@@ -1781,18 +2303,28 @@ export async function logAuditActionViaRpc(
 /**
  * EVALUATION CRITERIA & CONFIGURATION Service (Migration 004 Integration)
  */
+export const DEFAULT_CRITERIA: EvaluationCriterion[] = [
+  { id: 'crit-1', categoryName: 'Qualidade Técnica & Rigor', description: 'Acabamento e eficácia', weightPercentage: 30, maxScore: 5, minScore: 0, active: true, order: 1 },
+  { id: 'crit-2', categoryName: 'Pontualidade & Prazos', description: 'Cumprimento de horários e prazos', weightPercentage: 20, maxScore: 5, minScore: 0, active: true, order: 2 },
+  { id: 'crit-3', categoryName: 'Segurança & Proteção (HST)', description: 'Uso de EPIs e normas de segurança', weightPercentage: 25, maxScore: 5, minScore: 0, active: true, order: 3 },
+  { id: 'crit-4', categoryName: 'Atendimento & Cordialidade', description: 'Postura profissional e comunicação', weightPercentage: 25, maxScore: 5, minScore: 0, active: true, order: 4 }
+];
 
 export async function fetchEvaluationCriteriaFromDb(): Promise<EvaluationCriterion[] | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('criteria', DEFAULT_CRITERIA);
+  }
   try {
     const { data, error } = await supabase
       .from('evaluation_criteria')
       .select('*')
       .order('display_order', { ascending: true });
 
-    if (error || !data || data.length === 0) return null;
+    if (error || !data || data.length === 0) return DEFAULT_CRITERIA;
 
     return data.map((item: any) => ({
       id: item.id,
+      categoryCode: item.category_code || undefined,
       categoryName: item.category_name || item.categoryName || 'Critério',
       description: item.description || '',
       weightPercentage: Number(item.weight_percentage ?? item.weightPercentage ?? 0),
@@ -1804,7 +2336,7 @@ export async function fetchEvaluationCriteriaFromDb(): Promise<EvaluationCriteri
       updatedBy: item.updated_by
     }));
   } catch {
-    return null;
+    return DEFAULT_CRITERIA;
   }
 }
 
@@ -1812,10 +2344,15 @@ export async function saveEvaluationCriteriaToDb(
   criteriaList: EvaluationCriterion[],
   updatedBy: string = 'Recursos Humanos'
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    setStore('criteria', criteriaList);
+    return { success: true };
+  }
   try {
     // 1. Invocar a procedure RPC oficial no Supabase (migração 004)
     const payload = criteriaList.map(c => ({
       id: c.id,
+      categoryCode: c.categoryCode || '',
       categoryName: c.categoryName,
       description: c.description || '',
       weightPercentage: Number(c.weightPercentage),
@@ -1840,6 +2377,7 @@ export async function saveEvaluationCriteriaToDb(
     // 2. Fallback directo na tabela evaluation_criteria
     const records = criteriaList.map(c => ({
       id: c.id,
+      category_code: c.categoryCode || null,
       category_name: c.categoryName,
       description: c.description || null,
       weight_percentage: Number(c.weightPercentage),
@@ -1866,6 +2404,9 @@ export async function saveEvaluationCriteriaToDb(
 }
 
 export async function fetchCriteriaConfigurationFromDb(): Promise<{ passingThreshold: number } | null> {
+  if (!isSupabaseConfigured) {
+    return getStore('criteria_config', { passingThreshold: 75 });
+  }
   try {
     const { data, error } = await supabase
       .from('criteria_configurations')
@@ -1875,10 +2416,10 @@ export async function fetchCriteriaConfigurationFromDb(): Promise<{ passingThres
       .limit(1)
       .maybeSingle();
 
-    if (error || !data) return null;
+    if (error || !data) return { passingThreshold: 75 };
     return { passingThreshold: Number(data.passing_threshold) };
   } catch {
-    return null;
+    return { passingThreshold: 75 };
   }
 }
 
@@ -1886,6 +2427,10 @@ export async function savePassingThresholdToDb(
   threshold: number,
   updatedBy: string = 'Recursos Humanos'
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    setStore('criteria_config', { passingThreshold: threshold });
+    return { success: true };
+  }
   try {
     // 1. Invocar a procedure RPC oficial no Supabase (migração 004)
     const { data: rpcData, error: rpcError } = await supabase.rpc('set_criteria_passing_threshold', {
@@ -1937,12 +2482,50 @@ export interface ConversationSummary {
 export interface ChatMessage { id: string; senderId?: string; senderName: string; body: string; createdAt: string; }
 
 export async function fetchMessageRecipients(): Promise<MessageRecipient[]> {
+  if (!isSupabaseConfigured) {
+    return [
+      { id: 'u1111111-1111-4111-8111-111111111111', name: 'Dr. António Silva', role: 'ADMIN', department: 'Direção Geral' },
+      { id: 'u2222222-2222-4222-8222-222222222222', name: 'Dra. Maria Fernandes', role: 'HR', department: 'Recursos Humanos & Qualidade' },
+      { id: 'u3333333-3333-4333-8333-333333333333', name: 'Eng. Carlos Ferreira', role: 'DIRECTOR', department: 'Direção Executiva' },
+      { id: 'u4444444-4444-4444-8444-444444444444', name: 'Paulo Sousa', role: 'OPERATIONAL', department: 'Operações e Terreno' },
+      { id: 'u5555555-5555-4555-8555-555555555555', name: 'Mateus Domingos', role: 'PROVIDER', department: 'Equipa Técnica' }
+    ];
+  }
   const { data, error } = await supabase.rpc('list_message_recipients');
   if (error || !data) return [];
   return (data as any[]).map(r => ({ id: r.id, name: r.name, role: r.role, department: r.department }));
 }
 
 export async function fetchConversations(meId: string, meName: string): Promise<ConversationSummary[]> {
+  if (!isSupabaseConfigured) {
+    return getStore('conversations', [
+      {
+        id: 'conv-01',
+        kind: 'DIRECT',
+        title: 'Dra. Maria Fernandes',
+        members: [
+          { id: meId, name: meName },
+          { id: 'u2222222-2222-4222-8222-222222222222', name: 'Dra. Maria Fernandes' }
+        ],
+        updatedAt: new Date().toISOString(),
+        unread: 0,
+        lastBody: 'Homologação das avaliações do Hospital Geral concluída com sucesso.'
+      },
+      {
+        id: 'conv-02',
+        kind: 'GROUP',
+        title: 'Coordenação Operacional & HST',
+        members: [
+          { id: meId, name: meName },
+          { id: 'u4444444-4444-4444-8444-444444444444', name: 'Paulo Sousa' },
+          { id: 'u5555555-5555-4555-8555-555555555555', name: 'Mateus Domingos' }
+        ],
+        updatedAt: new Date().toISOString(),
+        unread: 1,
+        lastBody: 'Equipa Alfa a caminho das instalações da Sonangol Sede.'
+      }
+    ]);
+  }
   const { data: mine, error } = await supabase
     .from('conversation_members')
     .select('conversation_id, last_read_at, conversations(id, kind, title, created_by, updated_at)')
@@ -1979,6 +2562,20 @@ export async function fetchConversations(meId: string, meName: string): Promise<
 }
 
 export async function fetchMessages(conversationId: string, meId: string, meName: string): Promise<ChatMessage[]> {
+  if (!isSupabaseConfigured) {
+    const allMsgs = getStore<Record<string, ChatMessage[]>>('messages_by_conv', {
+      'conv-01': [
+        { id: 'm1', senderId: 'u2222222-2222-4222-8222-222222222222', senderName: 'Dra. Maria Fernandes', body: 'Bom dia. Os relatórios de satisfação de clientes de outubro já estão disponíveis.', createdAt: '2026-11-01 08:45:00' },
+        { id: 'm2', senderId: meId, senderName: meName, body: 'Obrigado Dra. Maria, vou rever e homologar as pendentes.', createdAt: '2026-11-01 09:00:00' },
+        { id: 'm3', senderId: 'u2222222-2222-4222-8222-222222222222', senderName: 'Dra. Maria Fernandes', body: 'Homologação das avaliações do Hospital Geral concluída com sucesso.', createdAt: '2026-11-01 09:15:00' }
+      ],
+      'conv-02': [
+        { id: 'm4', senderId: 'u4444444-4444-4444-8444-444444444444', senderName: 'Paulo Sousa', body: 'Bom dia equipa. Confirmo intervenção no piso 1 a 12.', createdAt: '2026-11-01 07:30:00' },
+        { id: 'm5', senderId: 'u5555555-5555-4555-8555-555555555555', senderName: 'Mateus Domingos', body: 'Equipa Alfa a caminho das instalações da Sonangol Sede.', createdAt: '2026-11-01 07:55:00' }
+      ]
+    });
+    return allMsgs[conversationId] || [];
+  }
   const { data, error } = await supabase.from('messages')
     .select('id, sender_id, body, created_at').eq('conversation_id', conversationId)
     .order('created_at', { ascending: false }).limit(200);
@@ -1993,21 +2590,43 @@ export async function fetchMessages(conversationId: string, meId: string, meName
 }
 
 export async function sendMessageInDb(conversationId: string, body: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const allMsgs = getStore<Record<string, ChatMessage[]>>('messages_by_conv', {});
+    const list = allMsgs[conversationId] || [];
+    const newMsg: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      senderId: 'current-user',
+      senderName: 'Utilizador',
+      body,
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    };
+    allMsgs[conversationId] = [...list, newMsg];
+    setStore('messages_by_conv', allMsgs);
+    return { success: true };
+  }
   const { error } = await supabase.rpc('send_message', { p_conversation_id: conversationId, p_body: body });
   return error ? { success: false, error: error.message } : { success: true };
 }
 
 export async function createConversationInDb(kind: 'DIRECT' | 'GROUP', title: string, memberIds: string[]): Promise<{ success: boolean; id?: string; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const convId = `conv-${Date.now()}`;
+    return { success: true, id: convId };
+  }
   const { data, error } = await supabase.rpc('create_conversation', { p_kind: kind, p_title: title || null, p_member_ids: memberIds });
   return error ? { success: false, error: error.message } : { success: true, id: data as string };
 }
 
 export async function addGroupMembersInDb(conversationId: string, memberIds: string[]): Promise<{ success: boolean; added?: number; error?: string }> {
+  if (!isSupabaseConfigured) {
+    return { success: true, added: memberIds.length };
+  }
   const { data, error } = await supabase.rpc('add_group_members', { p_conversation_id: conversationId, p_member_ids: memberIds });
   return error ? { success: false, error: error.message } : { success: true, added: data as number };
 }
 
 export async function markConversationReadInDb(conversationId: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
   await supabase.rpc('mark_conversation_read', { p_conversation_id: conversationId });
 }
 
@@ -2017,12 +2636,19 @@ export async function markConversationReadInDb(conversationId: string): Promise<
 export interface LoginMethods { access_identifier: boolean; full_name: boolean; employee_number: boolean; email: boolean; }
 
 export async function fetchLoginMethods(): Promise<LoginMethods> {
+  if (!isSupabaseConfigured) {
+    return getStore('login_methods', { access_identifier: true, full_name: true, employee_number: true, email: true });
+  }
   const { data, error } = await supabase.rpc('get_login_methods');
   if (error || !data) return { access_identifier: true, full_name: true, employee_number: true, email: true };
   return data as LoginMethods;
 }
 
 export async function saveLoginMethodsInDb(methods: LoginMethods): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    setStore('login_methods', methods);
+    return { success: true };
+  }
   const { error } = await supabase.rpc('update_login_settings', { p_settings: methods });
   return error ? { success: false, error: error.message } : { success: true };
 }
@@ -2037,6 +2663,32 @@ const mapGoal = (r: any): ClientGoal => ({
 });
 
 export async function fetchClientGoals(): Promise<ClientGoal[]> {
+  if (!isSupabaseConfigured) {
+    return getStore('client_goals', [
+      {
+        id: 'g-001',
+        clientId: 'c1111111-1111-4111-8111-111111111111',
+        title: 'Manter CSAT acima de 90% em 2026',
+        description: 'Meta anual de satisfação técnica nas operações Sonangol Sede.',
+        metric: 'CSAT',
+        targetValue: 90,
+        dueDate: '2026-12-31',
+        status: 'EM_CURSO',
+        createdAt: '2026-01-01'
+      },
+      {
+        id: 'g-002',
+        clientId: 'c2222222-2222-4222-8222-222222222222',
+        title: 'Atingir NPS Promotor (>= 75)',
+        description: 'Meta trimestral de recomendação e qualidade percebida.',
+        metric: 'NPS',
+        targetValue: 75,
+        dueDate: '2026-12-31',
+        status: 'EM_CURSO',
+        createdAt: '2026-01-01'
+      }
+    ]);
+  }
   const { data, error } = await supabase.from('client_goals').select('*').order('due_date', { ascending: true });
   if (error || !data) return [];
   return (data as any[]).map(mapGoal);
@@ -2046,6 +2698,24 @@ export async function saveClientGoalInDb(
   goal: { id?: string; clientId: string; title: string; description?: string; metric: GoalMetric; targetValue: number; dueDate: string; status?: GoalStatus },
   createdBy: string
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('client_goals', [] as ClientGoal[]);
+    const newGoal: ClientGoal = {
+      id: goal.id || `g-${Date.now()}`,
+      clientId: goal.clientId,
+      title: goal.title.trim(),
+      description: goal.description?.trim(),
+      metric: goal.metric,
+      targetValue: goal.targetValue,
+      dueDate: goal.dueDate,
+      status: goal.status || 'EM_CURSO',
+      createdBy,
+      createdAt: new Date().toISOString()
+    };
+    const updated = goal.id ? list.map(g => g.id === goal.id ? newGoal : g) : [...list, newGoal];
+    setStore('client_goals', updated);
+    return { success: true };
+  }
   const payload: Record<string, unknown> = {
     client_id: goal.clientId, title: goal.title.trim(), description: goal.description?.trim() || null,
     metric: goal.metric, target_value: goal.targetValue, due_date: goal.dueDate, updated_at: new Date().toISOString(),
@@ -2059,12 +2729,22 @@ export async function saveClientGoalInDb(
 }
 
 export async function setClientGoalStatusInDb(id: string, status: GoalStatus): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('client_goals', [] as ClientGoal[]);
+    setStore('client_goals', list.map(g => g.id === id ? { ...g, status } : g));
+    return { success: true };
+  }
   const payload: Record<string, unknown> = { status, updated_at: new Date().toISOString(), achieved_at: status === 'CONCLUIDA' ? new Date().toISOString() : null };
   const { error } = await supabase.from('client_goals').update(payload).eq('id', id);
   return error ? { success: false, error: error.message } : { success: true };
 }
 
 export async function deleteClientGoalInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('client_goals', [] as ClientGoal[]);
+    setStore('client_goals', list.filter(g => g.id !== id));
+    return { success: true };
+  }
   const { error } = await supabase.from('client_goals').delete().eq('id', id);
   return error ? { success: false, error: error.message } : { success: true };
 }

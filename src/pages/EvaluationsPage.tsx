@@ -31,10 +31,12 @@ import {
   ArrowRight,
   Check,
   HelpCircle,
-  FileText
+  FileText,
+  Edit3,
+  Users
 } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
-import { calculateStringSimilarity } from '../services/evaluationUtils';
+import { calculateStringSimilarity, getQueueStatus } from '../services/evaluationUtils';
 
 export const EvaluationsPage: React.FC = () => {
   const { 
@@ -42,15 +44,19 @@ export const EvaluationsPage: React.FC = () => {
     clients, 
     services, 
     providers, 
+    teams,
     addEvaluation, 
     associateEvaluationClient, 
     assignEvaluationProvider, 
+    assignEvaluationTeam,
+    updateEvaluationScores,
     addHRCase,
     setIsClientFormOpen, 
     activeRole, 
     currentUser,
     setActiveTab,
-    setSelectedEvaluationForAnalysis
+    setSelectedEvaluationForAnalysis,
+    evaluationQueueCounts
   } = useApp();
 
   // Permissões
@@ -62,9 +68,31 @@ export const EvaluationsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusQueueFilter, setStatusQueueFilter] = useState<'ALL' | 'UNASSIGNED_CLIENT' | 'UNASSIGNED_PROVIDER' | 'READY_TO_FINALIZE' | 'HOMOLOGATED'>('ALL');
   const [serviceFilter, setServiceFilter] = useState<string>('ALL');
+  const [teamFilter, setTeamFilter] = useState<string>('ALL');
+  const [clientFilter, setClientFilter] = useState<string>('ALL');
   const [ratingFilter, setRatingFilter] = useState<string>('ALL');
   const [startDateFilter, setStartDateFilter] = useState<string>('');
   const [endDateFilter, setEndDateFilter] = useState<string>('');
+
+  // Modal de Atribuição de Equipa Dedicada
+  const [assigningTeamEval, setAssigningTeamEval] = useState<Evaluation | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [customTeamNameInput, setCustomTeamNameInput] = useState<string>('');
+  const [isSubmittingTeam, setIsSubmittingTeam] = useState<boolean>(false);
+  const [teamAssignError, setTeamAssignError] = useState<string | null>(null);
+  const [teamAssignSuccess, setTeamAssignSuccess] = useState<string | null>(null);
+
+  // Modal de Edição de Pontuação Final
+  const [editingScoreEval, setEditingScoreEval] = useState<Evaluation | null>(null);
+  const [editCsat, setEditCsat] = useState<number>(5);
+  const [editNps, setEditNps] = useState<number>(10);
+  const [editTechnicalScore, setEditTechnicalScore] = useState<number>(85);
+  const [editClassification, setEditClassification] = useState<'POSITIVE' | 'NEGATIVE'>('POSITIVE');
+  const [editStatus, setEditStatus] = useState<Evaluation['status']>('PENDING_REVIEW');
+  const [editJustification, setEditJustification] = useState<string>('');
+  const [isSubmittingScoreEdit, setIsSubmittingScoreEdit] = useState<boolean>(false);
+  const [scoreEditError, setScoreEditError] = useState<string | null>(null);
+  const [scoreEditSuccess, setScoreEditSuccess] = useState<string | null>(null);
 
   // Modais de ação
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -116,46 +144,38 @@ export const EvaluationsPage: React.FC = () => {
   const [manualRequiresFollowUp, setManualRequiresFollowUp] = useState(false);
   const [manualError, setManualError] = useState('');
 
-  // Classificação dos 4 estados de cada avaliação na fila
-  const getQueueStatus = (ev: Evaluation): 'UNASSIGNED_CLIENT' | 'UNASSIGNED_PROVIDER' | 'READY_TO_FINALIZE' | 'HOMOLOGATED' => {
-    if (ev.finalizedAt) return 'HOMOLOGATED';
-    if (!ev.clientId) return 'UNASSIGNED_CLIENT';
-    if (!ev.providerId) return 'UNASSIGNED_PROVIDER';
-    return 'READY_TO_FINALIZE';
-  };
+  // Visibilidade de dados sensíveis no painel
+  const [evaluationsVisibility, setEvaluationsVisibility] = useState<Record<string, boolean>>({});
 
-  // Contadores por estado da fila
-  const queueCounts = useMemo(() => {
-    let unassignedClient = 0;
-    let unassignedProvider = 0;
-    let readyToFinalize = 0;
-    let homologated = 0;
+  // A utilizar evaluationQueueCounts do AppContext
 
-    evaluations.forEach(ev => {
-      const q = getQueueStatus(ev);
-      if (q === 'UNASSIGNED_CLIENT') unassignedClient++;
-      else if (q === 'UNASSIGNED_PROVIDER') unassignedProvider++;
-      else if (q === 'READY_TO_FINALIZE') readyToFinalize++;
-      else if (q === 'HOMOLOGATED') homologated++;
-    });
-
-    return {
-      total: evaluations.length,
-      unassignedClient,
-      unassignedProvider,
-      readyToFinalize,
-      homologated
-    };
-  }, [evaluations]);
 
   // Lista filtrada de avaliações
   const filteredEvaluations = useMemo(() => {
     return evaluations.filter(ev => {
-      const qStatus = getQueueStatus(ev);
-
       // Filtro por estado da fila
-      if (statusQueueFilter !== 'ALL' && qStatus !== statusQueueFilter) {
-        return false;
+      if (statusQueueFilter !== 'ALL') {
+        const qStatus = getQueueStatus(ev);
+        if (qStatus !== statusQueueFilter) {
+          return false;
+        }
+      }
+
+      // Filtro por cliente
+      if (clientFilter !== 'ALL') {
+        if (clientFilter === 'UNLINKED' && ev.clientId) return false;
+        if (clientFilter !== 'UNLINKED' && ev.clientId !== clientFilter) return false;
+      }
+
+      // Filtro por equipa
+      if (teamFilter !== 'ALL') {
+        if (teamFilter === 'UNASSIGNED' && (ev.teamId || ev.teamName)) return false;
+        if (teamFilter !== 'UNASSIGNED') {
+          const matchId = ev.teamId === teamFilter;
+          const targetTeam = teams.find(t => t.id === teamFilter);
+          const matchName = targetTeam && ev.teamName?.toLowerCase().includes(targetTeam.name.toLowerCase());
+          if (!matchId && !matchName) return false;
+        }
       }
 
       // Filtro por serviço
@@ -187,16 +207,17 @@ export const EvaluationsPage: React.FC = () => {
         const matchesClient = ev.clientName?.toLowerCase().includes(s);
         const matchesService = ev.serviceName?.toLowerCase().includes(s);
         const matchesProvider = ev.providerName?.toLowerCase().includes(s);
+        const matchesTeam = ev.teamName?.toLowerCase().includes(s);
         const matchesComment = ev.comment?.toLowerCase().includes(s);
 
-        if (!matchesRef && !matchesInput && !matchesClient && !matchesService && !matchesProvider && !matchesComment) {
+        if (!matchesRef && !matchesInput && !matchesClient && !matchesService && !matchesProvider && !matchesTeam && !matchesComment) {
           return false;
         }
       }
 
       return true;
     });
-  }, [evaluations, statusQueueFilter, serviceFilter, ratingFilter, startDateFilter, endDateFilter, searchTerm]);
+  }, [evaluations, statusQueueFilter, clientFilter, teamFilter, serviceFilter, ratingFilter, startDateFilter, endDateFilter, searchTerm, teams]);
 
   // Cálculo de similaridade automática de clientes para o modal de associação
   const suggestedClients = useMemo(() => {
@@ -282,6 +303,81 @@ export const EvaluationsPage: React.FC = () => {
       setTimeout(() => {
         setAssigningEval(null);
       }, 1000);
+    }
+  };
+
+  // Handlers de Atribuição de Equipa Dedicada
+  const handleOpenAssignTeamModal = (ev: Evaluation) => {
+    setAssigningTeamEval(ev);
+    setSelectedTeamId(ev.teamId || '');
+    setCustomTeamNameInput(ev.teamName || '');
+    setTeamAssignError(null);
+    setTeamAssignSuccess(null);
+  };
+
+  const handleConfirmTeamAssignment = async () => {
+    if (!assigningTeamEval) return;
+    setIsSubmittingTeam(true);
+    setTeamAssignError(null);
+    setTeamAssignSuccess(null);
+
+    const teamObj = teams.find(t => t.id === selectedTeamId);
+    const resolvedName = teamObj ? teamObj.name : (customTeamNameInput.trim() || 'Equipa Operacional');
+
+    const res = await assignEvaluationTeam(assigningTeamEval.id, selectedTeamId || `custom-t-${Date.now()}`, resolvedName);
+    setIsSubmittingTeam(false);
+
+    if (!res.success) {
+      setTeamAssignError(res.error || 'Falha ao atribuir equipa.');
+    } else {
+      setTeamAssignSuccess('Equipa dedicada atribuída com sucesso à avaliação!');
+      setTimeout(() => {
+        setAssigningTeamEval(null);
+      }, 1000);
+    }
+  };
+
+  // Handlers de Edição da Pontuação Final de cada Formulário
+  const handleOpenEditScoreModal = (ev: Evaluation) => {
+    setEditingScoreEval(ev);
+    setEditCsat(ev.satisfactionRating || 5);
+    setEditNps(ev.npsScore ?? 10);
+    setEditTechnicalScore(ev.technicalScore !== undefined ? Math.round(ev.technicalScore) : Math.round((ev.satisfactionRating / 5) * 100));
+    setEditClassification(ev.finalClassification || (ev.satisfactionRating >= 4 ? 'POSITIVE' : 'NEGATIVE'));
+    setEditStatus(ev.status || 'REVIEWED');
+    setEditJustification('');
+    setScoreEditError(null);
+    setScoreEditSuccess(null);
+  };
+
+  const handleSaveScoreEdit = async () => {
+    if (!editingScoreEval) return;
+    setIsSubmittingScoreEdit(true);
+    setScoreEditError(null);
+    setScoreEditSuccess(null);
+
+    let updatedComment = editingScoreEval.comment || '';
+    if (editJustification.trim()) {
+      updatedComment += `\n\n[Nota de Ajuste de Pontuação pelo Gestor (${currentUser?.name || 'Administrador'})]: ${editJustification.trim()}`;
+    }
+
+    const res = await updateEvaluationScores(editingScoreEval.id, {
+      satisfactionRating: editCsat,
+      npsScore: editNps,
+      technicalScore: editTechnicalScore,
+      finalClassification: editClassification,
+      status: editStatus,
+      comment: updatedComment
+    });
+
+    setIsSubmittingScoreEdit(false);
+    if (!res.success) {
+      setScoreEditError(res.error || 'Falha ao gravar alteração de pontuação.');
+    } else {
+      setScoreEditSuccess('Pontuação e classificação final atualizadas com sucesso!');
+      setTimeout(() => {
+        setEditingScoreEval(null);
+      }, 1200);
     }
   };
 
@@ -511,8 +607,8 @@ export const EvaluationsPage: React.FC = () => {
           <span className={`text-[10px] font-bold block uppercase tracking-wider ${statusQueueFilter === 'ALL' ? 'text-slate-300' : 'text-slate-500'}`}>
             Total da Fila
           </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-black">{queueCounts.total}</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl font-black">{evaluationQueueCounts.total}</span>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusQueueFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
               Todas
             </span>
@@ -535,7 +631,7 @@ export const EvaluationsPage: React.FC = () => {
             </span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black">{queueCounts.unassignedClient}</span>
+            <span className="text-2xl font-black">{evaluationQueueCounts.unassignedClient}</span>
             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusQueueFilter === 'UNASSIGNED_CLIENT' ? 'bg-white/25 text-white' : 'bg-amber-200 text-amber-900'}`}>
               Nome Livre
             </span>
@@ -558,7 +654,7 @@ export const EvaluationsPage: React.FC = () => {
             </span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black">{queueCounts.unassignedProvider}</span>
+            <span className="text-2xl font-black">{evaluationQueueCounts.unassignedProvider}</span>
             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusQueueFilter === 'UNASSIGNED_PROVIDER' ? 'bg-white/25 text-white' : 'bg-blue-200 text-blue-900'}`}>
               Requer Técnico
             </span>
@@ -581,7 +677,7 @@ export const EvaluationsPage: React.FC = () => {
             </span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black">{queueCounts.readyToFinalize}</span>
+            <span className="text-2xl font-black">{evaluationQueueCounts.readyToFinalize}</span>
             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusQueueFilter === 'READY_TO_FINALIZE' ? 'bg-white/25 text-white' : 'bg-purple-200 text-purple-900'}`}>
               Completa
             </span>
@@ -604,7 +700,7 @@ export const EvaluationsPage: React.FC = () => {
             </span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black">{queueCounts.homologated}</span>
+            <span className="text-2xl font-black">{evaluationQueueCounts.homologated}</span>
             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusQueueFilter === 'HOMOLOGATED' ? 'bg-white/25 text-white' : 'bg-emerald-200 text-emerald-900'}`}>
               Imutável
             </span>
@@ -642,6 +738,32 @@ export const EvaluationsPage: React.FC = () => {
               <option value="ALL">Todos os Serviços</option>
               {services.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+
+            {/* Filtro por Cliente */}
+            <select
+              value={clientFilter}
+              onChange={(e) => setClientFilter(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand font-medium"
+            >
+              <option value="ALL">Todos os Clientes</option>
+              <option value="UNLINKED">Não Associado</option>
+              {clients.filter(c => c.status === 'ACTIVE').map(c => (
+                <option key={c.id} value={c.id}>{c.companyName}</option>
+              ))}
+            </select>
+
+            {/* Filtro por Equipa */}
+            <select
+              value={teamFilter}
+              onChange={(e) => setTeamFilter(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand font-medium"
+            >
+              <option value="ALL">Todas as Equipas</option>
+              <option value="UNASSIGNED">Não Atribuído</option>
+              {teams.filter(t => t.status === 'ACTIVE').map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
 
@@ -765,12 +887,22 @@ export const EvaluationsPage: React.FC = () => {
                       <div className="space-y-1.5">
                         {/* Nome original digitado */}
                         <div>
-                          <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">
-                            Nome digitado no formulário:
-                          </span>
-                          <strong className="text-slate-900 font-black text-xs block">
-                            "{ev.clientNameInput || ev.clientName}"
-                          </strong>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">
+                              Nome digitado no formulário:
+                            </span>
+                            <button 
+                              onClick={() => setEvaluationsVisibility(prev => ({ ...prev, [ev.id]: !prev[ev.id] }))}
+                              className="text-[10px] text-brand-dark hover:underline font-bold"
+                            >
+                              {evaluationsVisibility[ev.id] ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          </div>
+                          {evaluationsVisibility[ev.id] && (
+                            <strong className="text-slate-900 font-black text-xs block">
+                              "{ev.clientNameInput || ev.clientName}"
+                            </strong>
+                          )}
                         </div>
 
                         {/* Estado da associação oficial */}
@@ -976,6 +1108,26 @@ export const EvaluationsPage: React.FC = () => {
                             </button>
                           )
                         )}
+                        
+                        {/* Ações de Gestão (Atribuir Equipa, Editar Pontuação) */}
+                        {canManage && !ev.finalizedAt && (
+                          <div className="flex gap-2 mt-1">
+                            <button
+                              onClick={() => handleOpenAssignTeamModal(ev)}
+                              className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1"
+                            >
+                              <Users className="w-3 h-3" />
+                              <span>Equipa</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditScoreModal(ev)}
+                              className="text-[10px] font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Editar</span>
+                            </button>
+                          </div>
+                        )}
 
                         {/* Botão de abrir ocorrência de RH para avaliações críticas */}
                         {isCritical && canManage && (
@@ -1012,6 +1164,120 @@ export const EvaluationsPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* MODAL DE ATRIBUIÇÃO DE EQUIPA */}
+      {assigningTeamEval && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-lg font-black text-slate-900">Atribuir Equipa Dedicada</h3>
+              <button onClick={() => setAssigningTeamEval(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">Equipa Registada *</label>
+                <select
+                  value={selectedTeamId}
+                  onChange={(e) => setSelectedTeamId(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
+                >
+                  <option value="">-- Selecionar Equipas --</option>
+                  {teams.filter(t => t.status === 'ACTIVE').map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">Ou Nome de Equipa Personalizado (Escrita Livre)</label>
+                <input
+                  type="text"
+                  value={customTeamNameInput}
+                  onChange={(e) => setCustomTeamNameInput(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
+                  placeholder="Nome de equipa ad-hoc..."
+                />
+              </div>
+            </div>
+            
+            {teamAssignError && <p className="text-xs text-rose-600 font-bold">{teamAssignError}</p>}
+            {teamAssignSuccess && <p className="text-xs text-emerald-600 font-bold">{teamAssignSuccess}</p>}
+            
+            <div className="flex justify-end pt-3">
+              <button
+                onClick={handleConfirmTeamAssignment}
+                disabled={isSubmittingTeam}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs"
+              >
+                {isSubmittingTeam ? 'Atribuindo...' : 'Confirmar Atribuição'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO DE PONTUAÇÃO */}
+      {editingScoreEval && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-lg font-black text-slate-900">Ajustar Pontuação Final</h3>
+              <button onClick={() => setEditingScoreEval(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">CSAT (1-5)</label>
+                <input type="number" min="1" max="5" value={editCsat} onChange={e => setEditCsat(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">NPS (0-10)</label>
+                <input type="number" min="0" max="10" value={editNps} onChange={e => setEditNps(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">Nota Técnica (%)</label>
+                <input type="number" min="0" max="100" value={editTechnicalScore} onChange={e => setEditTechnicalScore(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">Classificação</label>
+                <select value={editClassification} onChange={e => setEditClassification(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900">
+                  <option value="POSITIVE">POSITIVA</option>
+                  <option value="NEGATIVE">NEGATIVA</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">Justificação de Ajuste *</label>
+              <textarea
+                value={editJustification}
+                onChange={e => setEditJustification(e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
+                placeholder="Descreva o motivo deste ajuste de pontuação..."
+                rows={3}
+              />
+            </div>
+            
+            {scoreEditError && <p className="text-xs text-rose-600 font-bold">{scoreEditError}</p>}
+            {scoreEditSuccess && <p className="text-xs text-emerald-600 font-bold">{scoreEditSuccess}</p>}
+            
+            <div className="flex justify-end pt-3">
+              <button
+                onClick={handleSaveScoreEdit}
+                disabled={isSubmittingScoreEdit || !editJustification.trim()}
+                className="px-4 py-2 bg-brand-dark hover:opacity-90 text-white font-bold rounded-xl text-xs disabled:opacity-50"
+              >
+                {isSubmittingScoreEdit ? 'Gravando...' : 'Guardar Alterações'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: ASSOCIAR EMPRESA CADASTRADA */}
       {associatingEval && (

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FormCategoryItem, FormQuestion } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { DEFAULT_FORM_CATEGORIES } from '../../services/supabaseService';
+import { DEFAULT_FORM_CATEGORIES, saveCategoryServiceLinks } from '../../services/supabaseService';
 import { 
   Layers, 
   Plus, 
@@ -54,7 +54,8 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     addFormCategory: contextAddCategory,
     updateFormCategory: contextUpdateCategory,
     deleteFormCategory: contextDeleteCategory,
-    refreshFormCategories
+    refreshFormCategories,
+    services
   } = useApp();
 
   const questions = propQuestions || contextQuestions || [];
@@ -73,6 +74,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   const [catColor, setCatColor] = useState<string>('#8CBF26');
   const [catOrder, setCatOrder] = useState<number>(1);
   const [catActive, setCatActive] = useState<boolean>(true);
+  const [catServiceIds, setCatServiceIds] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -101,6 +103,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     setCatColor('#8CBF26');
     setCatOrder(categoriesList.length + 1);
     setCatActive(true);
+    setCatServiceIds([]);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -113,6 +116,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     setCatColor(cat.color || '#8CBF26');
     setCatOrder(cat.display_order ?? 1);
     setCatActive(cat.active ?? true);
+    setCatServiceIds(cat.serviceIds ?? []);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -141,6 +145,12 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
 
       const res = await contextUpdateCategory(editingCategory.id || editingCategory.code, payload);
       if (res.success && res.data) {
+        const link = await saveCategoryServiceLinks(res.data.code || generatedCode, catServiceIds);
+        if (!link.success) {
+          setFormError(`Categoria gravada, mas os serviços não: ${link.error}`);
+          return;
+        }
+        await refreshFormCategories();
         if (onCategoryUpdated) onCategoryUpdated(res.data);
         showToast('success', `Categoria "${res.data.name}" atualizada com sucesso no Supabase.`);
         setIsModalOpen(false);
@@ -166,6 +176,12 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
 
       const res = await contextAddCategory(newCategory);
       if (res.success && res.data) {
+        const link = await saveCategoryServiceLinks(res.data.code || generatedCode, catServiceIds);
+        if (!link.success) {
+          setFormError(`Categoria gravada, mas os serviços não: ${link.error}`);
+          return;
+        }
+        await refreshFormCategories();
         if (onCategoryAdded) onCategoryAdded(res.data);
         showToast('success', `Categoria "${res.data.name}" adicionada e persistida no Supabase.`);
         setIsModalOpen(false);
@@ -469,6 +485,24 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                   />
                 </div>
               </div>
+
+              <fieldset className="pt-2 space-y-1.5">
+                <legend className="text-xs font-black text-slate-900 uppercase tracking-wider">Serviços em que se aplica</legend>
+                <p className="text-[11px] text-slate-600">Sem nenhum serviço marcado, a categoria aparece em todos os serviços.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
+                  {(services ?? []).filter(sv => sv.status === 'ACTIVE').map(sv => (
+                    <label key={sv.id} className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={catServiceIds.includes(sv.id)}
+                        onChange={(e) => setCatServiceIds(prev => e.target.checked ? [...prev, sv.id] : prev.filter(x => x !== sv.id))}
+                        className="w-4 h-4 rounded border-slate-300"
+                      />
+                      {sv.name}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
               <div className="pt-2 flex items-center gap-2">
                 <label className="flex items-center gap-2 cursor-pointer select-none">

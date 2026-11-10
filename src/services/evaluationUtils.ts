@@ -10,8 +10,18 @@ import {
   EvaluationCriterion,
   CriterionScoreSnapshot,
   EvaluationHistoricalSnapshot,
-  CriteriaConfiguration
+  CriteriaConfiguration,
+  Evaluation
 } from '../types';
+
+// ... (existing code)
+
+export const getQueueStatus = (ev: Evaluation): 'UNASSIGNED_CLIENT' | 'UNASSIGNED_PROVIDER' | 'READY_TO_FINALIZE' | 'HOMOLOGATED' => {
+  if (ev.finalizedAt) return 'HOMOLOGATED';
+  if (!ev.clientId) return 'UNASSIGNED_CLIENT';
+  if (!ev.providerId) return 'UNASSIGNED_PROVIDER';
+  return 'READY_TO_FINALIZE';
+};
 
 export const DEFAULT_PASSING_THRESHOLD = 70; // 70% padrão de aprovação
 

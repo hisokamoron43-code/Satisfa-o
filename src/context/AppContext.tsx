@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
   UserProfile, Client, ServiceItem, Provider, Evaluation, HRCase, ProviderPermissionAudit, AuditLog, UserRole, FormQuestion,
-  EvaluationCriterion, EvaluationHistoricalSnapshot, WorkerNotification, Team, Activity, FormCategoryItem
+  EvaluationCriterion, EvaluationHistoricalSnapshot, AuditorReview, WorkerNotification, Team, Activity, FormCategoryItem, EvaluationQueueCounts
 } from '../types';
 import { 
   MOCK_USERS, MOCK_CLIENTS, MOCK_SERVICES, MOCK_PROVIDERS, MOCK_EVALUATIONS, MOCK_HR_CASES, MOCK_PERMISSION_AUDITS, MOCK_AUDIT_LOGS, INITIAL_FORM_QUESTIONS 
@@ -11,7 +11,8 @@ import {
   DEFAULT_PASSING_THRESHOLD,
   validateCriteriaConfiguration,
   calculateWeightedScore,
-  createHistoricalSnapshot
+  createHistoricalSnapshot,
+  getQueueStatus
 } from '../services/evaluationUtils';
 import {
   fetchClientsFromDb,
@@ -61,12 +62,16 @@ import {
   submitEvaluationViaRpc,
   associateEvaluationClientViaRpc,
   assignEvaluationProviderViaRpc,
+  updateEvaluationScoresInDb,
+  assignEvaluationTeamInDb,
   testSupabaseConnection,
   signInWithSupabase,
   signOutFromSupabase,
   getCurrentSupabaseUser,
   getOrCreateUserProfile,
   supabase,
+  isSupabaseConfigured,
+  isValidUuid,
 } from '../services/supabaseService';
 
 interface AppContextType {
@@ -96,7 +101,8 @@ interface AppContextType {
     evaluationId: string,
     ratings: Record<string, number>,
     customThreshold?: number,
-    thresholdOverrideReason?: string
+    thresholdOverrideReason?: string,
+    auditorReview?: AuditorReview
   ) => Promise<{ success: boolean; snapshot?: EvaluationHistoricalSnapshot; error?: string }>;
   
   // Worker Notifications & Result Communication
@@ -129,6 +135,17 @@ interface AppContextType {
   updateEvaluationStatus: (id: string, status: Evaluation['status'], correctiveStatus: Evaluation['correctiveActionStatus']) => Promise<{ success: boolean; error?: string }>;
   associateEvaluationClient: (evaluationId: string, clientId: string) => Promise<{ success: boolean; error?: string }>;
   assignEvaluationProvider: (evaluationId: string, providerId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  assignEvaluationTeam: (evaluationId: string, teamId: string, teamName?: string) => Promise<{ success: boolean; error?: string }>;
+  updateEvaluationScores: (evaluationId: string, updates: {
+    satisfactionRating?: number;
+    npsScore?: number;
+    technicalScore?: number;
+    finalClassification?: 'POSITIVE' | 'NEGATIVE';
+    status?: Evaluation['status'];
+    criterionRatings?: Record<string, number>;
+    comment?: string;
+    notes?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   
   addHRCase: (hrCase: Omit<HRCase, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; data?: HRCase; error?: string }>;
   updateHRCase: (id: string, updated: Partial<HRCase>) => Promise<{ success: boolean; error?: string }>;
@@ -153,6 +170,7 @@ interface AppContextType {
   setIsClientFormOpen: (open: boolean) => void;
   selectedEvaluationForAnalysis: Evaluation | null;
   setSelectedEvaluationForAnalysis: (evaluation: Evaluation | null) => void;
+  evaluationQueueCounts: EvaluationQueueCounts;
 
   // Supabase state
   isSupabaseConnected: boolean | null;
@@ -166,7 +184,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Authentication: starts as null to show login page on startup
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [systemUsers, setSystemUsers] = useState<UserProfile[]>([]);
-  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(false);
   const [activeRole, setActiveRoleState] = useState<UserRole>('ADMIN');
 
   const getInitialTab = (): string => {
@@ -611,6 +629,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setEvaluations(prev => [newEval, ...prev]);
     logAction('CREATE', 'Evaluation', finalId, 'SUCCESS', `Submetida nova avaliação ${finalRef} para ${newEval.clientName}`);
 
+    // Notificação imediata ao gestor (Edge Function notify-evaluation).
+    // Só é enviado o identificador: o servidor lê a avaliação da base de dados. Falha silenciosa:
+    // a avaliação já está guardada e o aviso por e-mail nunca deve bloquear o cliente.
+    if (isSupabaseConfigured && isValidUuid(finalId)) {
+      supabase.functions
+        .invoke('notify-evaluation', { body: { evaluation_id: finalId } })
+        .then(({ error }) => {
+          if (error) console.warn('Notificação ao gestor não enviada.');
+        })
+        .catch(() => console.warn('Notificação ao gestor não enviada.'));
+    }
+
     return { success: true, id: finalId, reference: finalRef };
   };
 
@@ -703,6 +733,83 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
 
     return { success: true, data: res.data };
+  };
+
+  const assignEvaluationTeam = async (
+    evaluationId: string,
+    teamId: string,
+    teamName?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const targetTeam = teams.find(t => t.id === teamId);
+    const resolvedTeamName = teamName || targetTeam?.name || 'Equipa Técnica';
+
+    const res = await assignEvaluationTeamInDb(evaluationId, teamId, resolvedTeamName);
+    if (!res.success) {
+      logAction('UPDATE', 'Evaluation', evaluationId, 'DENIED', `Falha ao atribuir equipa: ${res.error}`);
+      return { success: false, error: res.error || 'Falha ao atribuir equipa na base de dados.' };
+    }
+
+    setEvaluations(prev => prev.map(e => {
+      if (e.id === evaluationId) {
+        logAction('UPDATE', 'Evaluation', evaluationId, 'SUCCESS', `Atribuída equipa "${resolvedTeamName}" à avaliação ${e.reference}.`);
+        return {
+          ...e,
+          teamId,
+          teamName: resolvedTeamName
+        };
+      }
+      return e;
+    }));
+
+    return { success: true };
+  };
+
+  const updateEvaluationScores = async (
+    evaluationId: string,
+    updates: {
+      satisfactionRating?: number;
+      npsScore?: number;
+      technicalScore?: number;
+      finalClassification?: 'POSITIVE' | 'NEGATIVE';
+      status?: Evaluation['status'];
+      criterionRatings?: Record<string, number>;
+      comment?: string;
+      notes?: string;
+    }
+  ): Promise<{ success: boolean; error?: string }> => {
+    const targetEval = evaluations.find(e => e.id === evaluationId);
+    if (!targetEval) return { success: false, error: 'Avaliação não encontrada.' };
+
+    const updatePayload = {
+      satisfactionRating: updates.satisfactionRating !== undefined ? updates.satisfactionRating : targetEval.satisfactionRating,
+      npsScore: updates.npsScore !== undefined ? updates.npsScore : targetEval.npsScore,
+      technicalScore: updates.technicalScore !== undefined ? updates.technicalScore : targetEval.technicalScore,
+      finalClassification: updates.finalClassification || targetEval.finalClassification,
+      status: updates.status || targetEval.status,
+      criterionRatings: updates.criterionRatings || targetEval.criterionRatings,
+      comment: updates.comment !== undefined ? updates.comment : targetEval.comment,
+      finalizedAt: updates.technicalScore !== undefined ? (targetEval.finalizedAt || new Date().toISOString()) : targetEval.finalizedAt,
+      finalizedBy: updates.technicalScore !== undefined ? (targetEval.finalizedBy || currentUser?.name || 'Administrador') : targetEval.finalizedBy,
+    };
+
+    const res = await updateEvaluationScoresInDb(evaluationId, updatePayload);
+    if (!res.success) {
+      logAction('UPDATE', 'EvaluationScore', evaluationId, 'DENIED', `Falha ao atualizar pontuação: ${res.error}`);
+      return { success: false, error: res.error || 'Falha ao atualizar pontuação.' };
+    }
+
+    setEvaluations(prev => prev.map(e => {
+      if (e.id === evaluationId) {
+        logAction('UPDATE', 'EvaluationScore', evaluationId, 'SUCCESS', `Ajustada pontuação da avaliação ${e.reference}: CSAT ${updates.satisfactionRating ?? e.satisfactionRating}/5, Técnico ${updates.technicalScore ?? e.technicalScore}%`);
+        return {
+          ...e,
+          ...updatePayload
+        };
+      }
+      return e;
+    }));
+
+    return { success: true };
   };
 
   const addHRCase = async (hrCaseData: Omit<HRCase, 'id' | 'createdAt' | 'updatedAt'>): Promise<{ success: boolean; data?: HRCase; error?: string }> => {
@@ -901,7 +1008,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     evaluationId: string,
     ratings: Record<string, number>,
     customThreshold?: number,
-    thresholdOverrideReason?: string
+    thresholdOverrideReason?: string,
+    auditorReview?: AuditorReview
   ): Promise<{ success: boolean; snapshot?: EvaluationHistoricalSnapshot; error?: string }> => {
     if (activeRole !== 'ADMIN' && activeRole !== 'HR') {
       return { success: false, error: 'Acesso negado: apenas colaboradores de Recursos Humanos ou Administradores podem homologar avaliações.' };
@@ -920,14 +1028,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
     }
 
-    const thresholdToUse = customThreshold !== undefined ? customThreshold : passingThreshold;
+    // O servidor só aceita um limiar personalizado com justificação. Se o valor é o limiar ativo
+    // (caso normal), não se envia nada e o servidor usa o limiar oficial.
+    const thresholdToUse =
+      customThreshold !== undefined && customThreshold !== passingThreshold && thresholdOverrideReason
+        ? customThreshold
+        : undefined;
 
     // 1. Invocar a procedure transacional oficial no Supabase via RPC
     const rpcResult = await finalizeEvaluationViaRpc(
       evaluationId,
       ratings,
       thresholdToUse,
-      thresholdOverrideReason
+      thresholdToUse !== undefined ? thresholdOverrideReason : undefined,
+      auditorReview
     );
 
     let finalScore: number;
@@ -963,7 +1077,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           finalizedAt,
           finalizedBy,
           criteriaSnapshot: finalizedSnapshot,
-          criterionRatings: ratings
+          criterionRatings: ratings,
+          auditorReview: auditorReview && Object.keys(auditorReview).length > 0 ? auditorReview : e.auditorReview
         };
       }
       return e;
@@ -1119,6 +1234,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return [];
   }, [activeRole, auditLogs]);
 
+  const evaluationQueueCounts = React.useMemo(() => {
+    let unassignedClient = 0;
+    let unassignedProvider = 0;
+    let readyToFinalize = 0;
+    let homologated = 0;
+
+    evaluations.forEach(ev => {
+      const q = getQueueStatus(ev);
+      if (q === 'UNASSIGNED_CLIENT') unassignedClient++;
+      else if (q === 'UNASSIGNED_PROVIDER') unassignedProvider++;
+      else if (q === 'READY_TO_FINALIZE') readyToFinalize++;
+      else if (q === 'HOMOLOGATED') homologated++;
+    });
+
+    return {
+      total: evaluations.length,
+      unassignedClient,
+      unassignedProvider,
+      readyToFinalize,
+      homologated
+    };
+  }, [evaluations]);
+
   return (
     <AppContext.Provider value={{
       currentUser,
@@ -1131,6 +1269,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       services,
       providers,
       evaluations: filteredEvaluations,
+      evaluationQueueCounts,
       hrCases: filteredHRCases,
       permissionAudits,
       auditLogs: filteredAuditLogs,
@@ -1162,6 +1301,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updateEvaluationStatus,
       associateEvaluationClient,
       assignEvaluationProvider,
+      assignEvaluationTeam,
+      updateEvaluationScores,
       addHRCase,
       updateHRCase,
       addFormQuestion,

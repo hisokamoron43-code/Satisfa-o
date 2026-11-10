@@ -1,23 +1,26 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { useApp } from '../../context/AppContext';
+import { IdleSessionGuard } from '../security/IdleSessionGuard';
 
-import { DashboardPage } from '../../pages/DashboardPage';
-import { ClientsPage } from '../../pages/ClientsPage';
-import { CalendarPage } from '../../pages/CalendarPage';
-import { ServicesPage } from '../../pages/ServicesPage';
-import { ProvidersPage } from '../../pages/ProvidersPage';
-import { EvaluationsPage } from '../../pages/EvaluationsPage';
-import { HumanResourcesPage } from '../../pages/HumanResourcesPage';
-import { ReportsPage } from '../../pages/ReportsPage';
-import { UsersPage } from '../../pages/UsersPage';
-import { AuditPage } from '../../pages/AuditPage';
-import { SettingsPage } from '../../pages/SettingsPage';
-import { FormEditorPage } from '../../pages/FormEditorPage';
-import { EvaluationAnalysisPage } from '../../pages/EvaluationAnalysisPage';
-import { EmployeeManagement } from '../../pages/EmployeeManagement';
-import { MessagesPage } from '../../pages/MessagesPage';
+// Cada página é carregada só quando é aberta (divisão do bundle por rotas).
+const DashboardPage = lazy(() => import('../../pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const ClientsPage = lazy(() => import('../../pages/ClientsPage').then((m) => ({ default: m.ClientsPage })));
+const CalendarPage = lazy(() => import('../../pages/CalendarPage').then((m) => ({ default: m.CalendarPage })));
+const ServicesPage = lazy(() => import('../../pages/ServicesPage').then((m) => ({ default: m.ServicesPage })));
+const ProvidersPage = lazy(() => import('../../pages/ProvidersPage').then((m) => ({ default: m.ProvidersPage })));
+const EvaluationsPage = lazy(() => import('../../pages/EvaluationsPage').then((m) => ({ default: m.EvaluationsPage })));
+const HumanResourcesPage = lazy(() => import('../../pages/HumanResourcesPage').then((m) => ({ default: m.HumanResourcesPage })));
+const ReportsPage = lazy(() => import('../../pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const UsersPage = lazy(() => import('../../pages/UsersPage').then((m) => ({ default: m.UsersPage })));
+const AuditPage = lazy(() => import('../../pages/AuditPage').then((m) => ({ default: m.AuditPage })));
+const SettingsPage = lazy(() => import('../../pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const FormEditorPage = lazy(() => import('../../pages/FormEditorPage').then((m) => ({ default: m.FormEditorPage })));
+const EvaluationAnalysisPage = lazy(() => import('../../pages/EvaluationAnalysisPage').then((m) => ({ default: m.EvaluationAnalysisPage })));
+const EmployeeManagement = lazy(() => import('../../pages/EmployeeManagement').then((m) => ({ default: m.EmployeeManagement })));
+const MessagesPage = lazy(() => import('../../pages/MessagesPage').then((m) => ({ default: m.MessagesPage })));
+
 
 export const AppLayout: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -41,7 +44,9 @@ export const AppLayout: React.FC = () => {
       case 'services': return <ServicesPage />;
       case 'providers': return <ProvidersPage />;
       case 'evaluations': return <EvaluationsPage />;
-      case 'evaluation_analysis': return <EvaluationAnalysisPage />;
+      case 'evaluation_analysis': 
+      case 'evaluation-analysis': 
+        return <EvaluationAnalysisPage />;
       case 'form_editor': return <FormEditorPage />;
       case 'hr': return <HumanResourcesPage />;
       case 'employees': 
@@ -58,6 +63,7 @@ export const AppLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col lg:flex-row">
+      <IdleSessionGuard />
       {/* Sidebar */}
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
 
@@ -66,7 +72,9 @@ export const AppLayout: React.FC = () => {
         <Header setMobileOpen={setMobileOpen} />
         
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {renderActivePage()}
+          <Suspense fallback={<div className="py-16 text-center text-sm text-slate-500">A carregar…</div>}>
+            {renderActivePage()}
+          </Suspense>
         </main>
 
         {/* Enterprise Footer */}

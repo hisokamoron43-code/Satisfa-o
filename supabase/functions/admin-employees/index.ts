@@ -504,10 +504,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         const techEmail = `${ident}@${TECHNICAL_DOMAIN}`;
         if (target.user_id) {
+          const { data: before } = await admin.from('profiles').select('email').eq('id', target.user_id).maybeSingle();
           const { error: aErr } = await admin.auth.admin.updateUserById(target.user_id, { email: techEmail, email_confirm: true });
           if (aErr) return json({ error: 'Não foi possível atualizar as credenciais.' }, 400);
           const { error: pErr } = await admin.from('profiles').update({ email: techEmail }).eq('id', target.user_id);
-          if (pErr) return json({ error: 'Não foi possível atualizar o perfil de acesso.' }, 500);
+          if (pErr) {
+            // Compensação: repõe o e-mail técnico anterior para não deixar Auth e perfil dessincronizados
+            if (before?.email) await admin.auth.admin.updateUserById(target.user_id, { email: before.email, email_confirm: true });
+            return json({ error: 'Não foi possível atualizar o perfil de acesso.' }, 500);
+          }
         }
 
         const { error: eErr } = await admin.from('employees')

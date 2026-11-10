@@ -14,18 +14,20 @@ import { SUPABASE_CONFIG_ERROR } from './services/supabaseService';
 const MainRouter: React.FC = () => {
   const { currentUser, isAuthChecking, isClientFormOpen, setIsClientFormOpen } = useApp();
 
-  if (SUPABASE_CONFIG_ERROR) {
-    return (
-      <div className="bg-slate-950 min-h-screen flex flex-col items-center justify-center text-white p-6 font-['Inter',sans-serif]">
-        <p className="text-sm font-bold text-slate-200 tracking-wide">SICSC — AETERNU</p>
-        <p className="text-xs text-amber-300 mt-2 max-w-md text-center">{SUPABASE_CONFIG_ERROR}</p>
-      </div>
-    );
-  }
-
   // Links públicos de avaliação: parâmetros exatos (form, token, mode=form)
   const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const isDirectFormUrl = !!params && (params.has('form') || params.has('token') || params.get('mode') === 'form');
+
+  if (SUPABASE_CONFIG_ERROR) {
+    return (
+      <div className="bg-slate-950 min-h-screen flex items-center justify-center text-white p-6">
+        <div className="max-w-md text-center space-y-2">
+          <p className="text-sm font-bold">SICSC — AETERNU</p>
+          <p className="text-xs text-slate-300">{SUPABASE_CONFIG_ERROR}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (isClientFormOpen || isDirectFormUrl) {
     return (

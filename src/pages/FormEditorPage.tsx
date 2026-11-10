@@ -644,9 +644,13 @@ export const FormEditorPage: React.FC = () => {
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-brand outline-none"
             >
               <option value="ALL">Todos os Tipos de Resposta</option>
-              <option value="RATING_5">⭐ Escala 1-5 (CSAT)</option>
+              <option value="RATING_5">⭐ Estrelas 1-5 (CSAT)</option>
+              <option value="RATING_10">🔢 Escala 1-10</option>
               <option value="NPS_10">📊 Pontuação NPS 0-10</option>
-              <option value="TEXT_ONLY">💬 Texto Livre</option>
+              <option value="SINGLE_CHOICE">🔘 Escolha única</option>
+              <option value="MULTI_CHOICE">☑️ Escolha múltipla</option>
+              <option value="YES_NO_NA">✅ Sim / Não / N.A.</option>
+              <option value="SHORT_TEXT">💬 Pergunta aberta</option>
               <option value="AUDIO_AND_TEXT">🎙️ Áudio & Texto</option>
             </select>
           </div>
@@ -774,9 +778,13 @@ export const FormEditorPage: React.FC = () => {
 
                                   {/* Question type badge */}
                                   <span className="px-2.5 py-1 bg-slate-100 text-slate-800 border border-slate-200 rounded-lg text-[11px] font-bold">
-                                    {q.type === 'RATING_5' && '⭐ Escala 1-5 estrelas'}
+                                    {q.type === 'RATING_5' && '⭐ Estrelas 1-5'}
+                                    {q.type === 'RATING_10' && '🔢 Escala 1-10'}
                                     {q.type === 'NPS_10' && '📊 NPS 0-10'}
-                                    {q.type === 'TEXT_ONLY' && '💬 Texto Livre'}
+                                    {(q.type === 'SINGLE_CHOICE' || q.type === 'MULTIPLE_CHOICE') && '🔘 Escolha única'}
+                                    {q.type === 'MULTI_CHOICE' && '☑️ Escolha múltipla'}
+                                    {q.type === 'YES_NO_NA' && '✅ Sim / Não / N.A.'}
+                                    {(q.type === 'TEXT_ONLY' || q.type === 'SHORT_TEXT') && '💬 Pergunta aberta'}
                                     {q.type === 'AUDIO_AND_TEXT' && '🎙️ Áudio & Texto'}
                                   </span>
 

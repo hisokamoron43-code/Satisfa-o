@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LoginMethods, fetchLoginMethods } from '../services/supabaseService';
 import { useApp } from '../context/AppContext';
+import { IDLE_LOGOUT_FLAG } from '../components/security/IdleSessionGuard';
 import { 
   User, 
   Lock, 
@@ -25,6 +26,14 @@ export const LoginPage: React.FC = () => {
   const [methods, setMethods] = useState<LoginMethods | null>(null);
 
   useEffect(() => { fetchLoginMethods().then(setMethods); }, []);
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(IDLE_LOGOUT_FLAG)) {
+        window.sessionStorage.removeItem(IDLE_LOGOUT_FLAG);
+        setErrorMsg('A sessão terminou por inatividade. Inicie sessão novamente.');
+      }
+    } catch { /* ignorar */ }
+  }, []);
   const hint = methods ? [
     methods.access_identifier && 'identificador de acesso',
     methods.full_name && 'nome completo',
@@ -214,7 +223,7 @@ export const LoginPage: React.FC = () => {
                 </span>
                 <span className="text-[10px] text-emerald-300/80 flex items-center gap-1">
                   <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseConnected ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-                  {isSupabaseConnected ? 'Supabase Conectado' : 'Modo Standby'}
+                  {isSupabaseConnected ? 'Ligação segura ativa' : 'Sem ligação ao servidor'}
                 </span>
               </div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight mt-1">

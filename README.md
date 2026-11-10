@@ -16,7 +16,9 @@ npm run test:db                 # bateria de testes da base de dados (PostgreSQL
 ## Estrutura
 
 - `src/` — frontend.
-- `supabase/migrations/1000_producao_consolidada.sql` — esquema de produção (única migração a executar).
+- `supabase/migrations/1000_producao_consolidada.sql` e `1001_formularios_pesos_servicos.sql` — esquema de produção. Executam-se **sempre juntas e por esta ordem** (a 1000 recria funções que a 1001 altera; correr só a 1000 depois da 1001 desfaz a 1001).
+- `docs/ARQUITETURA_AVALIACAO.md` — modelo de dados, algoritmo de ponderação e componentes do módulo de avaliação.
+- `npm run test:logic` testa o balanceamento de pesos e a pontuação por tipo de questão; `npm run test:db` testa as migrações.
 - `supabase/functions/admin-employees/` — gestão de colaboradores, contas e páginas visíveis.
 - `supabase/obsoletas/` — migrações antigas arquivadas. **Não executar.**
 - `supabase/tests/` — testes da base de dados.

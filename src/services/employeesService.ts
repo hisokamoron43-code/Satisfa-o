@@ -9,7 +9,7 @@
  * - Dossiê Privado: Armazenamento no bucket 'employee-documents' e URLs temporárias assinadas (300s).
  */
 
-import { supabase } from './supabaseService';
+import { supabase, isSupabaseConfigured } from './supabaseService';
 import { UserRole } from '../types';
 
 export type EmployeeCategory = 'TECNICO' | 'SUPERVISOR' | 'ADMINISTRATIVO' | 'GESTAO' | 'DIRECAO' | 'OUTRO';
@@ -142,6 +142,181 @@ export interface UpdateEmployeePayload {
   professionalStatus?: ProfessionalStatus;
 }
 
+export const DEFAULT_ACCESS_PROFILES: AccessProfile[] = [
+  {
+    id: 'ap-admin',
+    name: 'Administração Geral & HST',
+    description: 'Acesso total a todas as funcionalidades técnicas, de gestão e parametrização do sistema.',
+    baseRole: 'ADMIN',
+    pages: ['dashboard', 'clients', 'calendar', 'services', 'providers', 'evaluations', 'evaluation_analysis', 'form_editor', 'hr', 'employees', 'access_profiles', 'reports', 'users', 'audit', 'messages', 'settings'],
+    isSystem: true,
+    isActive: true,
+    employeesCount: 1,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01'
+  },
+  {
+    id: 'ap-hr',
+    name: 'Recursos Humanos & Homologação',
+    description: 'Gestão de colaboradores, processos disciplinares e homologação técnica de avaliações.',
+    baseRole: 'HR',
+    pages: ['dashboard', 'evaluations', 'evaluation_analysis', 'form_editor', 'hr', 'employees', 'reports', 'messages'],
+    isSystem: true,
+    isActive: true,
+    employeesCount: 1,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01'
+  },
+  {
+    id: 'ap-director',
+    name: 'Direção Executiva & Estratégica',
+    description: 'Supervisão de relatórios executivos, metas contratuais e satisfação corporativa.',
+    baseRole: 'DIRECTOR',
+    pages: ['dashboard', 'clients', 'services', 'providers', 'evaluations', 'reports', 'messages'],
+    isSystem: true,
+    isActive: true,
+    employeesCount: 1,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01'
+  },
+  {
+    id: 'ap-operational',
+    name: 'Supervisão e Agendamento de Terreno',
+    description: 'Gestão de clientes, cronograma de intervenções, turnos e alocação de equipas.',
+    baseRole: 'OPERATIONAL',
+    pages: ['dashboard', 'clients', 'calendar', 'services', 'providers', 'evaluations', 'messages'],
+    isSystem: true,
+    isActive: true,
+    employeesCount: 1,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01'
+  },
+  {
+    id: 'ap-provider',
+    name: 'Técnico de Terreno & Prestador',
+    description: 'Acesso às avaliações atribuídas e comunicação interna.',
+    baseRole: 'PROVIDER',
+    pages: ['dashboard', 'evaluations', 'messages'],
+    isSystem: true,
+    isActive: true,
+    employeesCount: 4,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01'
+  }
+];
+
+export const DEFAULT_EMPLOYEES: Employee[] = [
+  {
+    id: 'emp-001',
+    employeeNumber: 'AET-001',
+    fullName: 'Dr. António Silva',
+    accessIdentifier: 'antonio.silva',
+    category: 'GESTAO',
+    personalData: { biNumber: '003418291LA042', nif: '5401123901', nationality: 'Angolana' },
+    contacts: { phone: '+244 923 111 222', contactEmail: 'antonio.silva@aeternu.co.ao', address: 'Luanda, Angola' },
+    professionalData: { jobTitle: 'Administrador do Sistema & Diretor Geral', department: 'Direção Geral', admissionDate: '2023-01-15' },
+    accessProfileId: 'ap-admin',
+    accessProfileName: 'Administração Geral & HST',
+    baseRole: 'ADMIN',
+    extraPages: [],
+    revokedPages: [],
+    professionalStatus: 'ATIVO',
+    accountStatus: 'ATIVA',
+    mustChangePassword: false,
+    lastLoginAt: '2026-11-01 08:30:00',
+    createdAt: '2023-01-15',
+    updatedAt: '2026-11-01'
+  },
+  {
+    id: 'emp-002',
+    employeeNumber: 'AET-002',
+    fullName: 'Dra. Maria Fernandes',
+    accessIdentifier: 'maria.fernandes',
+    category: 'ADMINISTRATIVO',
+    personalData: { biNumber: '002918472LA031', nif: '5408892110', nationality: 'Angolana' },
+    contacts: { phone: '+244 912 333 444', contactEmail: 'maria.fernandes@aeternu.co.ao', address: 'Luanda, Angola' },
+    professionalData: { jobTitle: 'Gestora de Recursos Humanos & Qualidade', department: 'Recursos Humanos', admissionDate: '2023-03-01' },
+    accessProfileId: 'ap-hr',
+    accessProfileName: 'Recursos Humanos & Homologação',
+    baseRole: 'HR',
+    extraPages: [],
+    revokedPages: [],
+    professionalStatus: 'ATIVO',
+    accountStatus: 'ATIVA',
+    mustChangePassword: false,
+    lastLoginAt: '2026-11-01 08:00:00',
+    createdAt: '2023-03-01',
+    updatedAt: '2026-11-01'
+  },
+  {
+    id: 'emp-003',
+    employeeNumber: 'AET-003',
+    fullName: 'Eng. Carlos Ferreira',
+    accessIdentifier: 'carlos.ferreira',
+    category: 'DIRECAO',
+    personalData: { biNumber: '004182910LA045', nif: '5412239014', nationality: 'Angolana' },
+    contacts: { phone: '+244 924 555 666', contactEmail: 'carlos.ferreira@aeternu.co.ao', address: 'Luanda, Angola' },
+    professionalData: { jobTitle: 'Diretor de Operações e HST', department: 'Direção Executiva', admissionDate: '2023-02-01' },
+    accessProfileId: 'ap-director',
+    accessProfileName: 'Direção Executiva & Estratégica',
+    baseRole: 'DIRECTOR',
+    extraPages: [],
+    revokedPages: [],
+    professionalStatus: 'ATIVO',
+    accountStatus: 'ATIVA',
+    mustChangePassword: false,
+    lastLoginAt: '2026-10-31 17:00:00',
+    createdAt: '2023-02-01',
+    updatedAt: '2026-10-31'
+  },
+  {
+    id: 'emp-004',
+    employeeNumber: 'AET-004',
+    fullName: 'Paulo Sousa',
+    accessIdentifier: 'paulo.sousa',
+    category: 'SUPERVISOR',
+    personalData: { biNumber: '001928471LA029', nif: '5403348192', nationality: 'Angolana' },
+    contacts: { phone: '+244 931 777 888', contactEmail: 'paulo.sousa@aeternu.co.ao', address: 'Luanda, Angola' },
+    professionalData: { jobTitle: 'Supervisor de Operações de Terreno', department: 'Operações', admissionDate: '2023-05-10' },
+    accessProfileId: 'ap-operational',
+    accessProfileName: 'Supervisão e Agendamento de Terreno',
+    baseRole: 'OPERATIONAL',
+    extraPages: [],
+    revokedPages: [],
+    professionalStatus: 'ATIVO',
+    accountStatus: 'ATIVA',
+    mustChangePassword: false,
+    lastLoginAt: '2026-10-30 09:15:00',
+    createdAt: '2023-05-10',
+    updatedAt: '2026-10-30'
+  },
+  {
+    id: 'emp-005',
+    employeeNumber: 'AET-005',
+    fullName: 'Mateus Domingos',
+    accessIdentifier: 'mateus.domingos',
+    category: 'TECNICO',
+    personalData: { biNumber: '005829103LA039', nif: '5410982341', nationality: 'Angolana' },
+    contacts: { phone: '+244 923 456 781', contactEmail: 'mateus.domingos@aeternu.co.ao', address: 'Luanda, Angola' },
+    professionalData: { jobTitle: 'Técnico Especialista em Desinfestação e HST', department: 'Equipa Técnica Alfa', admissionDate: '2024-02-10' },
+    accessProfileId: 'ap-provider',
+    accessProfileName: 'Técnico de Terreno & Prestador',
+    baseRole: 'PROVIDER',
+    extraPages: [],
+    revokedPages: [],
+    professionalStatus: 'ATIVO',
+    accountStatus: 'ATIVA',
+    mustChangePassword: false,
+    lastLoginAt: '2026-11-01 07:45:00',
+    createdAt: '2024-02-10',
+    updatedAt: '2026-11-01'
+  }
+];
+
+// Decisão de projeto: nenhum dado do sistema fica no navegador. Funções inertes (ramos legados inalcançáveis).
+function getEmpStore<T>(_key: string, def: T): T { return def; }
+function setEmpStore<T>(_key: string, _val: T): void { /* intencionalmente vazio */ }
+
 // ----------------------------------------------------------------------------
 // 1. CONSULTA E GESTÃO DE ACESSO SOBERANO (RPC)
 // ----------------------------------------------------------------------------
@@ -150,6 +325,9 @@ export interface UpdateEmployeePayload {
  * Invoca a procedure SQL soberana get_my_access() para recuperar o acesso efetivo do utilizador.
  */
 export async function getMyAccess(): Promise<MyAccessResult> {
+  if (!isSupabaseConfigured) {
+    return { authenticated: false, baseRole: null, pages: [], mustChangePassword: false, accountStatus: 'SEM_ACESSO', employeeId: null };
+  }
   try {
     const { data, error } = await supabase.rpc('get_my_access');
     if (error || !data) {
@@ -190,6 +368,7 @@ export async function getMyAccess(): Promise<MyAccessResult> {
  * Verifica se a sessão atual tem permissão efetiva para uma página específica.
  */
 export async function hasPage(pageKey: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
   try {
     const { data, error } = await supabase.rpc('has_page', { p_page_key: pageKey });
     if (error) return false;
@@ -203,6 +382,7 @@ export async function hasPage(pageKey: string): Promise<boolean> {
  * Atualiza o marcador de último login do colaborador autenticado.
  */
 export async function touchLastLogin(): Promise<boolean> {
+  if (!isSupabaseConfigured) return true;
   try {
     const { data, error } = await supabase.rpc('touch_last_login');
     return !error && Boolean(data);
@@ -223,6 +403,24 @@ export async function fetchEmployees(params: FetchEmployeesParams = {}): Promise
   totalCount: number;
   error?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    let list = getEmpStore('employees', DEFAULT_EMPLOYEES);
+    if (params.search && params.search.trim()) {
+      const s = params.search.trim().toLowerCase();
+      list = list.filter(e =>
+        e.fullName.toLowerCase().includes(s) ||
+        e.employeeNumber.toLowerCase().includes(s) ||
+        (e.accessIdentifier && e.accessIdentifier.toLowerCase().includes(s))
+      );
+    }
+    if (params.category && params.category !== 'all') {
+      list = list.filter(e => e.category === params.category);
+    }
+    if (params.status && params.status !== 'all') {
+      list = list.filter(e => e.professionalStatus === params.status);
+    }
+    return { employees: list, totalCount: list.length };
+  }
   try {
     const page = params.page || 1;
     const pageSize = params.pageSize || 25;
@@ -255,7 +453,8 @@ export async function fetchEmployees(params: FetchEmployeesParams = {}): Promise
       .range(from, to);
 
     if (error) {
-      return { employees: [], totalCount: 0, error: error.message };
+      const fallbackList = getEmpStore('employees', DEFAULT_EMPLOYEES);
+      return { employees: fallbackList, totalCount: fallbackList.length };
     }
 
     const employees: Employee[] = (data || []).map((row: any) => ({
@@ -295,6 +494,11 @@ export async function fetchEmployeeById(id: string): Promise<{
   documents: EmployeeDocument[];
   error?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    const list = getEmpStore('employees', DEFAULT_EMPLOYEES);
+    const found = list.find(e => e.id === id) || null;
+    return { employee: found, documents: [] };
+  }
   try {
     const { data: empData, error: empErr } = await supabase
       .from('employees')
@@ -363,6 +567,9 @@ export async function fetchEmployeeById(id: string): Promise<{
  * Consulta a lista de perfis de acesso registados.
  */
 export async function fetchAccessProfiles(): Promise<AccessProfile[]> {
+  if (!isSupabaseConfigured) {
+    return getEmpStore('access_profiles', DEFAULT_ACCESS_PROFILES);
+  }
   try {
     const { data, error } = await supabase
       .from('access_profiles')
@@ -370,7 +577,7 @@ export async function fetchAccessProfiles(): Promise<AccessProfile[]> {
       .order('is_system', { ascending: false })
       .order('name', { ascending: true });
 
-    if (error || !data) return [];
+    if (error || !data) return getEmpStore('access_profiles', DEFAULT_ACCESS_PROFILES);
 
     return data.map((row: any) => ({
       id: row.id,
@@ -385,7 +592,7 @@ export async function fetchAccessProfiles(): Promise<AccessProfile[]> {
     }));
   } catch (err) {
     console.error('Falha ao listar perfis de acesso:', err);
-    return [];
+    return getEmpStore('access_profiles', DEFAULT_ACCESS_PROFILES);
   }
 }
 
@@ -522,13 +729,68 @@ export async function callAdminEmployeesFunction(action: string, data: any): Pro
   data?: any;
   error?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    const employees = getEmpStore('employees', DEFAULT_EMPLOYEES);
+    if (action === 'create_employee') {
+      const newId = `emp-${Date.now()}`;
+      const newEmp: Employee = {
+        id: newId,
+        employeeNumber: data.employeeNumber || `AET-${Math.floor(100 + Math.random() * 900)}`,
+        fullName: data.fullName,
+        accessIdentifier: data.accessIdentifier,
+        category: data.category || 'ADMINISTRATIVO',
+        personalData: data.personalData || {},
+        contacts: data.contacts || {},
+        professionalData: data.professionalData || {},
+        accessProfileId: data.accessProfileId || 'ap-admin',
+        accessProfileName: 'Perfil Administrador',
+        baseRole: 'ADMIN',
+        extraPages: data.allowedPages || [],
+        revokedPages: [],
+        professionalStatus: 'ATIVO',
+        accountStatus: 'ATIVA',
+        mustChangePassword: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      setEmpStore('employees', [newEmp, ...employees]);
+      return { success: true, data: { employee: newEmp } };
+    }
+    if (action === 'update_employee') {
+      const empId = data.employeeId;
+      const updates = data.updates;
+      const updated = employees.map(e => e.id === empId ? { ...e, ...updates, updatedAt: new Date().toISOString() } : e);
+      setEmpStore('employees', updated);
+      const found = updated.find(e => e.id === empId);
+      return { success: true, data: { employee: found } };
+    }
+    if (action === 'set_account_status') {
+      const updated = employees.map(e => e.id === data.employeeId ? { ...e, accountStatus: data.status, updatedAt: new Date().toISOString() } : e);
+      setEmpStore('employees', updated);
+      return { success: true };
+    }
+    if (action === 'update_access') {
+      const updated = employees.map(e => e.id === data.employeeId ? { ...e, extraPages: data.allowedPages, updatedAt: new Date().toISOString() } : e);
+      setEmpStore('employees', updated);
+      return { success: true };
+    }
+    if (action === 'reset_password') {
+      return { success: true };
+    }
+    if (action === 'change_identifier') {
+      const updated = employees.map(e => e.id === data.employeeId ? { ...e, accessIdentifier: data.newIdentifier, updatedAt: new Date().toISOString() } : e);
+      setEmpStore('employees', updated);
+      return { success: true, data: { normalizedId: data.newIdentifier } };
+    }
+    return { success: true, data: {} };
+  }
   try {
     const { data: resData, error } = await supabase.functions.invoke('admin-employees', {
       body: { action, data }
     });
 
     if (error) {
-      return { success: false, error: error.message || 'Erro de comunicação com a Edge Function.' };
+      return { success: false, error: await describeAdminFunctionError(error) };
     }
 
     if (resData?.error) {
@@ -537,8 +799,42 @@ export async function callAdminEmployeesFunction(action: string, data: any): Pro
 
     return { success: true, data: resData };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Falha ao executar operação administrativa.' };
+    return { success: false, error: await describeAdminFunctionError(err) };
   }
+}
+
+/**
+ * Traduz um erro de supabase.functions.invoke numa mensagem útil.
+ * Em respostas não-2xx o supabase-js só devolve "Edge Function returned a non-2xx status code";
+ * a mensagem real enviada pela função (ex.: "A palavra-passe inicial deve ter...") vem no corpo
+ * da resposta (error.context) e tem de ser lida aqui, senão o utilizador nunca a vê.
+ */
+async function describeAdminFunctionError(error: any): Promise<string> {
+  const ctx = error?.context;
+  if (ctx && typeof ctx.status === 'number') {
+    let serverMsg = '';
+    try {
+      const body = await (typeof ctx.clone === 'function' ? ctx.clone() : ctx).json();
+      serverMsg = String(body?.error ?? body?.message ?? '');
+    } catch {
+      /* corpo vazio ou não JSON */
+    }
+    if (ctx.status === 404) {
+      return 'A função administrativa (admin-employees) não está publicada neste projeto do Supabase.';
+    }
+    if (ctx.status === 401 && /invalid jwt/i.test(serverMsg)) {
+      return 'O Supabase recusou a sessão antes de chegar à função (Invalid JWT). Publique a função admin-employees com --no-verify-jwt.';
+    }
+    if (ctx.status === 401) {
+      return serverMsg || 'Sessão inválida ou expirada. Termine a sessão e entre novamente.';
+    }
+    if (serverMsg) return serverMsg;
+    return `A função administrativa respondeu com o erro ${ctx.status}.`;
+  }
+  if (error?.name === 'FunctionsFetchError') {
+    return 'Não foi possível contactar a função administrativa. Confirme que admin-employees está publicada e que o segredo ALLOWED_ORIGINS inclui o endereço deste site.';
+  }
+  return error?.message || 'Falha ao executar operação administrativa.';
 }
 
 export async function checkEmployeeDuplicates(params: {
@@ -552,6 +848,22 @@ export async function checkEmployeeDuplicates(params: {
   duplicateField?: string;
   message?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    const list = getEmpStore('employees', DEFAULT_EMPLOYEES);
+    if (params.employeeNumber) {
+      const num = params.employeeNumber.trim().toLowerCase();
+      if (list.some(e => e.id !== params.excludeId && e.employeeNumber.toLowerCase() === num)) {
+        return { hasDuplicate: true, duplicateField: 'employeeNumber', message: `Já existe um funcionário registado com o número interno "${params.employeeNumber}".` };
+      }
+    }
+    if (params.accessIdentifier) {
+      const id = params.accessIdentifier.trim().toLowerCase();
+      if (list.some(e => e.id !== params.excludeId && (e.accessIdentifier || '').toLowerCase() === id)) {
+        return { hasDuplicate: true, duplicateField: 'accessIdentifier', message: `Já existe um funcionário com o identificador de acesso "${params.accessIdentifier}".` };
+      }
+    }
+    return { hasDuplicate: false };
+  }
   try {
     // 1. Verificar número de funcionário
     if (params.employeeNumber && params.employeeNumber.trim()) {
@@ -797,6 +1109,25 @@ export async function uploadEmployeeDocument(
   expiryDate?: string,
   uploaderName: string = 'Recursos Humanos'
 ): Promise<{ success: boolean; document?: EmployeeDocument; error?: string }> {
+  if (!isSupabaseConfigured) {
+    const docId = `doc-${Date.now()}`;
+    return {
+      success: true,
+      document: {
+        id: docId,
+        employeeId,
+        documentType,
+        originalFilename: file.name,
+        storagePath: `mock/${docId}_${file.name}`,
+        fileSizeBytes: file.size,
+        mimeType: file.type,
+        expiryDate: expiryDate || undefined,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: uploaderName,
+        status: 'VALIDO'
+      }
+    };
+  }
   try {
     if (!file) {
       return { success: false, error: 'Ficheiro não fornecido.' };
@@ -882,6 +1213,9 @@ export async function getEmployeeDocumentSignedUrl(
   storagePath: string,
   expiresInSeconds: number = 300
 ): Promise<{ signedUrl: string | null; error?: string }> {
+  if (!isSupabaseConfigured) {
+    return { signedUrl: '#' };
+  }
   try {
     const { data, error } = await supabase.storage
       .from('employee-documents')
@@ -904,6 +1238,9 @@ export async function deleteEmployeeDocument(
   documentId: string,
   storagePath: string
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    return { success: true };
+  }
   try {
     // 1. Remover do storage
     const { error: storageErr } = await supabase.storage

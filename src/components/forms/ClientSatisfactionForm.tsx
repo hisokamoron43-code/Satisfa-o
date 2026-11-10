@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { isValidUuid, uploadEvaluationAudio } from '../../services/supabaseService';
+import type { FormQuestion } from '../../types';
 import { 
   Mic, 
   Square, 
@@ -41,8 +42,11 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
   const { 
     services, 
     providers, 
+    teams,
+    activities,
     addEvaluation, 
-    formQuestions 
+    formQuestions,
+    formCategories
   } = useApp();
 
   // Active step (1 to 4)
@@ -59,15 +63,27 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
   }, [services]);
 
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('');
-  const [customProviderName, setCustomProviderName] = useState<string>('');
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [customTeamName, setCustomTeamName] = useState<string>('');
   const [serviceDate, setServiceDate] = useState<string>(new Date().toISOString().substring(0, 10));
+
+  // Equipas agendadas no calendário operacional para a data de serviço selecionada
+  const scheduledTeamsForDate = useMemo(() => {
+    const acts = activities.filter(a => a.activityDate === serviceDate);
+    const teamNames = Array.from(new Set(acts.map(a => a.teamName).filter((n): n is string => Boolean(n))));
+    return teams.filter(t => teamNames.includes(t.name) || teamNames.some(tn => tn && t.name.toLowerCase().includes(tn.toLowerCase())));
+  }, [activities, teams, serviceDate]);
 
   // Step 2 & 3: Respostas das Perguntas
   // questionId -> rating (1-5)
   const [ratings, setRatings] = useState<Record<string, number>>({});
   // questionId -> text answer
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
+  // Respostas dos tipos estruturados (escala 1-10, escolha única/múltipla, Sim/Não/N.A.)
+  const [scaleAnswers, setScaleAnswers] = useState<Record<string, number>>({});
+  const [choiceAnswers, setChoiceAnswers] = useState<Record<string, string>>({});
+  const [multiAnswers, setMultiAnswers] = useState<Record<string, string[]>>({});
+  const [yesNoAnswers, setYesNoAnswers] = useState<Record<string, 'YES' | 'NO' | 'NA'>>({});
   
   // Audio Recording State for open questions
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -98,8 +114,8 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
     if (availableServices.length > 0 && selectedServiceIds.length === 0) {
       setSelectedServiceIds([availableServices[0].id]);
     }
-    if (providers.length > 0 && !selectedProviderId) {
-      setSelectedProviderId(providers[0].id);
+    if (teams.length > 0 && !selectedTeamId) {
+      setSelectedTeamId(teams[0].id);
     }
 
     // Default ratings for RATING_5 questions
@@ -110,7 +126,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
       }
     });
     setRatings(initialRatings);
-  }, [availableServices, providers, formQuestions]);
+  }, [availableServices, teams, formQuestions]);
 
   // Clean up media stream, audio player, timer and memory on unmount
   useEffect(() => {
@@ -137,16 +153,29 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
     return formQuestions
       .filter(q => {
         if (!q.active) return false;
+        // Categoria restrita a certos serviços: só aparece se algum deles estiver selecionado
+        const cat = formCategories.find(c => c.code === q.category || c.id === q.category);
+        if (cat?.serviceIds && cat.serviceIds.length > 0 && !cat.serviceIds.some(id => selectedServiceIds.includes(id))) return false;
         // General questions (no specific service_id) are always included for all services
         if (!q.service_id) return true;
         // Specific service questions are included if the service is selected
         return selectedServiceIds.includes(q.service_id);
       })
       .sort((a, b) => (a.order || 0) - (b.order || 0));
-  }, [formQuestions, selectedServiceIds]);
+  }, [formQuestions, formCategories, selectedServiceIds]);
 
   const ratingQuestions = useMemo(() => activeQuestions.filter(q => q.type === 'RATING_5'), [activeQuestions]);
-  const openQuestions = useMemo(() => activeQuestions.filter(q => q.type === 'AUDIO_AND_TEXT' || q.type === 'TEXT_ONLY'), [activeQuestions]);
+  const openQuestions = useMemo(() => activeQuestions.filter(q => q.type === 'AUDIO_AND_TEXT' || q.type === 'TEXT_ONLY' || q.type === 'SHORT_TEXT'), [activeQuestions]);
+  const structuredQuestions = useMemo(
+    () => activeQuestions.filter(q => ['RATING_10', 'SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'MULTI_CHOICE', 'YES_NO_NA'].includes(q.type)),
+    [activeQuestions]
+  );
+  const isStructuredAnswered = (q: FormQuestion): boolean => {
+    if (q.type === 'RATING_10') return scaleAnswers[q.id] !== undefined;
+    if (q.type === 'MULTI_CHOICE') return (multiAnswers[q.id] || []).length > 0;
+    if (q.type === 'YES_NO_NA') return yesNoAnswers[q.id] !== undefined;
+    return Boolean(choiceAnswers[q.id]);
+  };
 
   // Toggle selected service
   const toggleService = (srvId: string) => {
@@ -396,13 +425,13 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         setErrorMessage('Selecione pelo menos um tipo de serviço prestado.');
         return;
       }
-      const firstSrvId = selectedServiceIds[0];
-      if (!isValidUuid(firstSrvId)) {
-        setErrorMessage('Identificador de serviço inválido (formato UUID esperado).');
-        return;
-      }
       setCurrentStep(2);
     } else if (currentStep === 2) {
+      const missing = structuredQuestions.find(q => q.required && !isStructuredAnswered(q));
+      if (missing) {
+        setErrorMessage(`Responda à questão obrigatória: "${missing.text}".`);
+        return;
+      }
       setCurrentStep(3);
     } else if (currentStep === 3) {
       if (isRecording) {
@@ -445,13 +474,6 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
       return;
     }
 
-    const firstSrvId = selectedServiceIds[0];
-    if (!isValidUuid(firstSrvId)) {
-      setCurrentStep(1);
-      setErrorMessage('Identificador de serviço inválido (formato UUID esperado).');
-      return;
-    }
-
     if (npsScore < 0 || npsScore > 10) {
       setSubmitError('A pontuação NPS deve estar entre 0 e 10.');
       return;
@@ -482,13 +504,17 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         ? selectedServiceObjs.map(s => s.name).join(', ') 
         : 'Serviço de Higiene e Ambiente';
 
-      const providerObj = providers.find(p => p.id === selectedProviderId);
-      const providerName = providerObj ? providerObj.name : (customProviderName.trim() || 'Equipa Técnica AETERNU');
+      const teamObj = teams.find(t => t.id === selectedTeamId);
+      const teamName = teamObj ? teamObj.name : (customTeamName.trim() || 'Equipa Técnica Operacional AETERNU');
 
       // Calculate average satisfaction rating from rating questions
       const ratingValues = Object.values(ratings);
+      const scaleValues: number[] = Object.values(scaleAnswers);
       const averageRating = ratingValues.length > 0
         ? Math.round(ratingValues.reduce((a, b) => a + b, 0) / ratingValues.length)
+        : scaleValues.length > 0
+        // Sem estrelas no formulário: a perceção global deriva da escala 1-10 (convertida para 1-5)
+        ? Math.min(5, Math.max(1, Math.round(scaleValues.reduce((a, b) => a + b, 0) / scaleValues.length / 2)))
         : null;
       if (averageRating === null) {
         setCurrentStep(2);
@@ -501,6 +527,9 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         rating?: number; 
         textAnswer?: string; 
         audioUrl?: string;
+        choice?: string;
+        choices?: string[];
+        yesNo?: 'YES' | 'NO' | 'NA';
         questionText?: string;
         questionCategory?: string;
         questionType?: string;
@@ -513,7 +542,14 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         category: q.category,
         type: q.type,
         required: q.required,
-        service_id: q.service_id
+        service_id: q.service_id,
+        // Configuração congelada no momento da resposta: permite mostrar o formulário tal como o cliente o viu
+        description: q.description,
+        options: q.options,
+        optionScores: q.optionScores,
+        yesScore: q.yesScore,
+        noScore: q.noScore,
+        affectsScore: q.affectsScore
       }));
 
       // Array canónico de respostas para validação do procedimento submit_evaluation no servidor
@@ -522,6 +558,10 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         if (q.type === 'RATING_5') {
           if (ratings[q.id] !== undefined) item.rating = ratings[q.id];
         }
+        if (q.type === 'RATING_10' && scaleAnswers[q.id] !== undefined) item.rating = scaleAnswers[q.id];
+        if (choiceAnswers[q.id]) item.choice = choiceAnswers[q.id];
+        if ((multiAnswers[q.id] || []).length > 0) item.choices = multiAnswers[q.id];
+        if (yesNoAnswers[q.id]) item.yesNo = yesNoAnswers[q.id];
         if (textAnswers[q.id]) {
           item.textAnswer = textAnswers[q.id];
         }
@@ -533,7 +573,10 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
 
       activeQuestions.forEach(q => {
         detailedAnswers[q.id] = {
-          rating: ratings[q.id],
+          rating: q.type === 'RATING_10' ? scaleAnswers[q.id] : ratings[q.id],
+          choice: choiceAnswers[q.id],
+          choices: (multiAnswers[q.id] || []).length > 0 ? multiAnswers[q.id] : undefined,
+          yesNo: yesNoAnswers[q.id],
           textAnswer: textAnswers[q.id],
           audioUrl: q.type === 'AUDIO_AND_TEXT' ? (audioRef || undefined) : undefined,
           questionText: q.text,
@@ -559,7 +602,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
 
       // Proteção de formato UUID: apenas envia se for formato UUID genuíno
       const validServiceId = isValidUuid(selectedServiceIds[0]) ? selectedServiceIds[0] : undefined;
-      const validProviderId = isValidUuid(selectedProviderId) ? selectedProviderId : undefined;
+      const validTeamId = isValidUuid(selectedTeamId) ? selectedTeamId : undefined;
 
       const result = await addEvaluation({
         clientId: undefined, // Submissão pública anónima SEMPRE gera client_id = NULL
@@ -567,8 +610,10 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         clientNameInput: clientName,
         serviceId: validServiceId,
         serviceName,
-        providerId: validProviderId,
-        providerName,
+        providerId: undefined,
+        providerName: teamName,
+        teamId: validTeamId,
+        teamName: teamName,
         serviceDate,
         satisfactionRating: Math.max(1, Math.min(5, averageRating)),
         npsScore: npsAnswered ? npsScore : undefined,
@@ -844,37 +889,37 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                       </p>
                     </div>
 
-                    {/* Prestador / Técnico */}
+                    {/* Equipa Responsável */}
                     <div className="space-y-2">
                       <label className="block text-xs font-black text-slate-950 uppercase tracking-wide flex items-center gap-1.5">
-                        <UserCheck className="w-3.5 h-3.5 text-brand-dark" /> Técnico / Prestador Responsável
+                        <UserCheck className="w-3.5 h-3.5 text-brand-dark" /> Equipa Responsável *
                       </label>
-                      {providers.length > 0 ? (
+                      {teams.length > 0 ? (
                         <select
-                          value={selectedProviderId}
-                          onChange={(e) => setSelectedProviderId(e.target.value)}
+                          value={selectedTeamId}
+                          onChange={(e) => setSelectedTeamId(e.target.value)}
                           className="w-full bg-white border border-slate-300 text-slate-950 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand font-medium shadow-2xs transition"
                         >
-                          {providers.map(p => (
-                            <option key={p.id} value={p.id} className="bg-white text-slate-950">{p.name} ({p.internalCode})</option>
+                          {teams.map(t => (
+                            <option key={t.id} value={t.id} className="bg-white text-slate-950">{t.name} ({t.code}) - {t.department}</option>
                           ))}
-                          <option value="custom" className="bg-white text-slate-950">Outro Técnico (Digitar Manualmente)...</option>
+                          <option value="custom" className="bg-white text-slate-950">Outra Equipa (Escrever Livremente)...</option>
                         </select>
                       ) : (
                         <input
                           type="text"
-                          value={customProviderName}
-                          onChange={(e) => setCustomProviderName(e.target.value)}
-                          placeholder="Nome do Técnico ou Encarregado..."
+                          value={customTeamName}
+                          onChange={(e) => setCustomTeamName(e.target.value)}
+                          placeholder="Nome da Equipa Operacional..."
                           className="w-full bg-white border border-slate-300 text-slate-950 placeholder-slate-400 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand font-medium shadow-2xs transition"
                         />
                       )}
-                      {selectedProviderId === 'custom' && providers.length > 0 && (
+                      {selectedTeamId === 'custom' && teams.length > 0 && (
                         <input
                           type="text"
-                          value={customProviderName}
-                          onChange={(e) => setCustomProviderName(e.target.value)}
-                          placeholder="Nome do técnico..."
+                          value={customTeamName}
+                          onChange={(e) => setCustomTeamName(e.target.value)}
+                          placeholder="Escreva o nome da equipa..."
                           className="w-full mt-2 bg-white border border-slate-300 text-slate-950 placeholder-slate-400 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand font-medium shadow-2xs transition"
                         />
                       )}
@@ -1007,6 +1052,73 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                       );
                     })}
                   </div>
+
+                  {/* Questões de escala, escolha e Sim/Não configuradas pelo RH */}
+                  {structuredQuestions.length > 0 && (
+                    <div className="space-y-4">
+                      {structuredQuestions.map((q) => {
+                        const options = q.options || [];
+                        const chipBase = 'px-3 py-2 rounded-xl border text-xs font-bold transition';
+                        const chipOn = 'bg-brand/25 border-2 border-brand-dark text-slate-950';
+                        const chipOff = 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100';
+                        return (
+                          <div key={q.id} className="p-5 bg-slate-50/70 border border-slate-200 rounded-2xl space-y-3 shadow-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand/20 text-slate-950 border border-brand/30">{q.category}</span>
+                              <h4 className="text-sm font-bold text-slate-950">{q.text}{q.required ? ' *' : ''}</h4>
+                            </div>
+                            {q.description && <p className="text-xs text-slate-600 font-medium">{q.description}</p>}
+
+                            {q.type === 'RATING_10' && (
+                              <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5" role="radiogroup" aria-label={q.text}>
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                                  <button key={n} type="button" role="radio" aria-checked={scaleAnswers[q.id] === n}
+                                    onClick={() => setScaleAnswers({ ...scaleAnswers, [q.id]: n })}
+                                    className={`${chipBase} ${scaleAnswers[q.id] === n ? chipOn : chipOff}`}>{n}</button>
+                                ))}
+                              </div>
+                            )}
+
+                            {(q.type === 'SINGLE_CHOICE' || q.type === 'MULTIPLE_CHOICE') && (
+                              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={q.text}>
+                                {options.map((o) => (
+                                  <button key={o} type="button" role="radio" aria-checked={choiceAnswers[q.id] === o}
+                                    onClick={() => setChoiceAnswers({ ...choiceAnswers, [q.id]: o })}
+                                    className={`${chipBase} ${choiceAnswers[q.id] === o ? chipOn : chipOff}`}>{o}</button>
+                                ))}
+                              </div>
+                            )}
+
+                            {q.type === 'MULTI_CHOICE' && (
+                              <div className="flex flex-wrap gap-2" role="group" aria-label={q.text}>
+                                {options.map((o) => {
+                                  const on = (multiAnswers[q.id] || []).includes(o);
+                                  return (
+                                    <button key={o} type="button" aria-pressed={on}
+                                      onClick={() => {
+                                        const cur = multiAnswers[q.id] || [];
+                                        setMultiAnswers({ ...multiAnswers, [q.id]: on ? cur.filter(x => x !== o) : [...cur, o] });
+                                      }}
+                                      className={`${chipBase} ${on ? chipOn : chipOff}`}>{on ? '✓ ' : ''}{o}</button>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {q.type === 'YES_NO_NA' && (
+                              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={q.text}>
+                                {([['YES', 'Sim'], ['NO', 'Não'], ['NA', 'Não aplicável']] as const).map(([v, label]) => (
+                                  <button key={v} type="button" role="radio" aria-checked={yesNoAnswers[q.id] === v}
+                                    onClick={() => setYesNoAnswers({ ...yesNoAnswers, [q.id]: v })}
+                                    className={`${chipBase} ${yesNoAnswers[q.id] === v ? chipOn : chipOff}`}>{label}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

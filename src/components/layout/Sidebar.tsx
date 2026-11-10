@@ -24,7 +24,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
-  const { activeTab, setActiveTab, currentUser, logout } = useApp();
+  const { activeTab, setActiveTab, currentUser, logout, evaluationQueueCounts } = useApp();
 
   const allNavItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: LayoutDashboard },
@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
     { id: 'calendar', label: 'Calendário & Operações', icon: Calendar, badge: 'Agenda' },
     { id: 'services', label: 'Serviços', icon: Briefcase },
     { id: 'providers', label: 'Prestadores', icon: UserCheck },
-    { id: 'evaluations', label: 'Avaliações', icon: Star },
+    { id: 'evaluations', label: 'Avaliações', icon: Star, count: (evaluationQueueCounts.unassignedClient + evaluationQueueCounts.unassignedProvider) },
     { id: 'evaluation_analysis', label: 'Análise de Avaliação', icon: CheckCircle },
     { id: 'form_editor', label: 'Edição de Formulário', icon: Settings },
     { id: 'hr', label: 'Recursos Humanos', icon: Users, badge: 'RH' },
@@ -112,7 +112,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
                   <Icon className={`w-4 h-4 ${isActive ? 'text-slate-950' : 'text-brand group-hover:scale-110 transition-transform'}`} />
                   <span>{item.label}</span>
                 </div>
-                {item.badge && (
+                {item.count && item.count > 0 ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-rose-500 text-white font-extrabold">
+                    {item.count}
+                  </span>
+                ) : item.badge && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${isActive ? 'bg-slate-950/20 text-slate-950 font-extrabold' : 'bg-slate-800 text-brand'}`}>
                     {item.badge}
                   </span>

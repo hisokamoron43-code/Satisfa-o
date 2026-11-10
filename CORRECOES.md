@@ -147,3 +147,39 @@ Pontos que não foram revistos em profundidade: fluxo completo de preenchimento 
 - Botão flutuante em todos os ecrãs. A preferência é guardada no navegador (não contém dados sensíveis).
 - As cores da marca passaram a tokens centrais (`brand`, `brand-dark`, `brand-deep`) em vez de valores repetidos (412 ocorrências em 28 ficheiros).
 - O modo escuro remapeia as cores de superfície, texto e bordas. Não foi revisto ecrã a ecrã com o navegador: pode haver contrastes a ajustar.
+
+
+## Versão 4 — regressões corrigidas e pendências
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Modo demonstração voltou: login sem palavra-passe como utilizador fictício quando o Supabase não está configurado | Corrigido (código) | `signInWithSupabase` recusa; `getCurrentSupabaseUser` devolve nulo |
+| `getMyAccess` devolvia ADMIN com todas as páginas sem Supabase | Corrigido (código) | Devolve não autenticado; `hasPage` devolve falso |
+| Painel "Acesso Rápido" com palavras-passe fixas no ecrã de login | Corrigido (código) | Painel removido |
+| Dados do sistema em `localStorage` (`sicsc_store_*`, `sicsc_emp_*`) | Corrigido (código) | Funções de leitura/escrita tornadas inertes; nada é gravado no navegador |
+| Aplicação arrancava sem configuração do Supabase (chave de substituição) | Corrigido (código) | `SUPABASE_CONFIG_ERROR` preenchido e `App.tsx` mostra erro em vez da aplicação |
+| Sessão por inatividade | Corrigido (código), não testado no navegador | `IdleSessionGuard`: 30 min (`VITE_IDLE_TIMEOUT_MINUTES`), aviso de 60 s com contagem, aviso no login após expirar |
+| Bundle único de 1,4 MB | Corrigido (código), tamanho por medir | Páginas carregadas sob demanda (`React.lazy` + `Suspense`) |
+| `change_identifier` podia deixar Auth e perfil dessincronizados | Corrigido (Edge Function) | Reposição do e-mail anterior se a atualização do perfil falhar |
+| Ecrã de páginas e edição de identificador/palavra-passe | Já existiam na versão enviada | Sem alteração |
+
+Ainda por fazer:
+- **Tipagem fraca**: ativar `noImplicitAny` produz cerca de 640 erros; a redução dos `any` tem de ser feita por ficheiros, com `npm run lint` a validar cada passo.
+- **Ramos de modo standby** (`if (!isSupabaseConfigured)`, cerca de 90) continuam no código, agora inalcançáveis; remoção por etapas.
+
+
+## Versão 5 — módulo de avaliação, formulários e pesos
+
+| Item | Estado | Notas |
+|---|---|---|
+| Tipos de questão: escala 1-10, escolha única/múltipla com valor de conformidade, Sim/Não/N.A., aberta, áudio+texto | Código feito, por testar no navegador | `QuestionTypeConfig` partilhado; o formulário do cliente renderiza e submete todos |
+| Formulário preenchido completo ao lado das notas do auditor | Código feito, por testar no navegador | `EvaluationReviewWorkspace`: respostas por tipo, player de áudio, notas sugeridas, parecer qualitativo |
+| Balanceamento automático de pesos (soma exata de 100,00 %) | Lógica testada (20 testes), UI por testar | `weightBalancer.ts` + `WeightBalancerPanel` com matriz antes → depois |
+| Serviços ↔ categorias ↔ pesos ↔ questões | Código e SQL feitos, SQL por executar | `service_categories`, `evaluation_criteria.category_code`, filtro no formulário do cliente |
+| Parecer qualitativo do auditor (áudio e argumentos escritos) | SQL por executar | Gravado e congelado na homologação (`evaluations.auditor_review`) |
+| Homologação falhava sempre: o limiar era enviado sem justificação | Corrigido | O limiar só segue para o servidor quando é personalizado e justificado |
+| Notas iniciais do auditor eram a nota máxima quando faltavam respostas | Corrigido | Agora só há sugestão onde existem respostas pontuáveis; o resto fica por avaliar |
+| Gravações de questões e categorias a "dar sucesso" sem gravar | Corrigido | Erros do servidor passam a ser mostrados |
+| Submissão do cliente com gravação paralela local e serviço por omissão | Corrigido | Sem cópias locais; serviço inválido é recusado |
+| Servidor não valida o formato das respostas por tipo (`detailed_answers` é jsonb livre) | Por fazer | Recomendado validar no `submit_evaluation` |
+| Pesos por serviço (matriz diferente por serviço) | Não feito | Hoje os pesos são globais; o serviço filtra categorias e questões |

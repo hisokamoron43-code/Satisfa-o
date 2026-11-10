@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { FormQuestion, QuestionCategory, QuestionType, FormCategoryItem, ServiceItem } from '../../types';
+import { FormQuestion, QuestionCategory, FormCategoryItem, ServiceItem } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_FORM_CATEGORIES } from '../../services/supabaseService';
+import { QuestionTypeConfig, DEFAULT_TYPE_CONFIG, toQuestionFields, type TypeConfigValue } from './QuestionTypeConfig';
 import { 
   Plus, 
-  Trash2, 
+
   Edit3, 
   AlertTriangle, 
   X, 
   Save, 
-  ListPlus,
+
   HelpCircle,
   Briefcase,
   Globe,
@@ -44,12 +45,10 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
   const [description, setDescription] = useState<string>('');
   const [category, setCategory] = useState<QuestionCategory>(defaultCategory);
   const [serviceId, setServiceId] = useState<string>('');
-  const [type, setType] = useState<QuestionType>('RATING_5');
+  const [typeConfig, setTypeConfig] = useState<TypeConfigValue>(DEFAULT_TYPE_CONFIG);
   const [required, setRequired] = useState<boolean>(true);
   const [active, setActive] = useState<boolean>(true);
   const [order, setOrder] = useState<number>(1);
-  const [options, setOptions] = useState<string[]>(['Opção 1', 'Opção 2']);
-  const [newOptionInput, setNewOptionInput] = useState<string>('');
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -60,40 +59,31 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
       setDescription(question.description || '');
       setCategory(question.category || defaultCategory);
       setServiceId(question.service_id || '');
-      setType(question.type || 'RATING_5');
       setRequired(question.required ?? true);
       setActive(question.active ?? true);
       setOrder(question.order || 1);
-      setOptions(question.options && question.options.length > 0 ? question.options : ['Opção 1', 'Opção 2']);
+      setTypeConfig({
+        type: question.type === 'MULTIPLE_CHOICE' ? 'SINGLE_CHOICE' : (question.type || 'RATING_5'),
+        options: question.options && question.options.length > 0 ? question.options : DEFAULT_TYPE_CONFIG.options,
+        optionScores: question.optionScores ?? {},
+        yesScore: question.yesScore ?? 1,
+        noScore: question.noScore ?? 0,
+        affectsScore: question.affectsScore ?? true,
+      });
     } else {
       setText('');
       setDescription('');
       setCategory(defaultCategory);
       setServiceId('');
-      setType('RATING_5');
+      setTypeConfig(DEFAULT_TYPE_CONFIG);
       setRequired(true);
       setActive(true);
       setOrder(1);
-      setOptions(['Opção 1', 'Opção 2']);
     }
     setFormError(null);
   }, [question, defaultCategory, isOpen]);
 
   if (!isOpen) return null;
-
-  const handleAddOption = () => {
-    if (!newOptionInput.trim()) return;
-    setOptions(prev => [...prev, newOptionInput.trim()]);
-    setNewOptionInput('');
-  };
-
-  const handleRemoveOption = (index: number) => {
-    setOptions(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleOptionChange = (index: number, val: string) => {
-    setOptions(prev => prev.map((opt, i) => i === index ? val : opt));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,12 +94,10 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
       return;
     }
 
-    if (type === 'MULTIPLE_CHOICE') {
-      const validOpts = options.filter(o => o.trim().length > 0);
-      if (validOpts.length < 2) {
-        setFormError('Para perguntas de múltipla escolha, adicione pelo menos 2 opções válidas.');
-        return;
-      }
+    const { fields, errors } = toQuestionFields(typeConfig);
+    if (errors.length > 0) {
+      setFormError(errors.join(' '));
+      return;
     }
 
     setIsSubmitting(true);
@@ -118,12 +106,11 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
         text: text.trim(),
         description: description.trim() || undefined,
         category: category,
-        type: type,
+        ...fields,
         required: required,
         active: active,
         order: Number(order) || 1,
-        service_id: serviceId.trim() || undefined,
-        options: type === 'MULTIPLE_CHOICE' ? options.filter(o => o.trim().length > 0) : undefined
+        service_id: serviceId.trim() || undefined
       };
 
       const res = await onSave(payload, question?.id);
@@ -242,98 +229,22 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
             </div>
           </div>
 
-          {/* Tipo de Resposta & Ordem */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
-                Tipo de Resposta <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value as QuestionType)}
-                className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-brand outline-none"
-              >
-                <option value="RATING_5">⭐ Escala 1 a 5 Estrelas (CSAT)</option>
-                <option value="NPS_10">📊 Pontuação NPS (0 a 10)</option>
-                <option value="SHORT_TEXT">💬 Texto Curto / Livre</option>
-                <option value="MULTIPLE_CHOICE">☑️ Múltipla Escolha</option>
-                <option value="AUDIO_AND_TEXT">🎙️ Gravação de Áudio + Texto</option>
-              </select>
-            </div>
+          {/* Tipo de Resposta, configuração por tipo & Ordem */}
+          <QuestionTypeConfig value={typeConfig} onChange={setTypeConfig} />
 
-            <div>
-              <label className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
-                Ordem de Exibição
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={order}
-                onChange={(e) => setOrder(parseInt(e.target.value) || 1)}
-                className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-brand outline-none"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
+              Ordem de Exibição
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={order}
+              onChange={(e) => setOrder(parseInt(e.target.value) || 1)}
+              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-brand outline-none"
+            />
           </div>
-
-          {/* Campo Especial de Opções se for Múltipla Escolha */}
-          {type === 'MULTIPLE_CHOICE' && (
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-              <label className="block text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                <ListPlus className="w-4 h-4 text-brand" />
-                Opções de Resposta <span className="text-red-500">*</span>
-              </label>
-
-              <div className="space-y-2">
-                {options.map((opt, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-400 w-5 text-center">{idx + 1}.</span>
-                    <input
-                      type="text"
-                      value={opt}
-                      onChange={(e) => handleOptionChange(idx, e.target.value)}
-                      placeholder={`Opção ${idx + 1}`}
-                      className="flex-1 p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-brand outline-none"
-                    />
-                    {options.length > 2 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveOption(idx)}
-                        className="p-2 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-xl"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Add choice option input */}
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="text"
-                  value={newOptionInput}
-                  onChange={(e) => setNewOptionInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddOption();
-                    }
-                  }}
-                  placeholder="Adicionar nova opção..."
-                  className="flex-1 p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddOption}
-                  className="px-3 py-2.5 bg-slate-900 text-white font-bold rounded-xl text-xs flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5 text-brand" />
-                  <span>Adicionar</span>
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Toggles: Obrigatoriedade & Estado */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">

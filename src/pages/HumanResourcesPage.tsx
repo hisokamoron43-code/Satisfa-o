@@ -11,6 +11,7 @@ import {
   EvaluationHistoricalSnapshot,
   Evaluation,
   WorkerNotification,
+  AuditorReview,
   UserRole
 } from '../types';
 import {
@@ -26,6 +27,9 @@ import {
   DEFAULT_EVALUATION_CRITERIA
 } from '../services/evaluationUtils';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
+import { QuestionEditor } from '../components/forms/QuestionEditor';
+import { WeightBalancerPanel } from '../components/evaluation/WeightBalancerPanel';
+import { EvaluationReviewWorkspace, initialSuggestions } from '../components/evaluation/EvaluationReviewWorkspace';
 import { 
   Users, 
   Shield, 
@@ -65,6 +69,7 @@ export const HumanResourcesPage: React.FC = () => {
     providers, 
     permissionAudits,
     formQuestions,
+    formCategories,
     addFormQuestion,
     updateFormQuestion,
     deleteFormQuestion,
@@ -241,6 +246,7 @@ export const HumanResourcesPage: React.FC = () => {
 
   // Gestão de Critérios (Rascunho de Edição com Validação em Tempo Real)
   const [draftCriteria, setDraftCriteria] = useState<EvaluationCriterion[]>(criteria);
+  const [lastEditedCriterionId, setLastEditedCriterionId] = useState<string | undefined>(undefined);
   const [criteriaMsg, setCriteriaMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -266,6 +272,7 @@ export const HumanResourcesPage: React.FC = () => {
   // Modal de Homologação de Avaliação pelo RH
   const [selectedEvalForReview, setSelectedEvalForReview] = useState<Evaluation | null>(null);
   const [reviewRatings, setReviewRatings] = useState<Record<string, number>>({});
+  const [auditorReview, setAuditorReview] = useState<AuditorReview>({});
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -1020,15 +1027,14 @@ export const HumanResourcesPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Alerta Crítico se a Soma != 100% */}
-            {!isWeightSumValid && (
-              <div className="p-3 bg-red-50 border-2 border-red-500 rounded-xl text-xs text-red-900 font-bold flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
-                <span>
-                  Atenção Crítica: A soma actual dos pesos é de <strong>{currentTotalWeight}%</strong>. O sistema exige estritamente <strong>100.0%</strong>. A gravação da configuração e novas homologações de avaliações estão bloqueadas até ao reequilíbrio dos pesos.
-                </span>
-              </div>
-            )}
+            <WeightBalancerPanel
+              saved={criteria}
+              draft={draftCriteria}
+              changedId={lastEditedCriterionId}
+              questions={formQuestions}
+              services={services}
+              onApply={setDraftCriteria}
+            />
 
             {criteriaMsg && (
               <div className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between ${
@@ -1060,6 +1066,21 @@ export const HumanResourcesPage: React.FC = () => {
                         {crit.active ? 'Activo' : 'Inactivo'}
                       </span>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[11px] font-bold text-slate-700">Categoria do formulário:</label>
+                      <select
+                        value={crit.categoryCode || ''}
+                        onChange={(e) => {
+                          const updated = [...draftCriteria];
+                          updated[idx] = { ...updated[idx], categoryCode: e.target.value };
+                          setDraftCriteria(updated);
+                        }}
+                        className="bg-white border border-black rounded-lg px-2 py-0.5 text-[11px] font-bold"
+                      >
+                        <option value="">(por nome do critério)</option>
+                        {formCategories.map((cat) => <option key={cat.id} value={cat.code}>{cat.name}</option>)}
+                      </select>
+                    </div>
                     <input 
                       type="text" 
                       value={crit.description || ''}
@@ -1085,6 +1106,7 @@ export const HumanResourcesPage: React.FC = () => {
                         onChange={(e) => {
                           const updated = [...draftCriteria];
                           updated[idx] = { ...updated[idx], weightPercentage: Number(e.target.value) };
+                          setLastEditedCriterionId(crit.id);
                           setDraftCriteria(updated);
                         }}
                         className="w-16 bg-white border border-black rounded-lg px-2 py-1 text-center font-black text-slate-950 text-xs"
@@ -1113,6 +1135,7 @@ export const HumanResourcesPage: React.FC = () => {
                       onClick={() => {
                         const updated = [...draftCriteria];
                         updated[idx] = { ...updated[idx], active: !updated[idx].active };
+                        setLastEditedCriterionId(undefined);
                         setDraftCriteria(updated);
                       }}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold border border-black transition ${crit.active ? 'bg-amber-100 text-amber-950' : 'bg-emerald-100 text-emerald-950'}`}
@@ -1124,6 +1147,7 @@ export const HumanResourcesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
+                          setLastEditedCriterionId(undefined);
                           setDraftCriteria(draftCriteria.filter((_, i) => i !== idx));
                         }}
                         className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition"
@@ -1144,10 +1168,12 @@ export const HumanResourcesPage: React.FC = () => {
                   type="button"
                   onClick={() => {
                     const newId = `crit-${Date.now()}`;
+                    setLastEditedCriterionId(newId);
                     setDraftCriteria([
                       ...draftCriteria,
                       {
                         id: newId,
+                        categoryCode: '',
                         categoryName: 'Novo Critério Operacional',
                         description: 'Descrição das exigências e métricas',
                         weightPercentage: 0,
@@ -1254,11 +1280,10 @@ export const HumanResourcesPage: React.FC = () => {
                       <button
                         onClick={() => {
                           setSelectedEvalForReview(ev);
-                          // Inicializar notas padrão com a pontuação máxima
-                          const initialRatings: Record<string, number> = {};
-                          criteria.filter(c => c.active).forEach(c => {
-                            initialRatings[c.id] = c.maxScore;
-                          });
+                          // Notas iniciais = sugestões calculadas das respostas pontuáveis do cliente.
+                          // Critérios sem respostas pontuáveis ficam por avaliar (o auditor tem de os preencher).
+                          const initialRatings: Record<string, number> = initialSuggestions(ev, criteria, formQuestions);
+                          setAuditorReview(ev.auditorReview ?? {});
                           setReviewRatings(initialRatings);
                           setReviewError(null);
                           setIsReviewModalOpen(true);
@@ -1750,120 +1775,17 @@ export const HumanResourcesPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Nova / Editar Questão */}
-      {isQuestionModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-black text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
-              <h3 className="text-base font-black text-slate-950">
-                {editingQuestionId ? 'Editar Questão do Formulário' : 'Nova Questão para o Formulário'}
-              </h3>
-              <button onClick={() => setIsQuestionModalOpen(false)} className="p-1 text-slate-700 hover:text-black rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveQuestion} className="space-y-4">
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Texto da Pergunta *</label>
-                <input
-                  type="text"
-                  required
-                  value={questionText}
-                  onChange={(e) => setQuestionText(e.target.value)}
-                  placeholder="Ex: Como avalia a rapidez e eficiência na execução do trabalho?"
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Descrição / Instrução de Apoio</label>
-                <input
-                  type="text"
-                  value={questionDescription}
-                  onChange={(e) => setQuestionDescription(e.target.value)}
-                  placeholder="Ex: Considere o tempo de resposta desde a chamada até ao término da intervenção."
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-black text-slate-950 uppercase mb-1">Tipo de Resposta *</label>
-                  <select
-                    value={questionType}
-                    onChange={(e) => setQuestionType(e.target.value as QuestionType)}
-                    className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                  >
-                    <option value="RATING_5">Escala 1 a 5 Estrelas</option>
-                    <option value="AUDIO_AND_TEXT">Resposta Aberta em Áudio & Texto (Microfone)</option>
-                    <option value="NPS_10">Índice NPS (0 a 10)</option>
-                    <option value="TEXT_ONLY">Apenas Texto Livre</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-black text-slate-950 uppercase mb-1">Categoria *</label>
-                  <select
-                    value={questionCategory}
-                    onChange={(e) => setQuestionCategory(e.target.value as QuestionCategory)}
-                    className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                  >
-                    <option value="QUALIDADE">Qualidade do Serviço</option>
-                    <option value="PONTUALIDADE">Pontualidade & Prazos</option>
-                    <option value="SEGURANCA">Segurança, HST & Ambiente</option>
-                    <option value="ATENDIMENTO">Atendimento & Postura</option>
-                    <option value="GERAL">Geral / Testemunho</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block font-black text-slate-950 uppercase mb-1">Ordem no Formulário</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={questionOrder}
-                    onChange={(e) => setQuestionOrder(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                  />
-                </div>
-
-                <div className="flex items-center pt-5">
-                  <input
-                    id="reqQuestion"
-                    type="checkbox"
-                    checked={questionRequired}
-                    onChange={(e) => setQuestionRequired(e.target.checked)}
-                    className="w-4 h-4 text-brand border border-black rounded focus:ring-brand"
-                  />
-                  <label htmlFor="reqQuestion" className="ml-2 block text-xs text-slate-950 font-black cursor-pointer">
-                    Resposta Obrigatória
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-black/15 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsQuestionModalOpen(false)}
-                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-xl border border-black transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{ backgroundColor: '#8CBF26' }}
-                  className="px-5 py-2 text-black font-black border border-black rounded-xl shadow-sm hover:opacity-95 transition"
-                >
-                  {editingQuestionId ? 'Guardar Alterações' : 'Criar Questão'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Nova / Editar Questão (editor único, com todos os tipos de questão) */}
+      <QuestionEditor
+        isOpen={isQuestionModalOpen}
+        question={editingQuestionId ? formQuestions.find(q => q.id === editingQuestionId) ?? null : null}
+        categories={formCategories}
+        services={services}
+        onClose={() => setIsQuestionModalOpen(false)}
+        onSave={async (payload, questionId) =>
+          questionId ? updateFormQuestion(questionId, payload) : addFormQuestion(payload)
+        }
+      />
 
       {/* MODAL: Novo Serviço Rápido para Formulário */}
       {isServiceModalOpen && (
@@ -2240,7 +2162,7 @@ export const HumanResourcesPage: React.FC = () => {
       {/* MODAL DE HOMOLOGAÇÃO DE AVALIAÇÃO DE RH (CÁLCULO PONDERADO 0 A 100%) */}
       {isReviewModalOpen && selectedEvalForReview && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 border-2 border-black shadow-2xl my-8">
+          <div className="bg-white rounded-2xl max-w-6xl w-full p-6 border-2 border-black shadow-2xl my-8">
             <div className="flex items-center justify-between pb-3 border-b border-black">
               <div>
                 <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-brand/30 text-slate-950 border border-black">
@@ -2344,118 +2266,17 @@ export const HumanResourcesPage: React.FC = () => {
               </div>
             )}
 
-            {/* Dados do Formulário do Cliente */}
-            <div className="mt-4 p-4 bg-slate-50 border border-black rounded-xl text-xs space-y-1">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-bold text-slate-900">Cliente: <strong>{selectedEvalForReview.clientName}</strong></span>
-                <span className="font-bold text-slate-700">Serviço: <strong>{selectedEvalForReview.serviceName}</strong></span>
-                <span className="font-bold text-slate-700">Técnico/Prestador: <strong>{selectedEvalForReview.providerName || 'Equipa Geral'}</strong></span>
-              </div>
-              <div className="pt-2 border-t border-black/10 flex items-center justify-between">
-                <span className="text-slate-800">Nota CSAT Inicial do Cliente: <strong>★ {selectedEvalForReview.satisfactionRating} / 5</strong></span>
-                <span className="text-slate-600">Data do Serviço: {selectedEvalForReview.serviceDate || selectedEvalForReview.evaluationDate}</span>
-              </div>
-              {selectedEvalForReview.comment && (
-                <p className="pt-1 text-slate-700 italic border-t border-black/10">"{selectedEvalForReview.comment}"</p>
-              )}
-            </div>
-
-            {/* Atribuição de Notas por Critério Ponderado */}
-            <div className="mt-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-black text-slate-950 uppercase tracking-wider">
-                  Pontuações Técnicas dos Critérios Activos (0 a 100%)
-                </h4>
-                <span className="text-[11px] font-black text-slate-700">
-                  Limiar de Aprovação: <strong className="text-black">{passingThreshold}%</strong>
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                {criteria.filter(c => c.active).map(crit => {
-                  const currentScore = reviewRatings[crit.id] !== undefined ? reviewRatings[crit.id] : crit.maxScore;
-                  const ratio = crit.maxScore > 0 ? (currentScore / crit.maxScore) : 0;
-                  const contribution = Math.round(ratio * crit.weightPercentage * 100) / 100;
-
-                  return (
-                    <div key={crit.id} className="p-3.5 bg-white border border-black rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-xs text-slate-950">{crit.categoryName}</span>
-                          <span className="px-2 py-0.5 rounded bg-brand/20 border border-black text-[10px] font-black text-slate-950">
-                            Peso: {crit.weightPercentage}%
-                          </span>
-                        </div>
-                        {crit.description && (
-                          <p className="text-[11px] text-slate-600 font-medium mt-0.5">{crit.description}</p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-3 self-end sm:self-auto">
-                        <div className="flex items-center gap-1.5">
-                          <label className="text-[11px] font-bold text-slate-700">Nota:</label>
-                          <input 
-                            type="number" 
-                            min="0" 
-                            max={crit.maxScore} 
-                            step="0.1"
-                            value={currentScore}
-                            onChange={(e) => {
-                              const val = Number(e.target.value);
-                              setReviewRatings({ ...reviewRatings, [crit.id]: val });
-                            }}
-                            className="w-20 bg-white border border-black rounded-lg px-2 py-1 text-center font-black text-slate-950 text-xs"
-                          />
-                          <span className="text-[11px] font-bold text-slate-600">/ {crit.maxScore}</span>
-                        </div>
-                        <div className="text-right min-w-[90px]">
-                          <span className="text-[10px] text-slate-500 block uppercase font-bold">Contribuição</span>
-                          <span className="text-xs font-black font-mono text-black">+{contribution.toFixed(2)} pts</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Pré-visualização do Cálculo Final */}
-              {(() => {
-                const calculation = calculateWeightedScore(reviewRatings, criteria, passingThreshold);
-                return (
-                  <div className="p-4 bg-white border-2 border-black rounded-xl shadow-xs space-y-2 mt-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-black/10">
-                      <div>
-                        <span className="text-[10px] font-black text-slate-600 uppercase">Resultado Ponderado Final</span>
-                        <div className="text-2xl font-black text-slate-950">
-                          {calculation.success ? `${calculation.finalScore}%` : '—'}
-                        </div>
-                      </div>
-                      {calculation.success ? (
-                        <span className={`px-3 py-1.5 rounded-lg text-xs font-black border border-black ${
-                          calculation.finalClassification === 'POSITIVE' ? 'bg-emerald-100 text-emerald-950' : 'bg-red-100 text-red-950'
-                        }`}>
-                          {calculation.finalClassification === 'POSITIVE' ? '✓ Classificação Positiva' : '✕ Classificação Negativa'}
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded bg-amber-100 text-amber-950 font-bold text-xs border border-black">
-                          Preencha todos os campos
-                        </span>
-                      )}
-                    </div>
-                    {calculation.success && (
-                      <p className="text-[11px] text-slate-700 font-mono font-medium break-all">
-                        {calculation.formula}
-                      </p>
-                    )}
-                    {reviewError && (
-                      <p className="text-xs text-red-700 font-bold bg-red-50 p-2 rounded-lg border border-red-300">
-                        {reviewError}
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
+            <EvaluationReviewWorkspace
+              evaluation={selectedEvalForReview}
+              criteria={criteria}
+              catalog={formQuestions}
+              passingThreshold={passingThreshold}
+              ratings={reviewRatings}
+              onRatingsChange={setReviewRatings}
+              review={auditorReview}
+              onReviewChange={setAuditorReview}
+              error={reviewError}
+            />
 
             <div className="mt-6 pt-4 border-t border-black flex items-center justify-end gap-3">
               <button
@@ -2473,7 +2294,7 @@ export const HumanResourcesPage: React.FC = () => {
                   setReviewSubmitting(true);
                   setReviewError(null);
                   try {
-                    const res = await finalizeEvaluation(selectedEvalForReview.id, reviewRatings, passingThreshold);
+                    const res = await finalizeEvaluation(selectedEvalForReview.id, reviewRatings, passingThreshold, undefined, undefined, auditorReview);
                     if (res.success) {
                       setIsReviewModalOpen(false);
                       setSelectedEvalForReview(null);
