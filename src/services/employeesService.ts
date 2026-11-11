@@ -47,6 +47,8 @@ export interface EmployeeProfessionalData {
   departureDate?: string;
   specialty?: string;
   notes?: string;
+  /** Salário base em Kz (opcional; visível apenas a RH/Administração e ao próprio colaborador). */
+  salary?: number;
 }
 
 export interface Employee {

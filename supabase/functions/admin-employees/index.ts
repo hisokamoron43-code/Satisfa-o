@@ -123,6 +123,18 @@ function friendlyInsertError(err: { code?: string; message?: string }): string {
   return 'Não foi possível gravar o colaborador.';
 }
 
+/** Garante que dados profissionais são um objeto e que o salário (opcional) é um valor válido. */
+function cleanProfessionalData(pd: unknown): Record<string, unknown> {
+  if (!pd || typeof pd !== 'object' || Array.isArray(pd)) return {};
+  const out: Record<string, unknown> = { ...(pd as Record<string, unknown>) };
+  if ('salary' in out) {
+    const n = Number(out.salary);
+    if (out.salary === null || out.salary === '' || !Number.isFinite(n) || n < 0 || n > 1_000_000_000) delete out.salary;
+    else out.salary = Math.round(n * 100) / 100;
+  }
+  return out;
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = corsHeadersFor(req);
   const json = (body: unknown, status = 200): Response =>
@@ -280,7 +292,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             category,
             personal_data: personalData ?? {},
             contacts: contacts ?? {},
-            professional_data: professionalData ?? {},
+            professional_data: cleanProfessionalData(professionalData),
             allowed_pages: pages,
             professional_status: 'ATIVO',
             account_status: 'ATIVA',
@@ -309,7 +321,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           category,
           personal_data: personalData ?? {},
           contacts: contacts ?? {},
-          professional_data: professionalData ?? {},
+          professional_data: cleanProfessionalData(professionalData),
           allowed_pages: pages,
           professional_status: 'ATIVO',
           account_status: 'SEM_ACESSO',
@@ -340,7 +352,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         if (CATEGORIES.includes(updates.category)) clean.category = updates.category;
         if (updates.personalData && typeof updates.personalData === 'object') clean.personal_data = updates.personalData;
         if (updates.contacts && typeof updates.contacts === 'object') clean.contacts = updates.contacts;
-        if (updates.professionalData && typeof updates.professionalData === 'object') clean.professional_data = updates.professionalData;
+        if (updates.professionalData && typeof updates.professionalData === 'object') clean.professional_data = cleanProfessionalData(updates.professionalData);
 
         if (PROFESSIONAL_STATUSES.includes(updates.professionalStatus)) {
           if (DEACTIVATING_STATUSES.includes(updates.professionalStatus) && target.user_id) {

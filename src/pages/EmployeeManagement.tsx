@@ -59,6 +59,34 @@ import {
 } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 
+const CATEGORY_LABEL: Record<string, string> = {
+  DIRECAO: 'Direção',
+  GESTAO: 'Gestão / Coordenação',
+  SUPERVISOR: 'Supervisor',
+  ADMINISTRATIVO: 'Administrativo',
+  TECNICO: 'Técnico Operacional',
+  OUTRO: 'Outro',
+};
+const CATEGORY_ORDER = ['DIRECAO', 'GESTAO', 'SUPERVISOR', 'ADMINISTRATIVO', 'TECNICO', 'OUTRO'];
+const MAX_SALARY = 1_000_000_000;
+
+/** Converte o texto do campo "Salário" (opcional). Aceita 250000, 250000,50 ou 250000.50. */
+function parseSalary(raw: string): { value?: number; error?: string } {
+  const txt = raw.trim().replace(/\s/g, '').replace(',', '.');
+  if (!txt) return {};
+  if (!/^\d+(\.\d{1,2})?$/.test(txt)) {
+    return { error: 'O salário deve ser um valor positivo (ex.: 250000 ou 250000,50).' };
+  }
+  const value = Number(txt);
+  if (!Number.isFinite(value) || value > MAX_SALARY) return { error: 'O salário introduzido é demasiado elevado.' };
+  return { value };
+}
+
+/** Um colaborador tem conta quando está ligado a um utilizador do sistema. */
+function hasSystemAccount(e: Employee): boolean {
+  return !!e.userId || (!!e.accountStatus && e.accountStatus !== 'SEM_ACESSO');
+}
+
 export const EmployeeManagement: React.FC = () => {
   const { currentUser, evaluations, services, clients } = useApp();
 
@@ -131,6 +159,9 @@ export const EmployeeManagement: React.FC = () => {
     return entry ? entry[0] : 'PROVIDER';
   })();
   const [initialPassword, setInitialPassword] = useState<string>('');
+  const [salary, setSalary] = useState<string>('');
+  const [editSalary, setEditSalary] = useState<string>('');
+  const [accountFilter, setAccountFilter] = useState<'all' | 'with' | 'without'>('all');
 
 
 
@@ -145,6 +176,28 @@ export const EmployeeManagement: React.FC = () => {
   const [docExpiryDate, setDocExpiryDate] = useState<string>('');
 
   // Carregar lista de colaboradores do Supabase
+  const accountCounts = useMemo(() => ({
+    all: employees.length,
+    with: employees.filter(hasSystemAccount).length,
+    without: employees.filter((e) => !hasSystemAccount(e)).length,
+  }), [employees]);
+
+  const groupedEmployees = useMemo(() => {
+    const visible = employees.filter((e) =>
+      accountFilter === 'all' ? true : accountFilter === 'with' ? hasSystemAccount(e) : !hasSystemAccount(e)
+    );
+    const map = new Map<string, Employee[]>();
+    for (const e of visible) {
+      const key = CATEGORY_ORDER.includes(e.category) ? e.category : 'OUTRO';
+      const list = map.get(key) ?? [];
+      list.push(e);
+      map.set(key, list);
+    }
+    return CATEGORY_ORDER.filter((k) => map.has(k)).map((k) => ({ key: k, label: CATEGORY_LABEL[k], items: map.get(k)! }));
+  }, [employees, accountFilter]);
+
+  const visibleCount = groupedEmployees.reduce((n, g) => n + g.items.length, 0);
+
   const loadEmployees = async () => {
     setIsLoading(true);
     setFetchError(null);
@@ -248,6 +301,17 @@ export const EmployeeManagement: React.FC = () => {
       return;
     }
 
+    const salaryParsed = parseSalary(salary);
+    if (salaryParsed.error) {
+      setFormError(salaryParsed.error);
+      return;
+    }
+
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
+      setFormError('O e-mail profissional não é válido.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -286,7 +350,8 @@ export const EmployeeManagement: React.FC = () => {
           jobTitle: jobTitle.trim() || undefined,
           department: department.trim() || undefined,
           specialty: specialty.trim() || undefined,
-          admissionDate: admissionDate || undefined
+          admissionDate: admissionDate || undefined,
+          salary: salaryParsed.value
         }
       });
 
@@ -313,6 +378,7 @@ export const EmployeeManagement: React.FC = () => {
         setBiNumber('');
         setNif('');
         setSpecialty('');
+        setSalary('');
         setCreateAccount(false);
         setAccessIdentifier('');
         setInitialPassword('');
@@ -626,12 +692,29 @@ export const EmployeeManagement: React.FC = () => {
 
       {/* LISTAGEM DE COLABORADORES */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 p-3 border-b border-slate-100">
+          {([
+            ['all', 'Todos', accountCounts.all],
+            ['with', 'Com conta de acesso', accountCounts.with],
+            ['without', 'Sem conta de acesso', accountCounts.without],
+          ] as const).map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setAccountFilter(key)}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer ${accountFilter === key ? 'bg-brand-dark text-white border-brand-dark' : 'bg-white text-slate-600 border-slate-200 hover:border-brand'}`}
+            >
+              {label} <span className="opacity-70">({count})</span>
+            </button>
+          ))}
+          <span className="ml-auto text-[10px] text-slate-400">Agrupado por categoria / função</span>
+        </div>
         {isLoading ? (
           <div className="p-12 text-center text-slate-500">
             <div className="w-8 h-8 border-3 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
             <p className="text-xs font-semibold">A carregar colaboradores do Supabase...</p>
           </div>
-        ) : employees.length === 0 ? (
+        ) : visibleCount === 0 ? (
           <div className="p-12 text-center text-slate-500">
             <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <h3 className="text-sm font-bold text-slate-800">Nenhum funcionário encontrado</h3>
@@ -663,7 +746,17 @@ export const EmployeeManagement: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {employees.map((emp) => {
+                {groupedEmployees.map((group) => (
+                  <React.Fragment key={group.key}>
+                    <tr className="bg-slate-100/70">
+                      <td colSpan={7} className="py-2 px-4 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                        {group.label}
+                        <span className="ml-2 font-semibold normal-case tracking-normal text-slate-500">
+                          · {group.items.length} colaborador(es) · {group.items.filter(hasSystemAccount).length} com conta · {group.items.filter((x) => !hasSystemAccount(x)).length} sem conta
+                        </span>
+                      </td>
+                    </tr>
+                    {group.items.map((emp) => {
                   const isAccountActive = emp.accountStatus === 'ATIVA';
                   return (
                     <tr key={emp.id} className="hover:bg-slate-50/80 transition">
@@ -687,7 +780,7 @@ export const EmployeeManagement: React.FC = () => {
                       {/* Categoria / Função */}
                       <td className="py-3.5 px-4">
                         <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
-                          {emp.category}
+                          {CATEGORY_LABEL[emp.category] ?? emp.category}
                         </span>
                         <div className="text-[11px] text-slate-600 font-medium mt-0.5">
                           {emp.professionalData.jobTitle || emp.professionalData.department || 'Operações'}
@@ -749,7 +842,9 @@ export const EmployeeManagement: React.FC = () => {
                       </td>
                     </tr>
                   );
-                })}
+                    })}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
           </div>
@@ -782,28 +877,7 @@ export const EmployeeManagement: React.FC = () => {
             </div>
 
             {/* Conteúdo do Formulário */}
-            <form onSubmit={handleCreateSubmit} className="p-6 space-y-5">
-              {/* Notificações de Erro e Sucesso */}
-              {formError && (
-                <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs flex items-start gap-2.5 animate-fadeIn">
-                  <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">Impossível Registar</span>
-                    <span>{formError}</span>
-                  </div>
-                </div>
-              )}
-
-              {formSuccess && (
-                <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-start gap-2.5 animate-fadeIn">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">Sucesso</span>
-                    <span>{formSuccess}</span>
-                  </div>
-                </div>
-              )}
-
+            <form onSubmit={handleCreateSubmit} noValidate className="p-6 space-y-5">
               {/* SECÇÃO 1: DADOS PRINCIPAIS */}
               <div>
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-1.5">
@@ -911,6 +985,21 @@ export const EmployeeManagement: React.FC = () => {
                       type="date"
                       value={admissionDate}
                       onChange={(e) => setAdmissionDate(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Salário Base (Kz) <span className="normal-case font-normal text-slate-400">· opcional</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={salary}
+                      onChange={(e) => setSalary(e.target.value)}
+                      placeholder="ex: 250000"
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand"
                     />
                   </div>
@@ -1043,7 +1132,26 @@ export const EmployeeManagement: React.FC = () => {
               </div>
 
               {/* Botões do Rodapé do Modal */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-white border-t border-slate-200 space-y-3 z-10">
+                {formError && (
+                  <div role="alert" className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Impossível Registar</span>
+                      <span>{formError}</span>
+                    </div>
+                  </div>
+                )}
+                {formSuccess && (
+                  <div role="status" className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Sucesso</span>
+                      <span>{formSuccess}</span>
+                    </div>
+                  </div>
+                )}
+              <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
@@ -1069,6 +1177,7 @@ export const EmployeeManagement: React.FC = () => {
                     </>
                   )}
                 </button>
+              </div>
               </div>
             </form>
           </div>
@@ -1102,6 +1211,10 @@ export const EmployeeManagement: React.FC = () => {
                     className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm normal-case font-normal">
                     {['ATIVO', 'FERIAS', 'LICENCA', 'SUSPENSO', 'INATIVO', 'DESLIGADO'].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
+                </label>
+                <label className="sm:col-span-3 text-[11px] font-bold text-slate-700 uppercase">Salário base (Kz) <span className="normal-case font-normal text-slate-400">· opcional</span>
+                  <input value={editSalary} onChange={e => setEditSalary(e.target.value)} inputMode="decimal" autoComplete="off" placeholder="ex: 250000"
+                    className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm normal-case font-normal" />
                 </label>
               </div>
               {selectedEmployee.userId && (
@@ -1165,9 +1278,12 @@ export const EmployeeManagement: React.FC = () => {
                   setEditError(null);
                   if (editName.trim().length < 2) { setEditError('O nome deve ter pelo menos 2 caracteres.'); return; }
                   if (selectedEmployee.userId && editPages.length === 0) { setEditError('Uma conta de acesso precisa de pelo menos uma página.'); return; }
+                  const salaryParsed = parseSalary(editSalary);
+                  if (salaryParsed.error) { setEditError(salaryParsed.error); return; }
                   setEditSaving(true);
                   const r1 = await updateEmployeeViaAdmin(selectedEmployee.id, {
                     fullName: editName.trim(), category: editCategory as any, professionalStatus: editStatus as any,
+                    professionalData: { ...(selectedEmployee.professionalData || {}), salary: salaryParsed.value },
                   });
                   if (!r1.success) { setEditSaving(false); setEditError(r1.error || 'Não foi possível guardar os dados.'); return; }
                   if (selectedEmployee.userId) {
@@ -1215,6 +1331,7 @@ export const EmployeeManagement: React.FC = () => {
                       setEditName(selectedEmployee.fullName);
                       setEditCategory(selectedEmployee.category);
                       setEditStatus(selectedEmployee.professionalStatus);
+                      setEditSalary(selectedEmployee.professionalData?.salary != null ? String(selectedEmployee.professionalData.salary).replace('.', ',') : '');
                       setEditPages(selectedEmployee.extraPages || []);
                       setEditError(null);
                       setEditIdent(selectedEmployee.accessIdentifier || '');
