@@ -465,7 +465,7 @@ export const CalendarPage: React.FC = () => {
 
       {/* MODAL INTERATIVO DE DETALHES DO DIA SELECIONADO */}
       {selectedDayDate && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-5 animate-scaleUp">
             
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -545,7 +545,7 @@ export const CalendarPage: React.FC = () => {
 
       {/* MODAL: NOVO AGENDAMENTO DE TAREFA */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-scaleUp">
             
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -588,7 +588,7 @@ export const CalendarPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">Data *</label>
                   <input 

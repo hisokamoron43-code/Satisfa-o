@@ -364,7 +364,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
 
       {/* Add / Edit Category Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-3xl border border-slate-300 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
             
             <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
@@ -416,7 +416,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-1.5">
                     Código Identificador

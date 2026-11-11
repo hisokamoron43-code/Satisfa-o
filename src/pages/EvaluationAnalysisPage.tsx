@@ -490,7 +490,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
 
       {/* MODAL DE ANÁLISE TÉCNICA E HOMOLOGAÇÃO */}
       {isModalOpen && selectedEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8">
             {/* Header do Modal */}
             <div className="bg-slate-950 text-white p-6 flex items-start justify-between">
@@ -822,7 +822,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
 
       {/* MODAL DE CONFIRMAÇÃO EXPLÍCITA ANTES DE HOMOLOGAR */}
       {isConfirmModalOpen && selectedEval && (
-        <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3 text-amber-600">
               <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center flex-shrink-0">

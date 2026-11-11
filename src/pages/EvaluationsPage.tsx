@@ -542,7 +542,7 @@ export const EvaluationsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Cabeçalho */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">Fila de Receção & Avaliações</h2>
@@ -785,7 +785,7 @@ export const EvaluationsPage: React.FC = () => {
             </select>
 
             {/* Intervalo de Datas */}
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs">
               <Calendar className="w-3.5 h-3.5 text-slate-400" />
               <input
                 type="date"
@@ -1167,7 +1167,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL DE ATRIBUIÇÃO DE EQUIPA */}
       {assigningTeamEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-900">Atribuir Equipa Dedicada</h3>
@@ -1221,7 +1221,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL DE EDIÇÃO DE PONTUAÇÃO */}
       {editingScoreEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-900">Ajustar Pontuação Final</h3>
@@ -1230,7 +1230,7 @@ export const EvaluationsPage: React.FC = () => {
               </button>
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">CSAT (1-5)</label>
                 <input type="number" min="1" max="5" value={editCsat} onChange={e => setEditCsat(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
@@ -1281,7 +1281,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL 1: ASSOCIAR EMPRESA CADASTRADA */}
       {associatingEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
@@ -1418,7 +1418,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL 2: ATRIBUIR FUNCIONÁRIO / TÉCNICO */}
       {assigningEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
@@ -1512,7 +1512,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL 3: ABRIR OCORRÊNCIA DE RH */}
       {hrCaseEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
@@ -1609,7 +1609,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL 4: FICHA DE HOMOLOGAÇÃO INSTITUCIONAL (FORMATO DE IMPRESSÃO) */}
       {printEval && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl border border-slate-200 space-y-6 my-8 print:p-0 print:border-none print:shadow-none">
             {/* Cabeçalho da Impressão */}
             <div className="flex items-start justify-between pb-4 border-b-2 border-slate-900">
@@ -1636,7 +1636,7 @@ export const EvaluationsPage: React.FC = () => {
             </div>
 
             {/* Metadados Oficiais */}
-            <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div>
                 <span className="text-slate-500 font-semibold block text-[10px] uppercase">Referência Oficial:</span>
                 <strong className="font-mono text-sm text-slate-950">{printEval.reference}</strong>
@@ -1673,7 +1673,7 @@ export const EvaluationsPage: React.FC = () => {
               <h5 className="font-black text-slate-900 uppercase text-[11px] border-b border-slate-200 pb-1">
                 1. Perceção Declarada pelo Cliente
               </h5>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3 bg-slate-50 rounded-lg">
                   <span className="text-[10px] text-slate-500 font-bold uppercase block">CSAT Global:</span>
                   <span className="text-sm font-black text-slate-900">★ {printEval.satisfactionRating} / 5</span>
@@ -1781,7 +1781,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL 5: REGISTO MANUAL DE AVALIAÇÃO */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
               <h3 className="text-lg font-black text-slate-900">Registo Manual de Avaliação</h3>
@@ -1797,7 +1797,7 @@ export const EvaluationsPage: React.FC = () => {
             )}
 
             <form onSubmit={handleSaveManualEvaluation} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 uppercase mb-1">Cliente *</label>
                   <select
@@ -1824,7 +1824,7 @@ export const EvaluationsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 uppercase mb-1">Prestador *</label>
                   <select
@@ -1849,7 +1849,7 @@ export const EvaluationsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 uppercase mb-1">Classificação CSAT (1-5) *</label>
                   <select
@@ -1911,7 +1911,7 @@ export const EvaluationsPage: React.FC = () => {
 
       {/* MODAL DE TOKEN DE LINK */}
       {isTokenModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-base font-black text-slate-900">Link Oficial de Avaliação</h3>

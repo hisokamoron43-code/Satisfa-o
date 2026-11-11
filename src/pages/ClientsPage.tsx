@@ -294,7 +294,7 @@ export const ClientsPage: React.FC = () => {
       </div>
 
       {clientModal && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+        <div className="modal-overlay fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
             <div className="p-4 border-b border-slate-200 flex justify-between items-center">
               <span className="text-sm font-black text-slate-900">{clientModal.mode === 'create' ? 'Novo cliente' : 'Editar cliente'}</span>
@@ -342,7 +342,7 @@ export const ClientsPage: React.FC = () => {
       )}
 
       {goalModal && selected && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+        <div className="modal-overlay fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
             <div className="p-4 border-b border-slate-200 flex justify-between items-center">
               <span className="text-sm font-black text-slate-900">{goalModal.id ? 'Editar meta' : 'Nova meta'} · {selected.companyName}</span>
@@ -350,7 +350,7 @@ export const ClientsPage: React.FC = () => {
             </div>
             <div className="p-5 space-y-3">
               <Field label="Título da meta *"><input value={goalForm.title} onChange={e => setGoalForm({ ...goalForm, title: e.target.value })} maxLength={150} className="inp" /></Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Métrica"><select value={goalForm.metric} onChange={e => setGoalForm({ ...goalForm, metric: e.target.value as GoalMetric })} className="inp">
                   <option value="CSAT">CSAT (%)</option><option value="NPS">NPS</option><option value="EVALUATION_COUNT">Nº de avaliações</option></select></Field>
                 <Field label="Valor alvo *"><input type="number" min="0" step="0.1" value={goalForm.targetValue} onChange={e => setGoalForm({ ...goalForm, targetValue: e.target.value })} className="inp" /></Field>

@@ -173,7 +173,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
 
             {/* Notifications Flyout */}
             {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 py-3 z-50 text-xs">
+              <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-slate-200 py-3 z-50 text-xs">
                 <div className="px-4 pb-2 border-b border-slate-100 flex items-center justify-between">
                   <span className="font-bold text-slate-900">Notificações Recentes</span>
                   <span className="text-[10px] bg-brand/20 text-brand-dark font-bold px-2 py-0.5 rounded">
@@ -225,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
 
             {/* Profile Dropdown List */}
             {showProfileMenu && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 text-xs animate-in fade-in duration-200">
+              <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 text-xs animate-in fade-in duration-200">
                 <div className="px-4 py-3 border-b border-slate-100">
                   <p className="font-bold text-slate-900 truncate">{currentUser?.name}</p>
                   <p className="text-slate-500 text-[11px] truncate">{currentUser?.email}</p>
@@ -294,7 +294,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
 
       {/* Edit Profile Modal */}
       {isEditProfileOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
@@ -366,7 +366,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
 
       {/* Change Password Modal */}
       {isChangePasswordOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">

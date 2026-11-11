@@ -139,7 +139,7 @@ export const ReportsPage: React.FC = () => {
             </label>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-[11px] font-bold text-slate-700 uppercase">De<input type="date" value={from} onChange={e => setFrom(e.target.value)} className="inp mt-1" /></label>
             <label className="text-[11px] font-bold text-slate-700 uppercase">Até<input type="date" value={to} onChange={e => setTo(e.target.value)} className="inp mt-1" /></label>
           </div>
@@ -213,7 +213,7 @@ const ShareModal: React.FC<{ text: string; onClose: () => void; onDone: (parts: 
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+    <div className="modal-overlay fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-4 border-b border-slate-200 flex justify-between items-center">
           <span className="text-sm font-black text-slate-900">Partilhar relatório por mensagem</span>

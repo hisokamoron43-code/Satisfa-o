@@ -855,7 +855,7 @@ export const EmployeeManagement: React.FC = () => {
       {/* MODAL: CRIAR NOVO FUNCIONÁRIO COM VALIDAÇÃO DE DUPLICADOS       */}
       {/* ============================================================== */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 animate-fadeIn">
             {/* Topo do Modal */}
             <div className="p-6 bg-brand-deep text-white flex items-center justify-between sticky top-0 z-10">
@@ -1188,7 +1188,7 @@ export const EmployeeManagement: React.FC = () => {
       {/* MODAL: DETALHES DO FUNCIONÁRIO E DOSSIÊ DOCUMENTAL DIGITAL     */}
       {/* ============================================================== */}
       {editOpen && selectedEmployee && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/60 flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-[60] bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-sm font-black text-slate-900">Editar dados · {selectedEmployee.employeeNumber}</h3>
@@ -1304,7 +1304,7 @@ export const EmployeeManagement: React.FC = () => {
       )}
 
       {isDetailsModalOpen && selectedEmployee && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 animate-fadeIn">
             {/* Topo do Dossiê */}
             <div className="p-6 bg-brand-deep text-white flex items-center justify-between sticky top-0 z-10">

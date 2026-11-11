@@ -1318,7 +1318,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                     </div>
 
                     {/* Numeric quick buttons */}
-                    <div className="grid grid-cols-11 gap-1.5 pt-2">
+                    <div className="grid grid-cols-6 sm:grid-cols-11 gap-1.5 pt-2">
                       {Array.from({ length: 11 }).map((_, idx) => (
                         <button
                           key={idx}

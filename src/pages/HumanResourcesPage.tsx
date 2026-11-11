@@ -1789,7 +1789,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL: Novo Serviço Rápido para Formulário */}
       {isServiceModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-black text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
               <h3 className="text-base font-black text-slate-950">Adicionar Tipo de Serviço</h3>
@@ -1856,7 +1856,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL: Nova Ocorrência de RH */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-black text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
               <h3 className="text-base font-black text-slate-950">Registar Ocorrência de RH / Qualidade</h3>
@@ -1882,7 +1882,7 @@ export const HumanResourcesPage: React.FC = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-black text-slate-950 uppercase mb-1">Tipo de Ocorrência *</label>
                   <select
@@ -1955,7 +1955,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL: Criar Nova Equipa */}
       {isTeamModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-black text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
               <h3 className="text-base font-black text-slate-950">Criar Nova Equipa Operacional</h3>
@@ -2031,7 +2031,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL: Agendar Actividade */}
       {isActivityModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-black text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
               <h3 className="text-base font-black text-slate-950">Agendar Actividade Operacional</h3>
@@ -2051,7 +2051,7 @@ export const HumanResourcesPage: React.FC = () => {
                   className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-black text-slate-950 uppercase mb-1">Cliente *</label>
                   <select
@@ -2081,7 +2081,7 @@ export const HumanResourcesPage: React.FC = () => {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-black text-slate-950 uppercase mb-1">Data *</label>
                   <input
@@ -2113,7 +2113,7 @@ export const HumanResourcesPage: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-black text-slate-950 uppercase mb-1">Local / Sede</label>
                   <input
@@ -2161,7 +2161,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL DE HOMOLOGAÇÃO DE AVALIAÇÃO DE RH (CÁLCULO PONDERADO 0 A 100%) */}
       {isReviewModalOpen && selectedEvalForReview && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-6xl w-full p-6 border-2 border-black shadow-2xl my-8">
             <div className="flex items-center justify-between pb-3 border-b border-black">
               <div>
@@ -2324,7 +2324,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL DE VISUALIZAÇÃO DO SNAPSHOT HISTÓRICO IMUTÁVEL */}
       {isSnapshotModalOpen && selectedSnapshot && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 border-2 border-black shadow-2xl my-8">
             <div className="flex items-center justify-between pb-3 border-b border-black">
               <div className="flex items-center gap-2">
@@ -2432,7 +2432,7 @@ export const HumanResourcesPage: React.FC = () => {
 
       {/* MODAL DE CRIAÇÃO / EDIÇÃO DE PERFIL DE ACESSO */}
       {isProfileModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 animate-fadeIn">
             <div className="p-6 bg-brand-deep text-white flex items-center justify-between sticky top-0 z-10">
               <div className="flex items-center gap-3">

@@ -153,7 +153,7 @@ export const QuestionTypeConfig: React.FC<Props> = ({ value, onChange }) => {
       )}
 
       {value.type === 'YES_NO_NA' && value.affectsScore && (
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl grid grid-cols-2 gap-3">
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl grid grid-cols-1 sm:grid-cols-2 gap-3">
           {([['yesScore', 'Conformidade de «Sim»'], ['noScore', 'Conformidade de «Não»']] as const).map(([k, label]) => (
             <label key={k} className="text-[11px] font-bold text-slate-800 space-y-1">
               {label} (0 a 1)

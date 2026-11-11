@@ -176,7 +176,7 @@ export const MessagesPage: React.FC = () => {
 };
 
 const Modal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
-  <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+  <div className="modal-overlay fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
     <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
       <div className="p-4 border-b border-slate-200 flex items-center justify-between">
         <span className="text-sm font-bold text-slate-900">{title}</span>

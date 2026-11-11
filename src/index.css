@@ -43,3 +43,51 @@ html.dark ::-webkit-scrollbar-thumb { background: #334155; }
 /* Campos de formulário partilhados */
 .inp { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 400; text-transform: none; background: #fff; color: #0f172a; }
 .inp:focus { outline: 2px solid #8CBF26; outline-offset: 0; }
+
+
+/* ============================================================
+   Responsividade
+   ============================================================ */
+
+/* Janelas modais: nunca ultrapassam o ecrã; o conteúdo rola dentro do painel,
+   por isso o botão de fechar e os botões de confirmar ficam sempre acessíveis. */
+.modal-overlay {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right))
+           max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+}
+.modal-overlay > * {
+  max-width: 100%;
+  max-height: calc(100vh - 1.5rem);
+  max-height: calc(100dvh - 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* Cabeçalho (com o X) e rodapé (com os botões) do painel ficam sempre visíveis. */
+.modal-overlay > * > :first-child.border-b {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: inherit;
+}
+.modal-overlay > * > :last-child.border-t {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background-color: inherit;
+  padding-bottom: 0.75rem;
+}
+@media print {
+  .modal-overlay { overflow: visible !important; padding: 0 !important; }
+  .modal-overlay > * { max-height: none !important; overflow: visible !important; }
+}
+
+/* Telemóveis: 16px nos campos evita o zoom automático do iOS ao tocar num campo. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

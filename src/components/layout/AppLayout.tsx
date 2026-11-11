@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { useApp } from '../../context/AppContext';
@@ -61,14 +61,37 @@ export const AppLayout: React.FC = () => {
     }
   };
 
+  // Tecla Esc fecha a janela modal que está por cima (clica no X ou em Cancelar/Fechar dessa janela).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const overlays = Array.from(document.querySelectorAll<HTMLElement>('.modal-overlay:not([data-no-escape])'));
+      if (overlays.length === 0) return;
+      const z = (el: HTMLElement) => parseInt(getComputedStyle(el).zIndex || '0', 10) || 0;
+      const top = overlays.reduce((best, el) => (z(el) >= z(best) ? el : best), overlays[0]);
+      const panel = (top.firstElementChild as HTMLElement | null) ?? top;
+      const closeBtn =
+        panel.querySelector<HTMLButtonElement>('button:has(svg.lucide-x)') ??
+        Array.from(panel.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+          /^(cancelar|fechar)$/i.test((b.textContent || '').trim())
+        );
+      if (closeBtn && !closeBtn.disabled) {
+        e.preventDefault();
+        closeBtn.click();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col lg:flex-row">
+    <div className="min-h-dvh bg-slate-100 flex flex-col lg:flex-row">
       <IdleSessionGuard />
       {/* Sidebar */}
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
 
       {/* Main Content Wrapper */}
-      <div className="flex-1 lg:pl-72 flex flex-col min-h-screen">
+      <div className="flex-1 min-w-0 lg:pl-72 flex flex-col min-h-dvh">
         <Header setMobileOpen={setMobileOpen} />
         
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">

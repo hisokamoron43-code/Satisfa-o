@@ -60,8 +60,8 @@ export const IdleSessionGuard: React.FC = () => {
   if (secondsLeft === null) return null;
 
   return (
-    <div role="alertdialog" aria-modal="true" aria-labelledby="idle-title"
-      className="fixed inset-0 z-[100] bg-slate-950/70 flex items-center justify-center p-4">
+    <div data-no-escape role="alertdialog" aria-modal="true" aria-labelledby="idle-title"
+      className="modal-overlay fixed inset-0 z-[100] bg-slate-950/70 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-center shadow-2xl">
         <Clock className="w-8 h-8 text-amber-500 mx-auto mb-3" />
         <h2 id="idle-title" className="text-base font-black text-slate-900">Sessão prestes a terminar</h2>
