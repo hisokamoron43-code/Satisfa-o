@@ -39,7 +39,7 @@ export const ThemeToggle: React.FC = () => {
       onClick={toggleTheme}
       aria-label={dark ? 'Ativar modo claro' : 'Ativar modo escuro'}
       title={dark ? 'Modo claro' : 'Modo escuro'}
-      className="fixed bottom-4 right-4 z-[100] px-3 py-2 rounded-full shadow-lg border border-slate-300 bg-white text-slate-800 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 text-xs font-bold cursor-pointer"
+      className="theme-fab fixed bottom-4 right-4 z-[100] px-3 py-2 rounded-full shadow-lg border border-slate-300 bg-white text-slate-800 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 text-xs font-bold cursor-pointer"
     >
       {dark ? '☀ Modo claro' : '☾ Modo escuro'}
     </button>

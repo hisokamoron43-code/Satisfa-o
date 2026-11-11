@@ -91,3 +91,32 @@ html.dark ::-webkit-scrollbar-thumb { background: #334155; }
     font-size: 16px;
   }
 }
+
+
+/* ============================================================
+   Nova interface: bases de tipografia, folha inferior e navegação mobile
+   ============================================================ */
+
+/* Telemóveis: texto mínimo legível (12 px) em etiquetas, legendas e distintivos.
+   Só dentro da aplicação autenticada (html[data-shell="app"]): login e formulário público ficam como estavam. */
+@media (max-width: 639px) {
+  html[data-shell="app"] .text-\[9px\], html[data-shell="app"] .text-\[10px\], html[data-shell="app"] .text-\[11px\] { font-size: 12px; }
+  html[data-shell="app"] .text-xs { font-size: 13px; line-height: 1.45; }
+}
+
+/* Modais em folha inferior no telemóvel (classe "modal-sheet" no fundo escurecido). */
+@media (max-width: 639px) {
+  .modal-overlay.modal-sheet { padding-bottom: 0; align-items: flex-end; }
+  .modal-overlay.modal-sheet > * { max-height: calc(100dvh - 0.75rem); width: 100%; }
+}
+
+/* O botão flutuante de tema só existe fora da aplicação (ex.: login); dentro, está no menu do perfil. */
+html[data-shell="app"] .theme-fab { display: none; }
+
+/* Avisos flutuantes ficam acima da navegação inferior no telemóvel/tablet. */
+@media (max-width: 1023px) {
+  html[data-shell="app"] .fixed.bottom-6.right-6 { bottom: 6rem; right: 0.75rem; max-width: calc(100vw - 1.5rem); }
+}
+
+/* Foco visível consistente para quem navega com teclado (só dentro da aplicação). */
+html[data-shell="app"] button:focus-visible, html[data-shell="app"] a:focus-visible, html[data-shell="app"] summary:focus-visible { outline: 2px solid #8CBF26; outline-offset: 2px; }

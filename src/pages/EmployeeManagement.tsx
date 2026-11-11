@@ -44,6 +44,8 @@ import {
   Building2, 
   Calendar, 
   Eye, 
+  EyeOff,
+  Sparkles,
   Download, 
   Trash2, 
   Upload, 
@@ -110,6 +112,8 @@ export const EmployeeManagement: React.FC = () => {
   // Modal de Criação de Funcionário
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [createStep, setCreateStep] = useState<number>(0);
+  const [showInitialPassword, setShowInitialPassword] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
@@ -159,6 +163,40 @@ export const EmployeeManagement: React.FC = () => {
     return entry ? entry[0] : 'PROVIDER';
   })();
   const [initialPassword, setInitialPassword] = useState<string>('');
+
+  // Perfis de acesso rápidos (atalhos que preenchem a lista de páginas; só concedem o que o criador pode conceder)
+  const ACCESS_PRESETS: { label: string; hint: string; pages: string[] }[] = [
+    { label: 'Operacional', hint: 'Clientes, calendário, serviços e prestadores', pages: ['dashboard', 'clients', 'calendar', 'services', 'providers', 'messages'] },
+    { label: 'Qualidade & RH', hint: 'Avaliações, análise, formulários e recursos humanos', pages: ['dashboard', 'evaluations', 'evaluation_analysis', 'form_editor', 'hr', 'messages'] },
+    { label: 'Direção', hint: 'Relatórios e indicadores executivos', pages: ['dashboard', 'evaluations', 'reports', 'messages'] },
+  ];
+  const presetPages = (pages: string[]) => pages.filter(canGrantPage);
+  const activePreset = ACCESS_PRESETS.find(pr => {
+    const target = presetPages(pr.pages);
+    return target.length === selectedPages.length && target.every(k => selectedPages.includes(k));
+  })?.label ?? null;
+  const generateInitialPassword = () => {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const digits = '23456789';
+    const all = letters + digits;
+    const pick = (set: string) => set[crypto.getRandomValues(new Uint32Array(1))[0] % set.length];
+    const chars = [pick(letters), pick(digits)];
+    while (chars.length < 12) chars.push(pick(all));
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    setInitialPassword(chars.join(''));
+    setShowInitialPassword(true);
+  };
+  const goNextStep = () => {
+    setFormError(null);
+    if (createStep === 0) {
+      if (!fullName.trim()) { setFormError('O nome completo do funcionário é obrigatório.'); return; }
+      if (!employeeNumber.trim()) { setFormError('O número interno de funcionário é obrigatório.'); return; }
+    }
+    setCreateStep(st => Math.min(2, st + 1));
+  };
   const [salary, setSalary] = useState<string>('');
   const [editSalary, setEditSalary] = useState<string>('');
   const [accountFilter, setAccountFilter] = useState<'all' | 'with' | 'without'>('all');
@@ -268,9 +306,14 @@ export const EmployeeManagement: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!isCreateModalOpen) { setCreateStep(0); setShowInitialPassword(false); }
+  }, [isCreateModalOpen]);
+
   // Submissão do Formulário de Criação com Validação de Duplicados
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (createStep < 2) { goNextStep(); return; }
     setFormError(null);
     setFormSuccess(null);
 
@@ -855,31 +898,48 @@ export const EmployeeManagement: React.FC = () => {
       {/* MODAL: CRIAR NOVO FUNCIONÁRIO COM VALIDAÇÃO DE DUPLICADOS       */}
       {/* ============================================================== */}
       {isCreateModalOpen && (
-        <div className="modal-overlay fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 animate-fadeIn">
+        <div className="modal-overlay modal-sheet fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 animate-fadeIn">
             {/* Topo do Modal */}
-            <div className="p-6 bg-brand-deep text-white flex items-center justify-between sticky top-0 z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-brand text-slate-950 flex items-center justify-center font-black">
-                  <UserPlus className="w-6 h-6" />
+            <div className="px-5 pt-4 pb-4 sm:px-6 sm:pt-6 bg-brand-deep text-white sticky top-0 z-10">
+              <div className="w-10 h-1 rounded-full bg-white/30 mx-auto mb-3 sm:hidden" aria-hidden="true"></div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-brand text-slate-950 flex items-center justify-center font-black flex-shrink-0">
+                    <UserPlus className="w-6 h-6" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-black tracking-tight">Registar Funcionário</h3>
+                    <p className="text-xs text-emerald-100/90">Passo {createStep + 1} de 3 · {['Identificação', 'Contactos', 'Acesso ao sistema'][createStep]}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-black tracking-tight">Registar Novo Funcionário</h3>
-                  <p className="text-xs text-emerald-100/80">Validação rigorosa de duplicados contra o Supabase</p>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  aria-label="Fechar"
+                  className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer flex-shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="mt-4" role="progressbar" aria-valuemin={1} aria-valuemax={3} aria-valuenow={createStep + 1} aria-label="Progresso do registo">
+                <div className="flex gap-1.5">
+                  {[0, 1, 2].map(i => (
+                    <span key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= createStep ? 'bg-brand' : 'bg-white/25'}`}></span>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1.5 text-xs text-emerald-100/90">
+                  {['Identificação', 'Contactos', 'Acesso'].map((l, i) => (
+                    <span key={l} className={i === createStep ? 'font-bold text-white' : ''}>{l}</span>
+                  ))}
                 </div>
               </div>
-              <button
-                onClick={() => setIsCreateModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
             {/* Conteúdo do Formulário */}
-            <form onSubmit={handleCreateSubmit} noValidate className="p-6 space-y-5">
+            <form onSubmit={handleCreateSubmit} noValidate className="p-5 sm:p-6 space-y-5">
               {/* SECÇÃO 1: DADOS PRINCIPAIS */}
-              <div>
+              <div className={createStep === 0 ? '' : 'hidden'}>
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-brand-dark" />
                   <span>Identificação Geral</span>
@@ -944,7 +1004,7 @@ export const EmployeeManagement: React.FC = () => {
               </div>
 
               {/* SECÇÃO 2: ENQUADRAMENTO PROFISSIONAL */}
-              <div className="pt-3 border-t border-slate-100">
+              <div className={createStep === 1 ? '' : 'hidden'}>
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                   <Briefcase className="w-4 h-4 text-brand-dark" />
                   <span>Enquadramento & Contactos</span>
@@ -1046,7 +1106,7 @@ export const EmployeeManagement: React.FC = () => {
               </div>
 
               {/* SECÇÃO 3: CONTA DE ACESSO AO SISTEMA */}
-              <div className="pt-3 border-t border-slate-100">
+              <div className={createStep === 2 ? '' : 'hidden'}>
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1055,9 +1115,9 @@ export const EmployeeManagement: React.FC = () => {
                         id="createAccountCheckbox"
                         checked={createAccount}
                         onChange={(e) => setCreateAccount(e.target.checked)}
-                        className="w-4 h-4 accent-brand-dark rounded cursor-pointer"
+                        className="w-5 h-5 accent-brand-dark rounded cursor-pointer"
                       />
-                      <label htmlFor="createAccountCheckbox" className="text-xs font-bold text-slate-900 cursor-pointer">
+                      <label htmlFor="createAccountCheckbox" className="text-sm font-bold text-slate-900 cursor-pointer">
                         Criar Conta de Acesso ao Sistema SICSC
                       </label>
                     </div>
@@ -1067,10 +1127,10 @@ export const EmployeeManagement: React.FC = () => {
                   </div>
 
                   {createAccount && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200 animate-fadeIn">
+                    <div className="space-y-4 pt-3 border-t border-slate-200 animate-fadeIn">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                          Identificador Canónico *
+                          Identificador de Acesso *
                         </label>
                         <input
                           type="text"
@@ -1078,53 +1138,105 @@ export const EmployeeManagement: React.FC = () => {
                           value={accessIdentifier}
                           onChange={(e) => setAccessIdentifier(e.target.value.toLowerCase())}
                           placeholder="ex: joao.silva"
-                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand"
                         />
+                        <p className="text-xs text-slate-500 mt-1">É com este identificador que o colaborador inicia sessão.</p>
                       </div>
 
-                      <div className="sm:col-span-2 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-[11px] font-bold text-slate-700 uppercase">
-                            Páginas visíveis para este colaborador *
-                          </label>
-                          <div className="flex items-center gap-3 text-[10px] font-bold">
-                            <button type="button" onClick={() => setSelectedPages(APP_PAGES.filter(p => canGrantPage(p.key)).map(p => p.key))} className="text-brand-dark hover:underline cursor-pointer">Marcar todas</button>
-                            <button type="button" onClick={() => setSelectedPages([])} className="text-slate-500 hover:underline cursor-pointer">Limpar</button>
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-slate-500">Só ficam visíveis as páginas marcadas. O papel de dados é definido pela página de maior exigência.</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                          {APP_PAGES.map((page) => {
-                            const allowed = canGrantPage(page.key);
-                            const checked = selectedPages.includes(page.key);
+                      <div className="space-y-2">
+                        <label className="block text-[11px] font-bold text-slate-700 uppercase">
+                          Perfil de acesso *
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Perfil de acesso">
+                          {ACCESS_PRESETS.map(pr => {
+                            const on = activePreset === pr.label;
                             return (
-                              <label key={page.key} className={`flex items-start gap-2 p-2 rounded-lg border ${allowed ? 'bg-white border-slate-200 cursor-pointer hover:border-brand' : 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed'}`}>
-                                <input type="checkbox" className="mt-0.5 accent-brand-dark" disabled={!allowed} checked={checked} onChange={() => togglePage(page.key)} />
-                                <span className="text-xs">
-                                  <span className="font-bold text-slate-900 block">{page.name}</span>
-                                  <span className="text-[10px] text-slate-500">{page.section} · requer {ROLE_LABEL[page.requiredBaseRole]}{allowed ? '' : ' (sem autoridade para conceder)'}</span>
+                              <button
+                                type="button"
+                                key={pr.label}
+                                role="radio"
+                                aria-checked={on}
+                                onClick={() => setSelectedPages(presetPages(pr.pages))}
+                                className={`text-left min-h-14 p-3 rounded-xl border-2 transition cursor-pointer ${on ? 'border-brand-dark ring-2 ring-brand/40 bg-brand/15' : 'border-slate-200 bg-white hover:border-brand'}`}
+                              >
+                                <span className="flex items-center justify-between gap-2 text-sm font-bold text-slate-900">
+                                  {pr.label}
+                                  {on && <Check className="w-4 h-4 text-brand-dark" />}
                                 </span>
-                              </label>
+                                <span className="block text-xs text-slate-600 mt-0.5">{pr.hint}</span>
+                              </button>
                             );
                           })}
                         </div>
-                        <p className="text-[11px] text-slate-600">
-                          Papel de dados resultante: <strong>{ROLE_LABEL[derivedRole]}</strong> · {selectedPages.length} página(s) selecionada(s)
+                        <p className="text-xs text-slate-600">
+                          Papel de dados resultante: <strong>{ROLE_LABEL[derivedRole]}</strong> · {selectedPages.length} página(s) visível(eis){activePreset ? '' : selectedPages.length > 0 ? ' · personalizado' : ''}
                         </p>
+
+                        <details className="group rounded-xl border border-slate-200 bg-white">
+                          <summary className="min-h-11 px-3 flex items-center justify-between text-sm font-bold text-brand-dark cursor-pointer list-none">
+                            Personalizar páginas
+                            <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" />
+                          </summary>
+                          <div className="p-3 pt-1 space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs text-slate-500">Só ficam visíveis as páginas marcadas. O papel de dados é definido pela página de maior exigência.</p>
+                              <div className="flex items-center gap-3 text-xs font-bold flex-shrink-0">
+                                <button type="button" onClick={() => setSelectedPages(APP_PAGES.filter(p => canGrantPage(p.key)).map(p => p.key))} className="min-h-9 text-brand-dark hover:underline cursor-pointer">Marcar todas</button>
+                                <button type="button" onClick={() => setSelectedPages([])} className="min-h-9 text-slate-500 hover:underline cursor-pointer">Limpar</button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                              {APP_PAGES.map((page) => {
+                                const allowed = canGrantPage(page.key);
+                                const checked = selectedPages.includes(page.key);
+                                return (
+                                  <label key={page.key} className={`flex items-start gap-2.5 p-2.5 rounded-lg border ${allowed ? 'bg-white border-slate-200 cursor-pointer hover:border-brand' : 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed'}`}>
+                                    <input type="checkbox" className="mt-0.5 w-5 h-5 accent-brand-dark" disabled={!allowed} checked={checked} onChange={() => togglePage(page.key)} />
+                                    <span className="text-xs">
+                                      <span className="font-bold text-slate-900 block text-sm">{page.name}</span>
+                                      <span className="text-xs text-slate-500">{page.section} · requer {ROLE_LABEL[page.requiredBaseRole]}{allowed ? '' : ' (sem autoridade para conceder)'}</span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </details>
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                          Palavra-passe Inicial
+                        <label htmlFor="initialPasswordInput" className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                          Palavra-passe Inicial *
                         </label>
-                        <input
-                          type="password"
-                          value={initialPassword}
-                          required={createAccount}
-                          onChange={(e) => setInitialPassword(e.target.value)}
-                          placeholder="Mínimo 8 caracteres"
-                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand"
-                        />
+                        <div className="relative">
+                          <input
+                            id="initialPasswordInput"
+                            type={showInitialPassword ? 'text' : 'password'}
+                            value={initialPassword}
+                            required={createAccount}
+                            onChange={(e) => setInitialPassword(e.target.value)}
+                            placeholder="Mínimo 8 caracteres, com letras e números"
+                            autoComplete="new-password"
+                            className="w-full pl-3.5 pr-12 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowInitialPassword(v => !v)}
+                            aria-label={showInitialPassword ? 'Ocultar palavra-passe' : 'Mostrar palavra-passe'}
+                            className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-500 hover:text-slate-900 cursor-pointer"
+                          >
+                            {showInitialPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 mt-1">
+                          <p className="text-xs text-slate-500">Será pedida a alteração no primeiro acesso.</p>
+                          <button type="button" onClick={generateInitialPassword} className="min-h-9 inline-flex items-center gap-1.5 text-xs font-bold text-brand-dark hover:underline cursor-pointer flex-shrink-0">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Gerar segura
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1132,7 +1244,7 @@ export const EmployeeManagement: React.FC = () => {
               </div>
 
               {/* Botões do Rodapé do Modal */}
-              <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-white border-t border-slate-200 space-y-3 z-10">
+              <div className="sticky bottom-0 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 px-5 sm:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white border-t border-slate-200 space-y-3 z-10">
                 {formError && (
                   <div role="alert" className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs flex items-start gap-2.5">
                     <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
@@ -1154,29 +1266,40 @@ export const EmployeeManagement: React.FC = () => {
               <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                  onClick={() => { if (createStep === 0) setIsCreateModalOpen(false); else { setFormError(null); setCreateStep(st => Math.max(0, st - 1)); } }}
+                  className="flex-1 sm:flex-none px-5 min-h-12 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition cursor-pointer"
                 >
-                  Cancelar
+                  {createStep === 0 ? 'Cancelar' : 'Voltar'}
                 </button>
 
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-6 py-2.5 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>A validar e guardar...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Registar Funcionário</span>
-                    </>
-                  )}
-                </button>
+                {createStep < 2 ? (
+                  <button
+                    type="button"
+                    onClick={goNextStep}
+                    className="flex-[2] sm:flex-none px-6 min-h-12 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <span>Continuar</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-[2] sm:flex-none px-6 min-h-12 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>A validar e guardar...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Registar Funcionário</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
               </div>
             </form>

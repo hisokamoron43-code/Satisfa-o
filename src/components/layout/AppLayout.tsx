@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { BottomNav } from './BottomNav';
 import { useApp } from '../../context/AppContext';
 import { IdleSessionGuard } from '../security/IdleSessionGuard';
 
@@ -61,6 +62,12 @@ export const AppLayout: React.FC = () => {
     }
   };
 
+  // Marca o ecrã como "aplicação" (o botão flutuante de tema passa para o menu do perfil)
+  useEffect(() => {
+    document.documentElement.dataset.shell = 'app';
+    return () => { delete document.documentElement.dataset.shell; };
+  }, []);
+
   // Tecla Esc fecha a janela modal que está por cima (clica no X ou em Cancelar/Fechar dessa janela).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -101,7 +108,7 @@ export const AppLayout: React.FC = () => {
         </main>
 
         {/* Enterprise Footer */}
-        <footer className="bg-white border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <footer className="bg-white border-t border-slate-200 pt-4 pb-28 lg:pb-4 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>SICSC — Sistema Integrado de Controlo da Satisfação de Clientes &copy; 2026 AETERNU LDA</span>
           <div className="flex items-center gap-4 text-[11px]">
             <span className="text-brand-dark font-semibold">Higiene | Segurança | Ambiente</span>
@@ -110,6 +117,9 @@ export const AppLayout: React.FC = () => {
           </div>
         </footer>
       </div>
+
+      {/* Navegação inferior (telemóvel e tablet) */}
+      <BottomNav onMore={() => setMobileOpen(true)} />
     </div>
   );
 };

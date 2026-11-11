@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useTheme } from '../../context/ThemeContext';
 import { 
   Menu, 
   Bell, 
@@ -13,7 +14,9 @@ import {
   Database,
   X,
   Sparkles,
-  Save
+  Save,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -22,6 +25,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
   const { activeTab, setActiveTab, currentUser, evaluations, logout } = useApp();
+  const { theme, toggleTheme } = useTheme();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,20 +117,20 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
     <>
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">
         {/* Left side: Mobile menu toggle & Title */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition"
+            className="lg:hidden w-11 h-11 flex items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 transition flex-shrink-0"
             aria-label="Abrir menu"
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-brand animate-pulse"></span>
+          <div className="min-w-0">
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-brand"></span>
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">AETERNU SICSC</span>
             </div>
-            <h2 className="text-lg lg:text-xl font-extrabold text-slate-900 tracking-tight">
+            <h2 className="text-base sm:text-lg lg:text-xl font-extrabold text-slate-900 tracking-tight truncate">
               {titles[activeTab] || 'Dashboard'}
             </h2>
           </div>
@@ -134,7 +138,8 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
 
         {/* Right side: Search, Notifications & App Profile Dropdown */}
         <div className="flex items-center gap-3">
-          {/* Supabase Status Quick Link */}
+          {/* Estado da infraestrutura: só para administradores */}
+          {currentUser?.role === 'ADMIN' && (
           <button
             onClick={() => setActiveTab('settings')}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-xl text-[11px] font-bold text-brand-deep transition"
@@ -143,6 +148,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
             <Database className="w-3.5 h-3.5 text-brand-dark" />
             <span>Supabase Ativo</span>
           </button>
+          )}
 
           {/* Quick Search */}
           <div className="hidden md:flex items-center relative w-60">
@@ -160,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
           <div className="relative">
             <button
               onClick={() => setShowNotifications(!showNotifications)}
-              className="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition border border-slate-200/80"
+              className="relative w-11 h-11 flex items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 transition border border-slate-200/80"
               aria-label="Notificações"
             >
               <Bell className="w-4 h-4" />
@@ -208,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
           <div className="relative" ref={profileMenuRef}>
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
-              className="flex items-center gap-2 pl-3 border-l border-slate-200 focus:outline-none group"
+              className="flex items-center gap-2 pl-3 min-h-11 border-l border-slate-200 focus:outline-none group"
               aria-label="Menu do Perfil"
             >
               <div className="w-9 h-9 rounded-full bg-brand text-slate-950 font-black text-xs flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
@@ -275,6 +281,16 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
                 </div>
 
                 <div className="border-t border-slate-100 pt-1 mt-1">
+                  <button
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      toggleTheme();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition font-medium"
+                  >
+                    {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-500" />}
+                    <span>{theme === 'dark' ? 'Modo claro' : 'Modo escuro'}</span>
+                  </button>
                   <button
                     onClick={() => {
                       setShowProfileMenu(false);
