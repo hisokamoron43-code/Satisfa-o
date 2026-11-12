@@ -2508,7 +2508,23 @@ export interface ConversationSummary {
   id: string; kind: 'DIRECT' | 'GROUP'; title: string; createdBy?: string;
   members: ConversationMember[]; updatedAt: string; unread: number; lastBody?: string;
 }
-export interface ChatMessage { id: string; senderId?: string; senderName: string; body: string; createdAt: string; }
+export interface ChatMessage {
+  id: string; senderId?: string; senderName: string; body: string; createdAt: string;
+  topicId?: string; topicTitle?: string; important?: boolean;
+}
+export interface ConversationTopic { id: string; conversationId: string; title: string; createdAt: string; }
+/** Filtros da conversa: datas (AAAA-MM-DD), tema ('' = todos, 'NONE' = sem tema), importantes e texto. */
+export interface MessageFilter { from?: string; to?: string; topicId?: string; important?: boolean; text?: string; }
+
+const messageMatchesFilter = (m: ChatMessage, f: MessageFilter): boolean => {
+  if (f.from && new Date(m.createdAt.replace(' ', 'T')) < new Date(`${f.from}T00:00:00`)) return false;
+  if (f.to && new Date(m.createdAt.replace(' ', 'T')) > new Date(`${f.to}T23:59:59.999`)) return false;
+  if (f.topicId === 'NONE' && m.topicId) return false;
+  if (f.topicId && f.topicId !== 'NONE' && m.topicId !== f.topicId) return false;
+  if (f.important && !m.important) return false;
+  if (f.text && !m.body.toLowerCase().includes(f.text.toLowerCase())) return false;
+  return true;
+};
 
 export async function fetchMessageRecipients(): Promise<MessageRecipient[]> {
   if (!isSupabaseConfigured) {
@@ -2590,7 +2606,7 @@ export async function fetchConversations(meId: string, meName: string): Promise<
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function fetchMessages(conversationId: string, meId: string, meName: string): Promise<ChatMessage[]> {
+export async function fetchMessages(conversationId: string, meId: string, meName: string, filter: MessageFilter = {}): Promise<ChatMessage[]> {
   if (!isSupabaseConfigured) {
     const allMsgs = getStore<Record<string, ChatMessage[]>>('messages_by_conv', {
       'conv-01': [
@@ -2603,11 +2619,19 @@ export async function fetchMessages(conversationId: string, meId: string, meName
         { id: 'm5', senderId: 'u5555555-5555-4555-8555-555555555555', senderName: 'Mateus Domingos', body: 'Equipa Alfa a caminho das instalações da Sonangol Sede.', createdAt: '2026-11-01 07:55:00' }
       ]
     });
-    return allMsgs[conversationId] || [];
+    return (allMsgs[conversationId] || []).filter(m => messageMatchesFilter(m, filter));
   }
-  const { data, error } = await supabase.from('messages')
-    .select('id, sender_id, body, created_at').eq('conversation_id', conversationId)
-    .order('created_at', { ascending: false }).limit(200);
+  let query = supabase.from('messages')
+    .select('id, sender_id, body, created_at, topic_id, important, conversation_topics(title)')
+    .eq('conversation_id', conversationId);
+  if (filter.from) query = query.gte('created_at', new Date(`${filter.from}T00:00:00`).toISOString());
+  if (filter.to) query = query.lte('created_at', new Date(`${filter.to}T23:59:59.999`).toISOString());
+  if (filter.topicId === 'NONE') query = query.is('topic_id', null);
+  else if (filter.topicId) query = query.eq('topic_id', filter.topicId);
+  if (filter.important) query = query.eq('important', true);
+  const text = (filter.text ?? '').replace(/[%_,()*]/g, ' ').trim();
+  if (text) query = query.ilike('body', `%${text}%`);
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
   if (error || !data) return [];
   const names = new Map<string, string>((await fetchMessageRecipients()).map(r => [r.id, r.name]));
   names.set(meId, meName);
@@ -2615,10 +2639,41 @@ export async function fetchMessages(conversationId: string, meId: string, meName
     id: r.id, senderId: r.sender_id ?? undefined,
     senderName: r.sender_id ? (names.get(r.sender_id) ?? 'Utilizador') : 'Conta removida',
     body: r.body, createdAt: r.created_at,
+    topicId: r.topic_id ?? undefined,
+    topicTitle: r.conversation_topics?.title ?? undefined,
+    important: !!r.important,
   }));
 }
 
-export async function sendMessageInDb(conversationId: string, body: string): Promise<{ success: boolean; error?: string }> {
+/** Temas de uma conversa, por ordem alfabética. */
+export async function fetchTopics(conversationId: string): Promise<ConversationTopic[]> {
+  if (!isSupabaseConfigured) {
+    return (getStore<Record<string, ConversationTopic[]>>('topics_by_conv', {})[conversationId] || []);
+  }
+  const { data, error } = await supabase.from('conversation_topics')
+    .select('id, conversation_id, title, created_at').eq('conversation_id', conversationId).order('title');
+  if (error || !data) return [];
+  return (data as any[]).map(t => ({ id: t.id, conversationId: t.conversation_id, title: t.title, createdAt: t.created_at }));
+}
+
+/** Cria um tema na conversa (ou devolve o existente com o mesmo nome). */
+export async function createTopicInDb(conversationId: string, title: string): Promise<{ success: boolean; id?: string; error?: string }> {
+  const clean = title.trim();
+  if (!isSupabaseConfigured) {
+    const all = getStore<Record<string, ConversationTopic[]>>('topics_by_conv', {});
+    const list = all[conversationId] || [];
+    const existing = list.find(t => t.title.toLowerCase() === clean.toLowerCase());
+    if (existing) return { success: true, id: existing.id };
+    const created: ConversationTopic = { id: `topic-${Date.now()}`, conversationId, title: clean, createdAt: new Date().toISOString() };
+    all[conversationId] = [...list, created];
+    setStore('topics_by_conv', all);
+    return { success: true, id: created.id };
+  }
+  const { data, error } = await supabase.rpc('create_conversation_topic', { p_conversation_id: conversationId, p_title: clean });
+  return error ? { success: false, error: error.message } : { success: true, id: data as string };
+}
+
+export async function sendMessageInDb(conversationId: string, body: string, opts: { topicId?: string; important?: boolean } = {}): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) {
     const allMsgs = getStore<Record<string, ChatMessage[]>>('messages_by_conv', {});
     const list = allMsgs[conversationId] || [];
@@ -2627,13 +2682,18 @@ export async function sendMessageInDb(conversationId: string, body: string): Pro
       senderId: 'current-user',
       senderName: 'Utilizador',
       body,
+      topicId: opts.topicId,
+      important: !!opts.important,
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
     };
     allMsgs[conversationId] = [...list, newMsg];
     setStore('messages_by_conv', allMsgs);
     return { success: true };
   }
-  const { error } = await supabase.rpc('send_message', { p_conversation_id: conversationId, p_body: body });
+  const { error } = await supabase.rpc('send_message', {
+    p_conversation_id: conversationId, p_body: body,
+    p_topic_id: opts.topicId ?? null, p_important: !!opts.important,
+  });
   return error ? { success: false, error: error.message } : { success: true };
 }
 

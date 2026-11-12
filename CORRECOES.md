@@ -262,3 +262,17 @@ Notas:
 - Duplicados são recusados pelo nome, NIF e código, contra a base de dados e dentro do próprio ficheiro.
 - Os clientes importados sem código recebem um código automático (CLI-…).
 - Os clientes importados sem contacto ou outros dados podem ser completados depois, pelo botão Editar.
+
+## Versão 12 — temas de conversa, filtro de datas e mensagens importantes
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Criação de temas (assuntos) numa conversa ou grupo | Verificado (TM1–TM3) | Campo "Novo tema" na conversa. Um tema repetido (sem diferença de maiúsculas ou espaços) devolve o já existente. Só membros da conversa podem criar temas |
+| Mensagens marcadas com o tema, guardadas no servidor | Verificado (TM4, TM5) | Escolha do tema ao enviar (por defeito, "Sem tema"). O tema fica gravado em cada mensagem |
+| Tema de outra conversa não pode ser usado | Verificado (TM6) | O servidor valida que o tema pertence à conversa |
+| Marcar mensagens como importantes (★) | Verificado (TM4) | Opção ao enviar e filtro "Só importantes" |
+| Filtro de datas (De / Até) | Verificado (TM7) | Painel "Filtros" na conversa, aplicado no servidor |
+| Filtro por tema, texto e importantes | Verificado (TM5) | Mesmo painel. Os temas também aparecem como botões para filtrar com um clique |
+| Pesquisa de conversas | Implementado | Campo "Pesquisar conversas" pelo nome ou pela última mensagem |
+
+Nota: os filtros de datas ficam no painel "Filtros" de cada conversa, ao lado dos temas. Não existia um ecrã de configurações de mensagens separado.

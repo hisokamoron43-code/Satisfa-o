@@ -5,7 +5,7 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // As migrações 1000 e 1001 executam-se SEMPRE juntas e por esta ordem (a 1000 recria funções que a 1001 altera).
-const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql']
+const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql', '1006_temas_conversas.sql']
   .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8')).join('\n;\n');
 
 const R = [];
@@ -574,6 +574,36 @@ rec('DEL2', 'Lote de 40 clientes é gravado num só pedido', okBatch.ok && batch
 const badBatch = await tryq(() => db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Lote Dup X','DUP-1','ACTIVE'), ('Lote 0','DUP-2','ACTIVE')`));
 const dupLeft = (await db.query(`SELECT count(*)::int n FROM public.clients WHERE internal_code LIKE 'DUP-%'`)).rows[0].n;
 rec('DEL3', 'Lote com um nome duplicado é recusado por inteiro (sem dados parciais)', !badBatch.ok && dupLeft === 0, `recusado=${!badBatch.ok} parciais=${dupLeft}`);
+
+// ---------- 25. Temas de conversa e mensagens marcadas (migração 1006) ----------
+const gConv = g.r;
+const dConv = d1.r;
+const t1 = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation_topic($1::uuid,'Auditoria Luanda') AS r`, [gConv])).rows[0].r));
+const t2 = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation_topic($1::uuid,'  auditoria LUANDA ') AS r`, [gConv])).rows[0].r));
+rec('TM1', 'Membro cria tema numa conversa de grupo', t1.ok && !!t1.r, t1.ok ? `tema=${t1.r}` : `ERRO: ${t1.err}`);
+rec('TM2', 'Tema com o mesmo nome (sem maiúsculas/espaços) não é duplicado', t2.ok && t2.r === t1.r, t2.ok ? `mesmo id=${t2.r === t1.r}` : `ERRO: ${t2.err}`);
+const tOut = await tryq(() => as('authenticated', A.admin, async () => db.query(`SELECT public.create_conversation_topic($1::uuid,'Intruso')`, [gConv])));
+rec('TM3', 'Quem não é membro não cria temas na conversa', !tOut.ok, tOut.ok ? 'ACEITE (falha)' : `Recusado: ${tOut.err}`);
+
+const m1 = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.send_message($1::uuid,'Relatório de auditoria pronto', $2::uuid, true) AS r`, [gConv, t1.r])).rows[0].r));
+const m1row = m1.ok ? (await db.query(`SELECT topic_id, important FROM public.messages WHERE id=$1`, [m1.r])).rows[0] : null;
+rec('TM4', 'Mensagem fica guardada com o tema e marcada como importante', !!m1row && m1row.topic_id === t1.r && m1row.important === true,
+  m1row ? `tema=${m1row.topic_id === t1.r} importante=${m1row.important}` : `ERRO: ${m1.err}`);
+
+await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.send_message($1::uuid,'Mensagem sem tema', NULL, false)`, [gConv])));
+const byTopic = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND topic_id=$2`, [gConv, t1.r])).rows[0].n;
+const noTopic = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND topic_id IS NULL`, [gConv])).rows[0].n;
+rec('TM5', 'Filtro por tema separa as mensagens do tema das restantes', byTopic === 1 && noTopic >= 1, `com tema=${byTopic} sem tema=${noTopic}`);
+
+const tOther = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation_topic($1::uuid,'Tema direto') AS r`, [dConv])).rows[0].r));
+const mCross = await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.send_message($1::uuid,'Tema de outra conversa', $2::uuid, false)`, [gConv, tOther.r])));
+rec('TM6', 'Não se pode marcar uma mensagem com tema de outra conversa', tOther.ok && !mCross.ok && /não pertence/.test(mCross.err),
+  mCross.ok ? 'ACEITE (falha)' : `Recusado: ${mCross.err}`);
+
+const today = new Date().toISOString().slice(0, 10);
+const inRange = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND created_at >= now() - interval '1 day' AND created_at < now() + interval '1 day'`, [gConv])).rows[0].n;
+const outRange = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND created_at >= now() + interval '1 day'`, [gConv])).rows[0].n;
+rec('TM7', 'Filtro de datas devolve as mensagens do intervalo e exclui as fora dele', inRange >= 2 && outRange === 0, `dentro=${inRange} fora=${outRange} (${today})`);
 
 // ---------- Resumo ----------
 const falhas = R.filter(r => !r.ok);

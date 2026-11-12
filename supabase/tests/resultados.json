@@ -618,5 +618,40 @@
     "id": "DEL3",
     "title": "Lote com um nome duplicado é recusado por inteiro (sem dados parciais)",
     "ok": true
+  },
+  {
+    "id": "TM1",
+    "title": "Membro cria tema numa conversa de grupo",
+    "ok": true
+  },
+  {
+    "id": "TM2",
+    "title": "Tema com o mesmo nome (sem maiúsculas/espaços) não é duplicado",
+    "ok": true
+  },
+  {
+    "id": "TM3",
+    "title": "Quem não é membro não cria temas na conversa",
+    "ok": true
+  },
+  {
+    "id": "TM4",
+    "title": "Mensagem fica guardada com o tema e marcada como importante",
+    "ok": true
+  },
+  {
+    "id": "TM5",
+    "title": "Filtro por tema separa as mensagens do tema das restantes",
+    "ok": true
+  },
+  {
+    "id": "TM6",
+    "title": "Não se pode marcar uma mensagem com tema de outra conversa",
+    "ok": true
+  },
+  {
+    "id": "TM7",
+    "title": "Filtro de datas devolve as mensagens do intervalo e exclui as fora dele",
+    "ok": true
   }
 ]
