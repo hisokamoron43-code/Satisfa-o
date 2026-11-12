@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { CLIENT_IMPORT_BATCH_SIZE, type ClientInput } from '../services/clientImport';
 import { 
   UserProfile, Client, ServiceItem, Provider, Evaluation, HRCase, ProviderPermissionAudit, AuditLog, UserRole, FormQuestion,
   EvaluationCriterion, EvaluationHistoricalSnapshot, AuditorReview, WorkerNotification, Team, Activity, FormCategoryItem, EvaluationQueueCounts
@@ -10,8 +11,6 @@ import {
   DEFAULT_EVALUATION_CRITERIA,
   DEFAULT_PASSING_THRESHOLD,
   validateCriteriaConfiguration,
-  calculateWeightedScore,
-  createHistoricalSnapshot,
   getQueueStatus
 } from '../services/evaluationUtils';
 import {
@@ -51,6 +50,8 @@ import {
   fetchActivitiesFromDb,
   insertActivityInDb,
   deleteActivityInDb,
+  deleteClientInDb,
+  insertClientsChunkInDb,
   fetchWorkerNotificationsFromDb,
   insertWorkerNotificationInDb,
   fetchProviderPermissionAuditsFromDb,
@@ -116,9 +117,15 @@ interface AppContextType {
   activities: Activity[];
   addActivity: (activity: Omit<Activity, 'id'>) => Promise<{ success: boolean; hasConflict: boolean; data?: Activity; error?: string }>;
   deleteActivity: (id: string) => Promise<{ success: boolean; error?: string }>;
+  /** Desfaz a última alteração do calendário (criar ou eliminar atividade). */
+  undoLastActivityChange: () => Promise<{ success: boolean; error?: string }>;
+  activityUndoLabel: string | null;
+  activityUndoCount: number;
   
   // Actions
   addClient: (client: Omit<Client, 'id' | 'createdAt'>) => Promise<{ success: boolean; data?: Client; error?: string }>;
+  deleteClient: (id: string) => Promise<{ success: boolean; error?: string }>;
+  importClients: (rows: ClientInput[], onProgress?: (done: number, total: number) => void) => Promise<{ created: number; failed: Array<{ index: number; error: string }> }>;
   updateClient: (id: string, updated: Partial<Client>) => Promise<{ success: boolean; error?: string }>;
   toggleClientStatus: (id: string) => Promise<{ success: boolean; error?: string }>;
   
@@ -462,6 +469,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setClients(prev => prev.map(c => c.id === id ? { ...c, status: newStatus } : c));
     logAction('UPDATE', 'Client', id, 'SUCCESS', `Alterado estado do cliente para ${newStatus}`);
     return { success: true };
+  };
+
+  const deleteClient = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const c = clients.find(item => item.id === id);
+    const res = await deleteClientInDb(id);
+    if (!res.success) {
+      logAction('DELETE', 'Client', id, 'DENIED', `Falha ao eliminar cliente ID ${id}: ${res.error}`);
+      return { success: false, error: res.error || 'Falha ao eliminar cliente.' };
+    }
+    setClients(prev => prev.filter(item => item.id !== id));
+    setActivities(prev => prev.map(a => (a.clientId === id ? { ...a, clientId: undefined } : a)));
+    setEvaluations(prev => prev.map(e => (e.clientId === id ? { ...e, clientId: undefined } : e)));
+    logAction('DELETE', 'Client', id, 'SUCCESS', `Cliente eliminado: ${c?.companyName || id}`);
+    return { success: true };
+  };
+
+  // Importação em lote: blocos de CLIENT_IMPORT_BATCH_SIZE, um pedido de cada vez
+  const importClients = async (rows: ClientInput[], onProgress?: (done: number, total: number) => void) => {
+    const created: Client[] = [];
+    const failed: Array<{ index: number; error: string }> = [];
+    for (let start = 0; start < rows.length; start += CLIENT_IMPORT_BATCH_SIZE) {
+      const chunk = rows.slice(start, start + CLIENT_IMPORT_BATCH_SIZE);
+      const results = await insertClientsChunkInDb(chunk);
+      results.forEach((r, i) => {
+        if (r.ok && r.client) created.push(r.client);
+        else failed.push({ index: start + i, error: r.error || 'Erro desconhecido' });
+      });
+      onProgress?.(Math.min(start + chunk.length, rows.length), rows.length);
+    }
+    if (created.length > 0) setClients(prev => [...created, ...prev]);
+    logAction('CREATE', 'Client', undefined, failed.length > 0 ? 'WARNING' : 'SUCCESS',
+      `Importação em lote de clientes: ${created.length} criados, ${failed.length} com erro`);
+    return { created: created.length, failed };
   };
 
   const addService = async (serviceData: Omit<ServiceItem, 'id'>): Promise<{ success: boolean; data?: ServiceItem; error?: string }> => {
@@ -1178,6 +1218,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     setActivities(prev => [res.data!, ...prev]);
+    const createdId = res.data.id;
+    pushActivityUndo({ label: `Agendar "${res.data.title}" (${res.data.activityDate})`, run: () => removeActivityById(createdId) });
     logAction(
       'CREATE', 
       'Activity', 
@@ -1189,16 +1231,57 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, hasConflict, data: res.data };
   };
 
+  // Desfazer do calendário: pilha das últimas alterações. Atividades recriadas ao desfazer uma eliminação
+  // recebem novo id; o mapa de aliases mantém os registos anteriores válidos.
+  type ActivityUndo = { label: string; run: () => Promise<{ success: boolean; error?: string }> };
+  const [activityUndo, setActivityUndo] = useState<ActivityUndo[]>([]);
+  const activityAlias = useRef<Record<string, string>>({});
+  const resolveActivityId = (id: string) => {
+    let current = id;
+    for (let guard = 0; activityAlias.current[current] && guard < 50; guard++) current = activityAlias.current[current];
+    return current;
+  };
+  const pushActivityUndo = (entry: ActivityUndo) => setActivityUndo(prev => [...prev.slice(-19), entry]);
+
+  const removeActivityById = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const real = resolveActivityId(id);
+    const res = await deleteActivityInDb(real);
+    if (!res.success) return { success: false, error: res.error || 'Falha ao cancelar actividade no Supabase.' };
+    setActivities(prev => prev.filter(item => item.id !== real));
+    return { success: true };
+  };
+
+  const restoreActivity = async (snapshot: Activity): Promise<{ success: boolean; error?: string }> => {
+    const { id: oldId, ...payload } = snapshot;
+    const res = await insertActivityInDb(payload as Omit<Activity, 'id'>);
+    if (!res.success || !res.data) return { success: false, error: res.error || 'Falha ao repor actividade.' };
+    activityAlias.current[oldId] = res.data.id;
+    setActivities(prev => [res.data!, ...prev]);
+    return { success: true };
+  };
+
   const deleteActivity = async (id: string): Promise<{ success: boolean; error?: string }> => {
     const a = activities.find(item => item.id === id);
-    const res = await deleteActivityInDb(id);
+    const res = await removeActivityById(id);
     if (!res.success) {
       logAction('DELETE', 'Activity', id, 'DENIED', `Falha ao cancelar actividade ID ${id}: ${res.error}`);
-      return { success: false, error: res.error || 'Falha ao cancelar actividade no Supabase.' };
+      return { success: false, error: res.error };
     }
-
-    setActivities(prev => prev.filter(item => item.id !== id));
+    if (a) pushActivityUndo({ label: `Cancelar "${a.title}" (${a.activityDate})`, run: () => restoreActivity(a) });
     logAction('DELETE', 'Activity', id, 'SUCCESS', `Actividade cancelada/eliminada: ${a?.title || id}`);
+    return { success: true };
+  };
+
+  const undoLastActivityChange = async (): Promise<{ success: boolean; error?: string }> => {
+    const last = activityUndo[activityUndo.length - 1];
+    if (!last) return { success: false, error: 'Não há alterações ao calendário para desfazer.' };
+    const res = await last.run();
+    if (!res.success) {
+      logAction('UPDATE', 'Activity', undefined, 'DENIED', `Falha ao desfazer (${last.label}): ${res.error}`);
+      return { success: false, error: res.error };
+    }
+    setActivityUndo(prev => prev.slice(0, -1));
+    logAction('UPDATE', 'Activity', undefined, 'SUCCESS', `Alteração do calendário desfeita: ${last.label}`);
     return { success: true };
   };
 
@@ -1287,7 +1370,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       activities,
       addActivity,
       deleteActivity,
+      undoLastActivityChange,
+      activityUndoLabel: activityUndo.length > 0 ? activityUndo[activityUndo.length - 1].label : null,
+      activityUndoCount: activityUndo.length,
       addClient,
+      deleteClient,
+      importClients,
       updateClient,
       toggleClientStatus,
       addService,

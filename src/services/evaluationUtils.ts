@@ -6,11 +6,8 @@
  * validação estrita de critérios e geração de snapshots imutáveis.
  */
 
-import {
+import type {
   EvaluationCriterion,
-  CriterionScoreSnapshot,
-  EvaluationHistoricalSnapshot,
-  CriteriaConfiguration,
   Evaluation
 } from '../types';
 
@@ -83,16 +80,6 @@ export interface ValidationResult {
   warnings?: string[];
 }
 
-export interface CalculationResult {
-  success: boolean;
-  finalScore: number;
-  finalClassification: 'POSITIVE' | 'NEGATIVE';
-  passingThreshold: number;
-  formula: string;
-  breakdown: CriterionScoreSnapshot[];
-  errors?: string[];
-}
-
 /**
  * Valida a configuração dos critérios:
  * 1. Pelo menos um critério ativo.
@@ -146,148 +133,6 @@ export function validateCriteriaConfiguration(criteria: EvaluationCriterion[]): 
     totalWeight: roundedWeight,
     errors,
     warnings
-  };
-}
-
-/**
- * Executa o cálculo ponderado estrito:
- * Pontuação Final = Σ [ (pontuação obtida_i / pontuação máxima_i) * peso percentual_i ]
- * 
- * Regras estritas:
- * - Rejeita se a soma dos pesos != 100%
- * - Rejeita divisão por zero se maxScore <= 0
- * - Rejeita se faltar pontuação para qualquer critério ativo
- * - Rejeita pontuações menores que o mínimo ou maiores que maxScore
- * - Aplica o limiar configurável para classificação POSITIVE (>= threshold) ou NEGATIVE (< threshold)
- */
-export function calculateWeightedScore(
-  ratings: Record<string, number>,
-  criteria: EvaluationCriterion[],
-  passingThreshold: number = DEFAULT_PASSING_THRESHOLD
-): CalculationResult {
-  const validation = validateCriteriaConfiguration(criteria);
-  if (!validation.isValid) {
-    return {
-      success: false,
-      finalScore: 0,
-      finalClassification: 'NEGATIVE',
-      passingThreshold,
-      formula: '',
-      breakdown: [],
-      errors: validation.errors
-    };
-  }
-
-  const activeCriteria = criteria.filter(c => c.active);
-  const errors: string[] = [];
-  const breakdown: CriterionScoreSnapshot[] = [];
-  let accumulatedScore = 0;
-  const formulaParts: string[] = [];
-
-  for (const crit of activeCriteria) {
-    const rawScore = ratings[crit.id];
-
-    if (rawScore === undefined || rawScore === null || isNaN(rawScore)) {
-      errors.push(`Falta atribuir a pontuação para o critério obrigatório: "${crit.categoryName}".`);
-      continue;
-    }
-
-    const min = crit.minScore ?? 0;
-    if (rawScore < min) {
-      errors.push(
-        `A pontuação obtida para "${crit.categoryName}" (${rawScore}) está abaixo do limite mínimo permitido (${min}).`
-      );
-      continue;
-    }
-
-    if (rawScore > crit.maxScore) {
-      errors.push(
-        `A pontuação obtida para "${crit.categoryName}" (${rawScore}) excede a pontuação máxima permitida (${crit.maxScore}).`
-      );
-      continue;
-    }
-
-    if (crit.maxScore <= 0) {
-      errors.push(`Divisão por zero prevenida no critério "${crit.categoryName}": pontuação máxima inválida.`);
-      continue;
-    }
-
-    // Cálculo da contribuição normalizada e ponderada
-    // normalizedPercentage = (score / maxScore) * 100 (ex: 4 / 5 * 100 = 80%)
-    const normalizedRatio = rawScore / crit.maxScore;
-    const normalizedPercentage = Math.round(normalizedRatio * 10000) / 100;
-    // weightedContribution = normalizedRatio * weightPercentage (ex: 0.80 * 40 = 32 pontos)
-    const weightedContribution = Math.round(normalizedRatio * crit.weightPercentage * 1000) / 1000;
-
-    accumulatedScore += weightedContribution;
-
-    formulaParts.push(
-      `(${rawScore}/${crit.maxScore} × ${crit.weightPercentage}% = ${weightedContribution.toFixed(2)} pts)`
-    );
-
-    breakdown.push({
-      criterionId: crit.id,
-      categoryName: crit.categoryName,
-      weightPercentage: crit.weightPercentage,
-      maxScore: crit.maxScore,
-      scoreObtained: rawScore,
-      normalizedPercentage,
-      weightedContribution
-    });
-  }
-
-  if (errors.length > 0) {
-    return {
-      success: false,
-      finalScore: 0,
-      finalClassification: 'NEGATIVE',
-      passingThreshold,
-      formula: '',
-      breakdown: [],
-      errors
-    };
-  }
-
-  // Pontuação final arredondada para 2 casas decimais e normalizada
-  const finalScore = Math.round(accumulatedScore * 100) / 100;
-  const isPositive = finalScore >= passingThreshold;
-  const finalClassification: 'POSITIVE' | 'NEGATIVE' = isPositive ? 'POSITIVE' : 'NEGATIVE';
-
-  const descriptiveFormula = `Pontuação Final = [${formulaParts.join(' + ')}] = ${finalScore.toFixed(2)}% (Limiar de aprovação: ${passingThreshold}% -> ${finalClassification})`;
-
-  return {
-    success: true,
-    finalScore,
-    finalClassification,
-    passingThreshold,
-    formula: descriptiveFormula,
-    breakdown
-  };
-}
-
-/**
- * Cria um snapshot histórico imutável para anexar à avaliação finalizada.
- * Esse snapshot garante que qualquer alteração futura de pesos e critérios
- * NÃO afetará os resultados de avaliações já homologadas.
- */
-export function createHistoricalSnapshot(
-  evaluationId: string,
-  calculation: CalculationResult,
-  finalizedBy: string
-): EvaluationHistoricalSnapshot {
-  if (!calculation.success) {
-    throw new Error('Não é possível criar snapshot histórico de um cálculo inválido ou com erros.');
-  }
-
-  return {
-    versionId: `snap-${evaluationId}-${Date.now()}`,
-    finalizedAt: new Date().toISOString(),
-    finalizedBy: finalizedBy || 'Responsável RH',
-    finalScore: calculation.finalScore,
-    passingThreshold: calculation.passingThreshold,
-    classification: calculation.finalClassification,
-    criteriaSnapshot: calculation.breakdown.map(b => ({ ...b })),
-    formula: calculation.formula
   };
 }
 

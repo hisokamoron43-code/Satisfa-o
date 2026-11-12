@@ -183,3 +183,82 @@ Ainda por fazer:
 | Submissão do cliente com gravação paralela local e serviço por omissão | Corrigido | Sem cópias locais; serviço inválido é recusado |
 | Servidor não valida o formato das respostas por tipo (`detailed_answers` é jsonb livre) | Por fazer | Recomendado validar no `submit_evaluation` |
 | Pesos por serviço (matriz diferente por serviço) | Não feito | Hoje os pesos são globais; o serviço filtra categorias e questões |
+
+## Versão 6 — pontuação 80/20, empresa e equipa automáticas
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Nota: 80% pelas respostas do cliente e 20% pelo áudio e argumentos (10 + 10) | Verificado (DB 1003, testes F1–F3, T7–T11c) + lógica TS testada | Migração `1003_pontuacao_80_20.sql`: `calculate_and_finalize_evaluation` recalcula no servidor a partir de `questions_snapshot` e `detailed_answers`. Áudio e argumentos: nota do auditor 0–5 × 2 |
+| Pesos dos critérios (soma 100) repartem os 80 pontos | Verificado | Critérios sem respostas pontuáveis saem do cálculo e os pesos reescalam-se |
+| Áudio gravado ou argumentos escritos sem nota do auditor | Verificado (T11, T11b) | Homologação recusada com mensagem clara |
+| Empresa associada automaticamente pelo nome (ou código interno) | Verificado (AUTO1, AUTO3) | `submit_evaluation` associa apenas quando corresponde a UM cliente ativo; caso contrário fica sem associação para revisão manual |
+| Equipa que prestou o serviço associada automaticamente | Verificado (AUTO2, AUTO4) | Nova coluna `evaluations.team_id` / `team_name`; só equipas ativas. Antes a equipa não era gravada na base de dados |
+| Re-execução das migrações 1000+1001 falhava (\"cannot drop columns from view\") | Verificado (M2) | `DROP VIEW IF EXISTS` antes do `CREATE OR REPLACE VIEW` na 1000 |
+| RH não conseguia associar categorias a serviços (permissão em falta) | Verificado (T2–T4) | `GRANT SELECT, INSERT, UPDATE, DELETE` a `authenticated` (a RLS continua a limitar a ADMIN/HR) |
+| Módulo puro de pontuação 80/20 (`src/services/finalScore.ts`) | Testado (`npm run test:logic`, 26 testes) | Espelha o cálculo do servidor |
+
+Interface (concluído nesta versão, validado com `tsc`, `npm run test:logic` e `npm run build`):
+- Ecrã de revisão do auditor, modal de análise e simulação do RH usam `calculateFinalScore` e a conformidade calculada a partir das respostas. As notas por critério deixaram de ser editáveis.
+- Pré-visualização alinhada com o servidor: automático (máx. 80) + áudio (máx. 10) + argumentos (máx. 10).
+- Removido o cálculo antigo `calculateWeightedScore` e `createHistoricalSnapshot` (sem uso).
+
+Limitações conhecidas:
+- (Resolvido na versão 8: ver abaixo.)
+
+
+## Versão 7 — regras do áudio e dos argumentos, e reprodução de áudio
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Sem áudio gravado: 10 pontos atribuídos automaticamente | Verificado (migração 1004, teste F2, `finalScore`) | Sem nota do analisador para o áudio |
+| Sem comentário escrito: o analisador decide tudo ou nada (10 ou 0) | Verificado (N1–N3, testes de lógica) | Painel com dois botões; nota parcial recusada |
+| Áudio gravado: nota 0–5 × 2 | Verificado (T7, T10, T11) | Sem alteração |
+| Áudio não reproduzido no painel | Corrigido (código), não reproduzido em navegador | Tipo MIME enviado sem parâmetros (`audio/webm;codecs=opus` → `audio/webm`); gravações locais (`data:`/`blob:`) reproduzem diretamente; erro com botão "tentar novamente" (URL assinado expira em 5 min); falha de reprodução visível |
+
+Causa provável da falha de reprodução: não foi possível reproduzir no navegador neste ambiente. As causas mais prováveis tratadas aqui são o tipo MIME com parâmetros no envio e a expiração do URL assinado. Se persistir, verificar no navegador a resposta de `createSignedUrl` e a consola do painel.
+
+## Versão 8 — funcionário associado à equipa e equipa visível no formulário público
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Sliders editáveis nos ecrãs do auditor | Verificado (0 controlos de intervalo nos três ecrãs) | Notas por critério só de leitura, calculadas a partir das respostas |
+| Pré-visualização com fórmula antiga | Corrigido | Os três ecrãs usam `finalScore.ts` |
+| Funcionário não associado na submissão pública | Verificado (PT3–PT6, testes da base de dados) | Cada prestador tem `team_id`. Com um só prestador ativo na equipa, fica associado automaticamente. Com vários, o cliente escolhe (opcional). Escolha de outra equipa é recusada |
+| Formulário público não conseguia ler as equipas | Corrigido (código) | Tabela `teams` restrita a internos; o formulário passa a usar a vista `v_public_teams` (só equipas ativas, sem contactos) |
+| Gestão do funcionário sem equipa | Corrigido (código) | Página de Prestadores: campo "Equipa" ao criar e editar |
+| Lista de funcionários exposta a anónimos | Verificado (PT2) | Função `list_public_team_providers` devolve apenas id e nome |
+
+Para ativar: depois de aplicar 1005, atribuir a cada prestador a sua equipa em Prestadores → Editar.
+
+## Versão 9 — exportação para PDF
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Botão PDF para os dados dos clientes (nome, código, NIF, contacto, contrato, serviços, estado) | Verificado (PDF gerado e texto conferido) | Página Clientes, botão "Exportar clientes (PDF)"; também em Relatórios |
+| Botão PDF para as avaliações (referência, datas, empresa, serviço, equipa, funcionário, CSAT, NPS, pontuação final, classificação, estado) | Verificado | Página Avaliações (exporta a lista filtrada) e Relatórios |
+| Relatório PDF com o âmbito, período e secções escolhidos | Verificado (secções de avaliações, clientes e metas, equipa, atividades e RH) | Página Relatórios, botão "Relatório (PDF)" |
+
+Implementação: `src/services/pdfExport.ts`. As bibliotecas `jspdf` e `jspdf-autotable` são carregadas só ao exportar. O CSV das avaliações continua disponível.
+
+## Versão 10 — correção do cartão de simulação do RH
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Cartão de validação do RH ainda tinha campos numéricos editáveis por critério, com valores de teste (80, 90, 100, 60) e botão "Repor Valores de Teste (84%)" | Corrigido e verificado | Substituído por cartão só de leitura com os pesos reais e os pontos máximos por critério (peso × 0,8). Removido o estado `auditScores` e o botão de teste |
+| Verificação anterior só procurava sliders (`type="range"`) e deixou de fora os campos numéricos | Corrigido no processo | Verificação feita por renderização real dos componentes (sem `range` nem `number` no ecrã do auditor) e por pesquisa de todos os controlos `number`/`range` nos três ecrãs |
+
+Controlos `number` que permanecem de propósito: o limiar excecional na análise (decisão do analisador, com justificação obrigatória) e os pesos e limiares de configuração do RH.
+
+## Versão 11 — apagar clientes e equipas, desfazer no calendário e importação em lote
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Botão de apagar cliente | Verificado (DEL1: o histórico das avaliações mantém-se) | Página Clientes, detalhe do cliente, com confirmação que indica as avaliações ligadas. Disponível para ADMIN e RH |
+| Apagar equipa | Corrigido (código) | O botão já existia na página de RH, mas sem confirmação e sem mensagem de erro. Agora pede confirmação e mostra o erro se falhar |
+| Reverter alterações no calendário | Verificado (testes lógicos e de integração) | Botão "Desfazer" no calendário. Desfaz a última criação ou cancelamento de atividade. Ao desfazer um cancelamento, a atividade é recriada e os registos anteriores continuam válidos |
+| Importação em lote de clientes (CSV) | Verificado (37 testes de lógica; DEL2 e DEL3) | Modelo CSV para descarregar, validação linha a linha e pré-visualização. Só o nome é obrigatório. Os lotes têm 40 clientes por pedido, sequenciais; o ficheiro pode ter qualquer número de linhas. Se um lote for recusado, é feito linha a linha para indicar quais falharam |
+
+Notas:
+- Duplicados são recusados pelo nome, NIF e código, contra a base de dados e dentro do próprio ficheiro.
+- Os clientes importados sem código recebem um código automático (CLI-…).
+- Os clientes importados sem contacto ou outros dados podem ser completados depois, pelo botão Editar.

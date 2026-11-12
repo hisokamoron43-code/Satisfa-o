@@ -23,13 +23,13 @@ import {
 } from '../services/employeesService';
 import {
   validateCriteriaConfiguration,
-  calculateWeightedScore,
   DEFAULT_EVALUATION_CRITERIA
 } from '../services/evaluationUtils';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 import { QuestionEditor } from '../components/forms/QuestionEditor';
 import { WeightBalancerPanel } from '../components/evaluation/WeightBalancerPanel';
-import { EvaluationReviewWorkspace, initialSuggestions } from '../components/evaluation/EvaluationReviewWorkspace';
+import { EvaluationReviewWorkspace, automaticConformity, missingQualitativeMessage, qualitativeContent } from '../components/evaluation/EvaluationReviewWorkspace';
+import { calculateFinalScore } from '../services/finalScore';
 import { 
   Users, 
   Shield, 
@@ -261,13 +261,6 @@ export const HumanResourcesPage: React.FC = () => {
   ) / 100;
   const isWeightSumValid = Math.abs(currentTotalWeight - 100) < 0.001;
 
-  // Test scores for mathematical validation audit (Qualidade: 80%, Pontualidade: 90%, Segurança: 100%, Atendimento: 60%)
-  const [auditScores, setAuditScores] = useState<Record<string, number>>({
-    'crit-qualidade': 80,
-    'crit-pontualidade': 90,
-    'crit-seguranca': 100,
-    'crit-atendimento': 60
-  });
 
   // Modal de Homologação de Avaliação pelo RH
   const [selectedEvalForReview, setSelectedEvalForReview] = useState<Evaluation | null>(null);
@@ -689,7 +682,11 @@ export const HumanResourcesPage: React.FC = () => {
                         {team.department}
                       </span>
                       <button
-                        onClick={() => deleteTeam(team.id)}
+                        onClick={async () => {
+                          if (!window.confirm(`Apagar a equipa "${team.name}"? Os funcionários, avaliações e atividades ligados a ela ficam sem equipa; o histórico mantém-se.`)) return;
+                          const r = await deleteTeam(team.id);
+                          if (!r.success) window.alert(r.error || 'Não foi possível apagar a equipa.');
+                        }}
                         className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition"
                         title="Eliminar equipa"
                       >
@@ -875,132 +872,48 @@ export const HumanResourcesPage: React.FC = () => {
             </div>
           </div>
 
-          {/* CARD DE VALIDAÇÃO MATEMÁTICA OFICIAL (AUDITORIA SICSC 0 A 100%) */}
+          {/* CARTÃO DA PARTE AUTOMÁTICA (SOMENTE LEITURA): pesos reais e pontos máximos por critério */}
           <div className="bg-white p-6 rounded-2xl border-2 border-black shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-black">
-              <div>
-                <span className="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-brand/30 text-slate-950 border border-black inline-flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-brand-dark" /> Auditoria Matemática Oficial AETERNU LDA
-                </span>
-                <h4 className="text-base font-black text-slate-950 mt-1">Validação do Teste Matemático no Código Real (84.00%)</h4>
-                <p className="text-xs text-slate-700 font-medium">
-                  Fórmula Oficial: <code className="bg-slate-100 px-2 py-0.5 rounded border border-black/20 text-slate-950 font-mono font-bold">Pontuação final = Σ [(pontuação obtida ÷ pontuação máxima) × peso do critério]</code>
-                </p>
-              </div>
-
-              {/* Resultado em Tempo Real com calculateWeightedScore */}
-              {(() => {
-                const auditCalc = calculateWeightedScore(
-                  {
-                    'crit-qualidade': (auditScores['crit-qualidade'] ?? 80) * 5 / 100,
-                    'crit-pontualidade': (auditScores['crit-pontualidade'] ?? 90) * 5 / 100,
-                    'crit-seguranca': (auditScores['crit-seguranca'] ?? 100) * 5 / 100,
-                    'crit-atendimento': (auditScores['crit-atendimento'] ?? 60) * 5 / 100
-                  },
-                  DEFAULT_EVALUATION_CRITERIA,
-                  passingThreshold
-                );
-
-                return (
-                  <div className="flex items-center gap-3 bg-slate-50 p-3.5 rounded-xl border border-black self-start sm:self-auto">
-                    <div>
-                      <span className="text-[10px] font-black text-slate-600 block uppercase">Resultado do Código</span>
-                      <span className="text-2xl font-black text-slate-950 font-mono">
-                        {auditCalc.success ? `${auditCalc.finalScore.toFixed(2)}%` : 'Inválido'}
-                      </span>
-                    </div>
-                    <span className={`px-3 py-1.5 rounded-lg text-xs font-black border border-black ${
-                      auditCalc.finalClassification === 'POSITIVE' ? 'bg-emerald-100 text-emerald-950' : 'bg-red-100 text-red-950'
-                    }`}>
-                      {auditCalc.finalClassification === 'POSITIVE' ? '✓ Classificação Positiva' : '✕ Classificação Negativa'}
-                    </span>
-                  </div>
-                );
-              })()}
+            <div className="pb-3 border-b border-black">
+              <span className="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-brand/30 text-slate-950 border border-black inline-flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-brand-dark" /> Pontuação 80/20
+              </span>
+              <h4 className="text-base font-black text-slate-950 mt-1">Pontos máximos por critério (parte automática)</h4>
+              <p className="text-xs text-slate-700">
+                Cada critério vale o seu peso sobre os 80 pontos automáticos. A conformidade real vem das respostas de cada avaliação e não é editável aqui.
+                O áudio (10 pontos) e os argumentos escritos (10 pontos) são classificados pelo analisador em cada avaliação.
+              </p>
             </div>
 
-            {/* Tabela dos 4 Critérios e Passo a Passo da Auditoria */}
-            <div className="overflow-x-auto border border-black rounded-xl">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 border-b border-black text-slate-950 font-black">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border border-black rounded-xl overflow-hidden">
+                <thead className="bg-slate-100 text-slate-950 font-black uppercase">
                   <tr>
-                    <th className="p-3 border-r border-black/10">Critério de Avaliação</th>
-                    <th className="p-3 border-r border-black/10 text-center">Peso Configurado</th>
-                    <th className="p-3 border-r border-black/10 text-center">Pontuação Obtida (%)</th>
-                    <th className="p-3 text-right">Cálculo Passo a Passo Auditado</th>
+                    <th className="p-3 text-left border-r border-black/10">Critério</th>
+                    <th className="p-3 text-center border-r border-black/10">Peso</th>
+                    <th className="p-3 text-right">Pontos máximos (peso × 0,8)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/10 text-slate-950">
-                  {DEFAULT_EVALUATION_CRITERIA.map((crit) => {
-                    const currentScorePct = auditScores[crit.id] ?? 80;
-                    const pointsObtained = (currentScorePct * crit.weightPercentage) / 100;
-
-                    return (
-                      <tr key={crit.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-bold border-r border-black/10">
-                          {crit.categoryName}
-                          <span className="text-[10px] text-slate-500 font-normal block">{crit.description}</span>
-                        </td>
-                        <td className="p-3 text-center font-black border-r border-black/10">
-                          {crit.weightPercentage}%
-                        </td>
-                        <td className="p-3 text-center border-r border-black/10">
-                          <div className="inline-flex items-center gap-1.5">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={currentScorePct}
-                              onChange={(e) => setAuditScores({
-                                ...auditScores,
-                                [crit.id]: Number(e.target.value)
-                              })}
-                              className="w-16 bg-white border border-black rounded-lg px-2 py-1 text-center font-black text-slate-950 text-xs"
-                            />
-                            <span className="font-bold">%</span>
-                          </div>
-                        </td>
-                        <td className="p-3 text-right font-mono font-bold text-slate-900">
-                          {currentScorePct} × {crit.weightPercentage} ÷ 100 = <strong className="text-black font-black font-mono">+{pointsObtained.toFixed(1)} pontos</strong>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr className="bg-slate-100 font-black text-slate-950 border-t-2 border-black">
-                    <td className="p-3 border-r border-black/10 uppercase">Total dos Pesos</td>
-                    <td className="p-3 text-center border-r border-black/10 text-emerald-800">100.0%</td>
-                    <td className="p-3 text-center border-r border-black/10">—</td>
-                    <td className="p-3 text-right font-mono text-sm text-brand-dark">
-                      {(() => {
-                        const sQualidade = ((auditScores['crit-qualidade'] ?? 80) * 40) / 100;
-                        const sPontualidade = ((auditScores['crit-pontualidade'] ?? 90) * 20) / 100;
-                        const sSeguranca = ((auditScores['crit-seguranca'] ?? 100) * 25) / 100;
-                        const sAtendimento = ((auditScores['crit-atendimento'] ?? 60) * 15) / 100;
-                        const total = Math.round((sQualidade + sPontualidade + sSeguranca + sAtendimento) * 100) / 100;
-                        return `${sQualidade.toFixed(1)} + ${sPontualidade.toFixed(1)} + ${sSeguranca.toFixed(1)} + ${sAtendimento.toFixed(1)} = ${total.toFixed(2)}%`;
-                      })()}
-                    </td>
+                  {criteria.filter((c) => c.active).map((crit) => (
+                    <tr key={crit.id}>
+                      <td className="p-3 font-bold border-r border-black/10">{crit.categoryName}</td>
+                      <td className="p-3 text-center font-black border-r border-black/10">{crit.weightPercentage}%</td>
+                      <td className="p-3 text-right font-mono font-bold">{(crit.weightPercentage * 0.8).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-slate-100 font-black border-t-2 border-black">
+                    <td className="p-3 border-r border-black/10 uppercase">Total</td>
+                    <td className="p-3 text-center border-r border-black/10">{currentTotalWeight.toFixed(2)}%</td>
+                    <td className="p-3 text-right font-mono">80,00 pontos automáticos</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl border border-black text-xs text-slate-800 font-medium flex items-center justify-between">
-              <div>
-                <strong className="text-slate-950 font-black">Cálculo ponderado: </strong>
-                A pontuação resulta da soma das contribuições de cada critério. Limiar atual: <strong className="text-black font-black">{passingThreshold}%</strong>.
-              </div>
-              <button
-                onClick={() => setAuditScores({
-                  'crit-qualidade': 80,
-                  'crit-pontualidade': 90,
-                  'crit-seguranca': 100,
-                  'crit-atendimento': 60
-                })}
-                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-950 font-bold border border-black rounded-lg text-[10px] shrink-0 ml-3 flex items-center gap-1"
-              >
-                <RotateCcw className="w-3 h-3" /> Repor Valores de Teste (84%)
-              </button>
+            <div className="p-3 bg-slate-50 rounded-xl border border-black text-xs text-slate-800 font-medium">
+              <strong className="text-slate-950 font-black">Pontuação final: </strong>
+              Automático (máx. 80) + Áudio (máx. 10) + Argumentos (máx. 10) = 100. Limiar atual: <strong className="text-black font-black">{passingThreshold}%</strong>.
             </div>
           </div>
 
@@ -1282,7 +1195,7 @@ export const HumanResourcesPage: React.FC = () => {
                           setSelectedEvalForReview(ev);
                           // Notas iniciais = sugestões calculadas das respostas pontuáveis do cliente.
                           // Critérios sem respostas pontuáveis ficam por avaliar (o auditor tem de os preencher).
-                          const initialRatings: Record<string, number> = initialSuggestions(ev, criteria, formQuestions);
+                          const initialRatings: Record<string, number> = automaticConformity(ev, criteria, formQuestions);
                           setAuditorReview(ev.auditorReview ?? {});
                           setReviewRatings(initialRatings);
                           setReviewError(null);
@@ -2271,8 +2184,6 @@ export const HumanResourcesPage: React.FC = () => {
               criteria={criteria}
               catalog={formQuestions}
               passingThreshold={passingThreshold}
-              ratings={reviewRatings}
-              onRatingsChange={setReviewRatings}
               review={auditorReview}
               onReviewChange={setAuditorReview}
               error={reviewError}
@@ -2288,13 +2199,22 @@ export const HumanResourcesPage: React.FC = () => {
               </button>
               <button
                 type="button"
-                disabled={reviewSubmitting || !calculateWeightedScore(reviewRatings, criteria, passingThreshold).success}
+                disabled={reviewSubmitting || !calculateFinalScore({
+                  criteria, conformity: reviewRatings,
+                  hasAudio: !!selectedEvalForReview && qualitativeContent(selectedEvalForReview).hasAudio,
+                  audioScore: auditorReview.audio?.score ?? null,
+                  hasWritten: !!selectedEvalForReview && qualitativeContent(selectedEvalForReview).hasWritten,
+                  argumentScore: auditorReview.writtenArguments?.score ?? null,
+                  passingThreshold
+                }).success}
                 onClick={async () => {
                   if (!selectedEvalForReview) return;
+                  const missingQual = missingQualitativeMessage(selectedEvalForReview, auditorReview);
+                  if (missingQual) { setReviewError(missingQual); return; }
                   setReviewSubmitting(true);
                   setReviewError(null);
                   try {
-                    const res = await finalizeEvaluation(selectedEvalForReview.id, reviewRatings, passingThreshold, undefined, undefined, auditorReview);
+                    const res = await finalizeEvaluation(selectedEvalForReview.id, reviewRatings, passingThreshold, undefined, auditorReview);
                     if (res.success) {
                       setIsReviewModalOpen(false);
                       setSelectedEvalForReview(null);

@@ -16,15 +16,28 @@ export function audioStoragePath(stored: string): string | null {
   return null;
 }
 
-/** Reproduz um áudio privado através de URL assinado de curta duração (5 minutos). */
+/**
+ * Reproduz um áudio guardado. Caminhos do bucket privado são reproduzidos por URL assinado (validade de 5 minutos).
+ * Se o URL expirar, o erro ou a falha de reprodução mostram um botão para tentar de novo, que gera um URL novo.
+ */
 export const SecureAudio: React.FC<{ stored: string; className?: string; autoPlay?: boolean }> = ({ stored, className, autoPlay }) => {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
     setSrc(null);
     setError(null);
+    if (!stored) {
+      setError('Sem gravação de áudio.');
+      return;
+    }
+    // Gravação ainda local (data: ou blob:): reproduz diretamente
+    if (/^(data:|blob:)/i.test(stored)) {
+      setSrc(stored);
+      return;
+    }
     const path = audioStoragePath(stored);
     if (!path) {
       setError('Referência de áudio inválida.');
@@ -32,13 +45,31 @@ export const SecureAudio: React.FC<{ stored: string; className?: string; autoPla
     }
     supabase.storage.from(AUDIO_BUCKET).createSignedUrl(path, 300).then(({ data, error: err }) => {
       if (!active) return;
-      if (err || !data?.signedUrl) setError('Não foi possível carregar o áudio.');
+      if (err || !data?.signedUrl) setError(`Não foi possível carregar o áudio${err?.message ? ` (${err.message})` : ''}.`);
       else setSrc(data.signedUrl);
+    }, (err: unknown) => {
+      if (active) setError(`Não foi possível carregar o áudio${err instanceof Error ? ` (${err.message})` : ''}.`);
     });
     return () => { active = false; };
-  }, [stored]);
+  }, [stored, attempt]);
 
-  if (error) return <span className="text-xs text-rose-600">{error}</span>;
+  if (error) {
+    return (
+      <span className="inline-flex items-center gap-2 text-xs text-rose-600">
+        {error}
+        <button type="button" onClick={() => setAttempt((n) => n + 1)} className="underline font-bold text-slate-800">tentar novamente</button>
+      </span>
+    );
+  }
   if (!src) return <span className="text-xs text-slate-500">A carregar áudio…</span>;
-  return <audio controls autoPlay={autoPlay} src={src} className={className} />;
+  return (
+    <audio
+      controls
+      preload="metadata"
+      autoPlay={autoPlay}
+      src={src}
+      className={className}
+      onError={() => setError('O navegador não consegue reproduzir este ficheiro.')}
+    />
+  );
 };

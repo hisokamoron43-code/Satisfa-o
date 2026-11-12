@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { isValidUuid, uploadEvaluationAudio } from '../../services/supabaseService';
+import { fetchTeamProvidersForPublic, isValidUuid, uploadEvaluationAudio } from '../../services/supabaseService';
 import type { FormQuestion } from '../../types';
 import { 
   Mic, 
@@ -64,8 +64,25 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
 
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  // Funcionários ativos da equipa escolhida (só nomes) e o escolhido
+  const [teamProviders, setTeamProviders] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('');
   const [customTeamName, setCustomTeamName] = useState<string>('');
   const [serviceDate, setServiceDate] = useState<string>(new Date().toISOString().substring(0, 10));
+
+  // Ao escolher a equipa, carrega os seus funcionários. Com um só, fica selecionado automaticamente.
+  useEffect(() => {
+    let active = true;
+    setSelectedProviderId('');
+    setTeamProviders([]);
+    if (!isValidUuid(selectedTeamId)) return;
+    fetchTeamProvidersForPublic(selectedTeamId).then((list) => {
+      if (!active) return;
+      setTeamProviders(list);
+      if (list.length === 1) setSelectedProviderId(list[0].id);
+    });
+    return () => { active = false; };
+  }, [selectedTeamId]);
 
   // Equipas agendadas no calendário operacional para a data de serviço selecionada
   const scheduledTeamsForDate = useMemo(() => {
@@ -610,7 +627,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         clientNameInput: clientName,
         serviceId: validServiceId,
         serviceName,
-        providerId: undefined,
+        providerId: selectedProviderId || undefined,
         providerName: teamName,
         teamId: validTeamId,
         teamName: teamName,
@@ -925,6 +942,26 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                       )}
                     </div>
                   </div>
+
+                  {/* Funcionário que prestou o serviço (opcional quando a equipa tem vários) */}
+                  {teamProviders.length > 1 && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-black text-slate-950 uppercase tracking-wide">Funcionário que prestou o serviço</label>
+                      <select
+                        value={selectedProviderId}
+                        onChange={(e) => setSelectedProviderId(e.target.value)}
+                        className="w-full bg-white border border-slate-300 text-slate-950 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand"
+                      >
+                        <option value="">Não sei / não indicar</option>
+                        {teamProviders.map((pr) => (
+                          <option key={pr.id} value={pr.id} className="bg-white text-slate-950">{pr.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {teamProviders.length === 1 && (
+                    <p className="text-xs text-slate-700">Funcionário que prestou o serviço: <strong>{teamProviders[0].name}</strong></p>
+                  )}
 
                   {/* Data do Serviço */}
                   <div className="space-y-2">

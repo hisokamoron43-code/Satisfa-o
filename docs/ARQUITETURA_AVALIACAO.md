@@ -24,18 +24,18 @@ Tipos de questão (`QuestionType`): `RATING_5`, `RATING_10`, `NPS_10`, `SINGLE_C
 
 Formato da resposta (`detailedAnswers[questionId]`): `rating`, `choice`, `choices[]`, `yesNo` (`YES`/`NO`/`NA`), `textAnswer`, `audioUrl`.
 
-## 2. Ponderação
+## 2. Ponderação (modelo 80/20, migração 1003)
 
-**Servidor (fonte de verdade).** `save_evaluation_criteria` recusa gravar se a soma dos critérios ativos não for 100 (tolerância 0,01). `calculate_and_finalize_evaluation` volta a validar, calcula `Σ (nota ÷ máximo × peso)` e congela o resultado. A nota oficial é sempre a que o auditor atribui por critério.
+A nota final tem 100 pontos:
+- **80 pontos automáticos.** Para cada critério do RH (pesos que somam 100) com respostas pontuáveis, a conformidade é a média das conformidades das suas questões (0–1). Os pesos repartem os 80 pontos. Critérios sem respostas pontuáveis no serviço saem do cálculo e os restantes pesos são reescalados.
+- **10 pontos de áudio.** Sem áudio gravado, são atribuídos automaticamente. Com áudio, o analisador atribui 0 a 5, multiplicado por 2.
+- **10 pontos de argumentos escritos.** Com comentário, o analisador atribui 0 a 5, multiplicado por 2. Sem comentário, o analisador decide tudo ou nada: 10 pontos ou nenhum, pelas respostas dadas (migração 1004).
 
-**Cliente (`src/services/weightBalancer.ts`, testado).**
-1. Tudo em centésimas de ponto percentual (inteiros): 100 % = 10 000.
-2. `checkWeights`: soma exata de 100,00 %, pesos entre 0 e 100, pelo menos uma categoria ativa.
-3. `redistribute(items, pinnedIds)`: categorias fixadas ou acabadas de editar não se movem; o restante reparte-se proporcionalmente aos pesos atuais (partilha igual se todos forem 0), pelo método do maior resto, para somar exatamente 100,00 %. Sem solução (fixados > 100 %, ou tudo fixado com soma ≠ 100) devolve `ok: false` e pede ajuste manual.
-4. `buildPlan(saved, draft, changedId, questions)`: devolve alertas (soma errada, categoria adicionada/removida/ativada/desativada, categoria com peso e sem questões ativas), a proposta e a matriz antes → depois.
-5. `questionShares`: quanto vale cada questão = peso da categoria ÷ nº de questões ativas (filtrável por serviço).
+**Servidor (fonte de verdade).** `calculate_and_finalize_evaluation` recalcula tudo a partir de `questions_snapshot` e `detailed_answers`. O frontend não envia notas. As funções auxiliares `sicsc_norm_key` e `sicsc_question_conformity` espelham `normalizeKey` e `questionConformity`.
 
-**Nota sugerida (`src/services/questionScoring.ts`, testado).** Conformidade 0–1 por tipo: estrelas/escalas = valor ÷ máximo; escolha única = valor da opção; escolha múltipla = Σ opções marcadas ÷ Σ valores positivos; Sim/Não = valores configuráveis, N.A. fora; texto e áudio não pontuam. A nota sugerida do critério é a média das conformidades da sua categoria × máximo do critério. É um apoio: o auditor confirma ou ajusta cada nota.
+**Cliente (`src/services/finalScore.ts`, testado).** Mesma fórmula, usada só para pré-visualização.
+
+**Conformidade (`src/services/questionScoring.ts`, testado).** Por tipo de questão: estrelas e escalas = valor ÷ máximo; escolha única = valor da opção; escolha múltipla = soma das opções marcadas ÷ soma dos valores positivos; Sim/Não = valores configuráveis, N.A. fica de fora. Texto e áudio não pontuam.
 
 ## 3. Componentes
 
@@ -53,3 +53,9 @@ Formato da resposta (`detailedAnswers[questionId]`): `rating`, `choice`, `choice
 
 - `npm run test:logic`: balanceamento e pontuação (20 testes).
 - `npm run test:db`: migrações 1000 + 1001 em PGlite, incluindo tipos de questão, ligações serviço-categoria, parecer do auditor e imutabilidade.
+
+## 5. Equipa e funcionário na submissão (migração 1005)
+
+- `providers.team_id`: cada prestador pertence a uma equipa, definida na página de Prestadores.
+- O formulário público lê as equipas ativas pela vista `v_public_teams` e os nomes dos prestadores da equipa pela função `list_public_team_providers`. A tabela `teams` e os contactos dos prestadores continuam restritos a utilizadores internos.
+- `submit_evaluation`: se o cliente escolher um funcionário, este tem de pertencer à equipa indicada. Sem escolha, associa-se o único prestador ativo da equipa; com vários, fica por atribuir no ecrã de avaliações.

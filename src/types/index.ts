@@ -61,6 +61,8 @@ export interface ServiceItem {
 
 export interface Provider {
   id: string;
+  /** Equipa a que o prestador pertence (usada para associar automaticamente o funcionário à avaliação). */
+  teamId?: string;
   internalCode: string;
   name: string;
   professionalEmail: string;

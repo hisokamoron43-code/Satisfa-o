@@ -3,6 +3,8 @@ import { useApp } from '../context/AppContext';
 import { Client, ClientGoal, GoalMetric } from '../types';
 import { evaluationsForClient, goalProgress, csatPercent, npsValue } from '../services/goalProgress';
 import { fetchClientGoals, saveClientGoalInDb, setClientGoalStatusInDb, deleteClientGoalInDb } from '../services/supabaseService';
+import { exportClientsPdf } from '../services/pdfExport';
+import { ClientImportModal } from '../components/clients/ClientImportModal';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE_RE = /^\+?[0-9 ()-]{7,20}$/;
@@ -41,7 +43,9 @@ function validateClient(f: ClientForm): string | null {
 }
 
 export const ClientsPage: React.FC = () => {
-  const { clients, services, evaluations, addClient, updateClient, toggleClientStatus, currentUser } = useApp();
+  const { clients, services, evaluations, addClient, updateClient, toggleClientStatus, deleteClient, importClients, currentUser } = useApp();
+  const [importOpen, setImportOpen] = useState(false);
+  const canDelete = currentUser?.role === 'ADMIN' || currentUser?.role === 'HR';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -108,6 +112,22 @@ export const ClientsPage: React.FC = () => {
     setNotice('Cliente guardado com sucesso.');
   };
 
+  const handleDeleteClient = async () => {
+    if (!selected) return;
+    const linkedEvals = evaluations.filter(e => e.clientId === selected.id).length;
+    const ok = window.confirm(
+      `Apagar o cliente "${selected.companyName}"? Esta ação não pode ser desfeita.\n\n` +
+      `• As ${linkedEvals} avaliação(ões) mantêm-se no histórico, com o nome da empresa.\n` +
+      `• As metas com prazo deste cliente são apagadas.\n` +
+      `• As atividades do calendário ficam sem cliente associado.`
+    );
+    if (!ok) return;
+    const r = await deleteClient(selected.id);
+    if (!r.success) { setNotice(r.error || 'Não foi possível apagar o cliente.'); return; }
+    setSelectedId(null);
+    setNotice('Cliente apagado.');
+  };
+
   const openGoal = (g?: ClientGoal) => {
     setGoalError(null);
     setGoalForm(g
@@ -157,10 +177,26 @@ export const ClientsPage: React.FC = () => {
           <h2 className="text-xl font-black text-slate-900 tracking-tight">Clientes</h2>
           <p className="text-xs text-slate-500">Cadastro completo, contratos, serviços e metas com prazo por cliente.</p>
         </div>
-        <button onClick={openCreate} className="px-4 py-2 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-sm font-bold cursor-pointer">
-          Novo cliente
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setImportOpen(true)} className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs cursor-pointer">
+            Importar em lote
+          </button>
+          <button
+            onClick={() => exportClientsPdf(clients, currentUser?.name || 'Sistema')}
+            disabled={clients.length === 0}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-800 font-bold rounded-xl text-xs cursor-pointer"
+          >
+            Exportar clientes (PDF)
+          </button>
+          <button onClick={openCreate} className="px-4 py-2 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-sm font-bold cursor-pointer">
+            Novo cliente
+          </button>
+        </div>
       </div>
+
+      {importOpen && (
+        <ClientImportModal existing={clients} onImport={importClients} onClose={() => setImportOpen(false)} />
+      )}
 
       {notice && (
         <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl px-4 py-2 text-xs">
@@ -219,6 +255,9 @@ export const ClientsPage: React.FC = () => {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => openEdit(selected)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">Editar</button>
+                    {canDelete && (
+                      <button onClick={handleDeleteClient} className="px-3 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-bold cursor-pointer">Apagar</button>
+                    )}
                     <button onClick={async () => { const r = await toggleClientStatus(selected.id); if (!r.success) setNotice(r.error || 'Erro'); }}
                       className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
                       {selected.status === 'ACTIVE' ? 'Desativar' : 'Reativar'}

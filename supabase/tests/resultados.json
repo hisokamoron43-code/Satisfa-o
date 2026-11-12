@@ -1,0 +1,622 @@
+[
+  {
+    "id": "M1",
+    "title": "Migração 1000 executa numa base vazia sem erros",
+    "ok": true
+  },
+  {
+    "id": "M2",
+    "title": "Segunda execução da migração é idempotente e preserva os dados",
+    "ok": true
+  },
+  {
+    "id": "S0",
+    "title": "submit_evaluation aceita submissão anónima válida",
+    "ok": true
+  },
+  {
+    "id": "D1",
+    "title": "Submissão sem classificação de satisfação é recusada (sem valor inventado)",
+    "ok": true
+  },
+  {
+    "id": "D2",
+    "title": "NPS não respondido fica NULL (não é gravado como 10)",
+    "ok": true
+  },
+  {
+    "id": "S1",
+    "title": "Áudio com URL pública externa é recusado",
+    "ok": true
+  },
+  {
+    "id": "S2",
+    "title": "Áudio com mais de 45 segundos é recusado",
+    "ok": true
+  },
+  {
+    "id": "S3",
+    "title": "Anónimo NÃO consegue inserir avaliação diretamente (nem já homologada)",
+    "ok": true
+  },
+  {
+    "id": "S4",
+    "title": "Anónimo NÃO consegue chamar log_audit_event",
+    "ok": true
+  },
+  {
+    "id": "S5",
+    "title": "Prestador NÃO vê avaliações (apenas as que lhe forem homologadas/atribuídas)",
+    "ok": true
+  },
+  {
+    "id": "S6",
+    "title": "Prestador vê apenas o seu próprio perfil",
+    "ok": true
+  },
+  {
+    "id": "S7",
+    "title": "Prestador NÃO lista prestadores (contactos)",
+    "ok": true
+  },
+  {
+    "id": "S8",
+    "title": "Autenticado NÃO insere diretamente em audit_logs",
+    "ok": true
+  },
+  {
+    "id": "S9",
+    "title": "Prestador NÃO lê a auditoria",
+    "ok": true
+  },
+  {
+    "id": "P1",
+    "title": "Operacional (equipa interna) lê clientes",
+    "ok": true
+  },
+  {
+    "id": "P2",
+    "title": "Operacional lê avaliações internas",
+    "ok": true
+  },
+  {
+    "id": "F1",
+    "title": "Homologação (RH) executa e devolve as chaves que o frontend espera",
+    "ok": true
+  },
+  {
+    "id": "F2",
+    "title": "Sem áudio (10 automáticos) e argumentos decididos com 0: 62 + 10 + 0 = 72.00",
+    "ok": true
+  },
+  {
+    "id": "F3",
+    "title": "Estado após homologação é REVIEWED (alinhado com o frontend)",
+    "ok": true
+  },
+  {
+    "id": "I1",
+    "title": "Avaliação homologada NÃO pode ser re-homologada",
+    "ok": true
+  },
+  {
+    "id": "I2",
+    "title": "Alteração direta da pontuação homologada é bloqueada pelo trigger",
+    "ok": true
+  },
+  {
+    "id": "I3",
+    "title": "Avaliação homologada NÃO pode ser eliminada (a linha permanece)",
+    "ok": true
+  },
+  {
+    "id": "A1",
+    "title": "Prestador NÃO consegue homologar",
+    "ok": true
+  },
+  {
+    "id": "B1",
+    "title": "Erro de soma de pesos devolve mensagem legível com a soma atual",
+    "ok": true
+  },
+  {
+    "id": "F4",
+    "title": "assign_evaluation_provider funciona (antes: erro de sintaxe)",
+    "ok": true
+  },
+  {
+    "id": "C1",
+    "title": "save_evaluation_criteria recusa soma diferente de 100 com mensagem clara",
+    "ok": true
+  },
+  {
+    "id": "C2",
+    "title": "set_criteria_passing_threshold grava o limiar sem duplicar a configuração ativa",
+    "ok": true
+  },
+  {
+    "id": "G1",
+    "title": "get_my_access (ADMIN) devolve todas as páginas e chaves snake_case",
+    "ok": true
+  },
+  {
+    "id": "G2",
+    "title": "get_my_access (OPERATIONAL com página clients) devolve só as páginas atribuídas",
+    "ok": true
+  },
+  {
+    "id": "G3",
+    "title": "has_page confirma página atribuída e recusa a não atribuída",
+    "ok": true
+  },
+  {
+    "id": "G4",
+    "title": "Anónimo NÃO consegue chamar get_my_access",
+    "ok": true
+  },
+  {
+    "id": "L1",
+    "title": "log_system_audit regista o utilizador autenticado (não aceita e-mail do cliente)",
+    "ok": true
+  },
+  {
+    "id": "E1",
+    "title": "next_employee_number NÃO é executável por utilizadores autenticados",
+    "ok": true
+  },
+  {
+    "id": "E2",
+    "title": "Números de funcionário sequenciais e sem colisão",
+    "ok": true
+  },
+  {
+    "id": "E3",
+    "title": "HR lê funcionários",
+    "ok": true
+  },
+  {
+    "id": "E4",
+    "title": "Prestador NÃO lê funcionários",
+    "ok": true
+  },
+  {
+    "id": "T1",
+    "title": "Bucket de áudio é privado",
+    "ok": true
+  },
+  {
+    "id": "T2",
+    "title": "Anónimo pode enviar áudio para submissions/",
+    "ok": true
+  },
+  {
+    "id": "T3",
+    "title": "Anónimo NÃO pode enviar fora de submissions/",
+    "ok": true
+  },
+  {
+    "id": "T4",
+    "title": "Anónimo NÃO consegue listar objetos do storage",
+    "ok": true
+  },
+  {
+    "id": "V1",
+    "title": "Vista pública v_public_clients acessível ao formulário",
+    "ok": true
+  },
+  {
+    "id": "V2",
+    "title": "Anónimo NÃO lê a tabela clients (apenas a vista)",
+    "ok": true
+  },
+  {
+    "id": "X1",
+    "title": "Parâmetro p_threshold_override_reason existe (o frontend o envia)",
+    "ok": true
+  },
+  {
+    "id": "X2",
+    "title": "Todas as RPCs chamadas pelo frontend existem",
+    "ok": true
+  },
+  {
+    "id": "X3",
+    "title": "Todas as tabelas de public têm RLS ativo",
+    "ok": true
+  },
+  {
+    "id": "Q1",
+    "title": "clear_must_change_password limpa a flag da própria conta",
+    "ok": true
+  },
+  {
+    "id": "Q2",
+    "title": "Anónimo NÃO consegue limpar a flag",
+    "ok": true
+  },
+  {
+    "id": "K1",
+    "title": "Atividade do calendário grava com o payload do frontend",
+    "ok": true
+  },
+  {
+    "id": "M3",
+    "title": "Diretório lista destinatários sem o próprio utilizador",
+    "ok": true
+  },
+  {
+    "id": "M4",
+    "title": "Conversa direta reutiliza a existente entre os mesmos dois utilizadores",
+    "ok": true
+  },
+  {
+    "id": "M5",
+    "title": "Grupo com nome e vários membros é criado",
+    "ok": true
+  },
+  {
+    "id": "M6",
+    "title": "Grupo sem nome válido é recusado",
+    "ok": true
+  },
+  {
+    "id": "M7",
+    "title": "Não é possível criar conversa só consigo próprio",
+    "ok": true
+  },
+  {
+    "id": "M8",
+    "title": "Membro envia mensagem para o grupo",
+    "ok": true
+  },
+  {
+    "id": "M9",
+    "title": "Outro membro lê a mensagem do grupo",
+    "ok": true
+  },
+  {
+    "id": "M10",
+    "title": "Não-membro NÃO lê mensagens do grupo",
+    "ok": true
+  },
+  {
+    "id": "M11",
+    "title": "Não-membro NÃO envia mensagens para o grupo",
+    "ok": true
+  },
+  {
+    "id": "M12",
+    "title": "Inserção direta em messages é bloqueada (só via send_message)",
+    "ok": true
+  },
+  {
+    "id": "M13",
+    "title": "Membro que não é criador nem ADMIN NÃO acrescenta membros",
+    "ok": true
+  },
+  {
+    "id": "M14",
+    "title": "Criador do grupo acrescenta membro",
+    "ok": true
+  },
+  {
+    "id": "M15",
+    "title": "Anónimo NÃO cria conversas",
+    "ok": true
+  },
+  {
+    "id": "L2",
+    "title": "Login pelo identificador de acesso resolve a conta",
+    "ok": true
+  },
+  {
+    "id": "L3",
+    "title": "Login pelo nome completo (com acentos e maiúsculas) resolve a conta",
+    "ok": true
+  },
+  {
+    "id": "L4",
+    "title": "Login pelo número de funcionário resolve a conta",
+    "ok": true
+  },
+  {
+    "id": "L5",
+    "title": "Login por e-mail válido da conta resolve a conta",
+    "ok": true
+  },
+  {
+    "id": "L6",
+    "title": "Identificador desconhecido NÃO resolve",
+    "ok": true
+  },
+  {
+    "id": "L7",
+    "title": "Texto com e-mail inválido NÃO resolve",
+    "ok": true
+  },
+  {
+    "id": "L8",
+    "title": "Conta desativada NÃO resolve",
+    "ok": true
+  },
+  {
+    "id": "L9",
+    "title": "HR NÃO altera a configuração de login",
+    "ok": true
+  },
+  {
+    "id": "L10",
+    "title": "Administrador desativa o login por número de funcionário",
+    "ok": true
+  },
+  {
+    "id": "L11",
+    "title": "Métodos ativos refletem a configuração (público)",
+    "ok": true
+  },
+  {
+    "id": "L12",
+    "title": "Não é possível desativar todos os métodos de login",
+    "ok": true
+  },
+  {
+    "id": "L13",
+    "title": "Administrador reativa o login por número de funcionário",
+    "ok": true
+  },
+  {
+    "id": "R1",
+    "title": "Até 30 submissões por hora são aceites a partir de um endereço",
+    "ok": true
+  },
+  {
+    "id": "R2",
+    "title": "A 31.ª submissão do mesmo endereço é bloqueada",
+    "ok": true
+  },
+  {
+    "id": "U1",
+    "title": "Bucket de áudio limita tamanho e tipo de ficheiro",
+    "ok": true
+  },
+  {
+    "id": "C10",
+    "title": "Cliente com todos os dados obrigatórios é gravado",
+    "ok": true
+  },
+  {
+    "id": "C11",
+    "title": "NIF inválido é recusado",
+    "ok": true
+  },
+  {
+    "id": "C12",
+    "title": "E-mail inválido é recusado",
+    "ok": true
+  },
+  {
+    "id": "C13",
+    "title": "Contrato com fim anterior ao início é recusado",
+    "ok": true
+  },
+  {
+    "id": "G1",
+    "title": "Equipa interna cria meta com prazo para um cliente",
+    "ok": true
+  },
+  {
+    "id": "G2",
+    "title": "Meta com valor alvo zero é recusada",
+    "ok": true
+  },
+  {
+    "id": "G3",
+    "title": "Prestador NÃO lê metas de clientes",
+    "ok": true
+  },
+  {
+    "id": "G4",
+    "title": "Anónimo NÃO lê metas",
+    "ok": true
+  },
+  {
+    "id": "T0",
+    "title": "RH cria categoria de formulário",
+    "ok": true
+  },
+  {
+    "id": "T1-RATING_10",
+    "title": "Questão do tipo RATING_10 é aceite",
+    "ok": true
+  },
+  {
+    "id": "T1-SINGLE_CHOICE",
+    "title": "Questão do tipo SINGLE_CHOICE é aceite",
+    "ok": true
+  },
+  {
+    "id": "T1-MULTI_CHOICE",
+    "title": "Questão do tipo MULTI_CHOICE é aceite",
+    "ok": true
+  },
+  {
+    "id": "T1-YES_NO_NA",
+    "title": "Questão do tipo YES_NO_NA é aceite",
+    "ok": true
+  },
+  {
+    "id": "T1-BAD",
+    "title": "Tipo de questão desconhecido é recusado",
+    "ok": true
+  },
+  {
+    "id": "T1-RNG",
+    "title": "Valor de conformidade fora de 0..1 é recusado",
+    "ok": true
+  },
+  {
+    "id": "T2",
+    "title": "RH associa categoria a um serviço",
+    "ok": true
+  },
+  {
+    "id": "T3",
+    "title": "Prestador NÃO altera as associações serviço-categoria",
+    "ok": true
+  },
+  {
+    "id": "T4",
+    "title": "Formulário anónimo consegue ler as associações",
+    "ok": true
+  },
+  {
+    "id": "T5",
+    "title": "Critérios do RH ficam ligados às categorias (category_code)",
+    "ok": true
+  },
+  {
+    "id": "T6",
+    "title": "Gravar critérios com soma diferente de 100 % é recusado no servidor",
+    "ok": true
+  },
+  {
+    "id": "T6b",
+    "title": "Recusa não deixa alterações parciais",
+    "ok": true
+  },
+  {
+    "id": "T7",
+    "title": "Homologação com áudio e argumentos classificados (esperado 77.00)",
+    "ok": true
+  },
+  {
+    "id": "T8",
+    "title": "Parecer e partes (automático/áudio/argumentos) gravados no snapshot imutável",
+    "ok": true
+  },
+  {
+    "id": "T9",
+    "title": "Parecer do auditor é imutável após a homologação",
+    "ok": true
+  },
+  {
+    "id": "T10",
+    "title": "Nota qualitativa acima de 5 é recusada",
+    "ok": true
+  },
+  {
+    "id": "T10b",
+    "title": "Recusa não homologa a avaliação",
+    "ok": true
+  },
+  {
+    "id": "T11",
+    "title": "Áudio gravado sem nota do auditor é recusado",
+    "ok": true
+  },
+  {
+    "id": "T11b",
+    "title": "Argumentos escritos sem nota do auditor são recusados",
+    "ok": true
+  },
+  {
+    "id": "T11c",
+    "title": "Respostas máximas e 5/5 nos dois elementos dão 100.00",
+    "ok": true
+  },
+  {
+    "id": "N1",
+    "title": "Sem comentário, a decisão do analisador é obrigatória",
+    "ok": true
+  },
+  {
+    "id": "N2",
+    "title": "Sem comentário, não há nota parcial (só 10 ou 0)",
+    "ok": true
+  },
+  {
+    "id": "N3",
+    "title": "Sem áudio e com 10 atribuídos pelo analisador: 62 + 10 + 10 = 82.00",
+    "ok": true
+  },
+  {
+    "id": "T12",
+    "title": "Prestador continua sem poder homologar",
+    "ok": true
+  },
+  {
+    "id": "T13",
+    "title": "Existe uma única assinatura da função de homologação (sem ambiguidade no PostgREST)",
+    "ok": true
+  },
+  {
+    "id": "AUTO1",
+    "title": "Nome da empresa (sem diferenças de maiúsculas/espaços) associa automaticamente o cliente",
+    "ok": true
+  },
+  {
+    "id": "AUTO2",
+    "title": "Equipa ativa é associada automaticamente à avaliação",
+    "ok": true
+  },
+  {
+    "id": "AUTO3",
+    "title": "Empresa que não existe na base de dados fica sem associação (não inventa cliente)",
+    "ok": true
+  },
+  {
+    "id": "AUTO4",
+    "title": "Equipa inativa não é associada",
+    "ok": true
+  },
+  {
+    "id": "PT1",
+    "title": "Formulário anónimo lê as equipas ativas (sem a tabela teams)",
+    "ok": true
+  },
+  {
+    "id": "PT2",
+    "title": "Lista pública de prestadores da equipa só traz nomes (sem contactos)",
+    "ok": true
+  },
+  {
+    "id": "PT3",
+    "title": "Funcionário escolhido da equipa fica associado à avaliação",
+    "ok": true
+  },
+  {
+    "id": "PT4",
+    "title": "Equipa com um único prestador ativo associa-o automaticamente",
+    "ok": true
+  },
+  {
+    "id": "PT5",
+    "title": "Equipa com vários prestadores e sem escolha deixa o prestador por atribuir",
+    "ok": true
+  },
+  {
+    "id": "PT6",
+    "title": "Funcionário de outra equipa é recusado",
+    "ok": true
+  },
+  {
+    "id": "PT7",
+    "title": "Anónimo continua sem acesso à tabela teams",
+    "ok": true
+  },
+  {
+    "id": "DEL1",
+    "title": "Apagar cliente mantém a avaliação no histórico, com o nome da empresa",
+    "ok": true
+  },
+  {
+    "id": "DEL2",
+    "title": "Lote de 40 clientes é gravado num só pedido",
+    "ok": true
+  },
+  {
+    "id": "DEL3",
+    "title": "Lote com um nome duplicado é recusado por inteiro (sem dados parciais)",
+    "ok": true
+  }
+]

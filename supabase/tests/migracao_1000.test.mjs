@@ -5,7 +5,7 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // As migrações 1000 e 1001 executam-se SEMPRE juntas e por esta ordem (a 1000 recria funções que a 1001 altera).
-const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql']
+const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql']
   .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8')).join('\n;\n');
 
 const R = [];
@@ -149,35 +149,47 @@ rec('P1', 'Operacional (equipa interna) lê clientes', opClients >= 1, `Vê ${op
 const opEvals = await as('authenticated', A.op, async () => (await db.query(`SELECT count(*)::int n FROM public.evaluations`)).rows[0].n);
 rec('P2', 'Operacional lê avaliações internas', opEvals >= 1, `Vê ${opEvals} avaliações`);
 
-// ---------- 7. Homologação ----------
-await as('authenticated', A.admin, async () => db.query(`SELECT 1`)); // sanidade
-const crit = await tryq(() => as('authenticated', A.hr, async () =>
-  (await db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL) AS r`,
-    [evalId, JSON.stringify({ 'crit-qualidade': 4, 'crit-pontualidade': 4, 'crit-seguranca': 5, 'crit-atendimento': 3 })])).rows[0].r));
-const k = crit.ok ? Object.keys(crit.r).sort().join(',') : '';
-rec('F1', 'Homologação (RH) executa e devolve as chaves que o frontend espera', crit.ok && crit.r.finalScore !== undefined && crit.r.finalClassification && crit.r.snapshot && crit.r.finalizedBy && crit.r.finalizedAt,
-  crit.ok ? `finalScore=${crit.r.finalScore} classe=${crit.r.finalClassification} chaves=[${k}]` : `ERRO: ${crit.err}`);
-// Esperado: 4/5*40 + 4/5*20 + 5/5*25 + 3/5*15 = 32+16+25+9 = 82
-rec('F2', 'Pontuação calculada corretamente (esperado 82.00)', crit.ok && Number(crit.r.finalScore) === 82,
-  crit.ok ? `obtido ${crit.r.finalScore}` : 'n/a');
+// ---------- 7. Homologação 80/20 (80 automáticos + 10 áudio + 10 argumentos) ----------
+// Fixtures com configuração congelada (questions_snapshot) e respostas (detailed_answers)
+const snap = JSON.stringify([
+  { id: 'h-q1', text: 'Qualidade', category: 'QUALIDADE', type: 'RATING_5' },
+  { id: 'h-q2', text: 'Pontualidade', category: 'PONTUALIDADE', type: 'RATING_5' },
+  { id: 'h-q3', text: 'EPI', category: 'SEGURANCA', type: 'YES_NO_NA', yesScore: 1, noScore: 0 },
+  { id: 'h-q4', text: 'Atendimento', category: 'ATENDIMENTO', type: 'RATING_10' },
+]);
+const ansMedio = JSON.stringify({ 'h-q1': { rating: 4 }, 'h-q2': { rating: 4 }, 'h-q3': { yesNo: 'YES' }, 'h-q4': { rating: 3 } });
+const ansMax = JSON.stringify({ 'h-q1': { rating: 5 }, 'h-q2': { rating: 5 }, 'h-q3': { yesNo: 'YES' }, 'h-q4': { rating: 10 } });
+const mkEval = async (name, answers, audioUrl = null, comment = null) => (await db.query(
+  `INSERT INTO public.evaluations (client_name, service_name, satisfaction_rating, questions_snapshot, detailed_answers, audio_recording_url, comment)
+   VALUES ($1, 'Teste', 4, $2::jsonb, $3::jsonb, $4, $5) RETURNING id`,
+  [name, snap, answers, audioUrl, comment])).rows[0].id;
 
-const st = (await db.query(`SELECT status FROM public.evaluations WHERE id=$1`, [evalId])).rows[0];
+// Automático esperado: (0.8×40 + 0.8×20 + 1×25 + 0.3×15) / 100 × 80 = 62
+const hId = await mkEval('Homologação Base', ansMedio);
+const crit = await tryq(() => as('authenticated', A.hr, async () =>
+  (await db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, $2::jsonb) AS r`, [hId, JSON.stringify({ writtenArguments: { score: 0 } })])).rows[0].r));
+const k = crit.ok ? Object.keys(crit.r).sort().join(',') : '';
+rec('F1', 'Homologação (RH) executa e devolve as chaves que o frontend espera', crit.ok && crit.r.finalScore !== undefined && crit.r.finalClassification && crit.r.snapshot && crit.r.finalizedBy && crit.r.finalizedAt && crit.r.automaticPoints !== undefined,
+  crit.ok ? `finalScore=${crit.r.finalScore} classe=${crit.r.finalClassification} chaves=[${k}]` : `ERRO: ${crit.err}`);
+rec('F2', 'Sem áudio (10 automáticos) e argumentos decididos com 0: 62 + 10 + 0 = 72.00', crit.ok && Number(crit.r.finalScore) === 72 && Number(crit.r.automaticPoints) === 62 && Number(crit.r.audioPoints) === 10,
+  crit.ok ? `obtido ${crit.r.finalScore} (automático ${crit.r.automaticPoints})` : 'n/a');
+const st = (await db.query(`SELECT status FROM public.evaluations WHERE id=$1`, [hId])).rows[0];
 rec('F3', 'Estado após homologação é REVIEWED (alinhado com o frontend)', st.status === 'REVIEWED', `status=${st.status}`);
 
 const recalc = await tryq(() => as('authenticated', A.hr, async () =>
-  db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL)`, [evalId, JSON.stringify({ 'crit-qualidade': 1, 'crit-pontualidade': 1, 'crit-seguranca': 1, 'crit-atendimento': 1 })])));
+  db.query(`SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL)`, [hId])));
 rec('I1', 'Avaliação homologada NÃO pode ser re-homologada', !recalc.ok && /homologada/.test(recalc.err),
   recalc.ok ? 'ACEITE (falha)' : `Bloqueado: ${recalc.err}`);
 
 const tamper = await tryq(() => as('authenticated', A.hr, async () =>
-  db.query(`UPDATE public.evaluations SET technical_score = 100, final_classification='POSITIVE' WHERE id=$1`, [evalId])));
-const curScore = (await db.query(`SELECT technical_score FROM public.evaluations WHERE id=$1`, [evalId])).rows[0].technical_score;
-rec('I2', 'Alteração direta da pontuação homologada é bloqueada pelo trigger', !tamper.ok && Number(curScore) === 82,
+  db.query(`UPDATE public.evaluations SET technical_score = 100, final_classification='POSITIVE' WHERE id=$1`, [hId])));
+const curScore = (await db.query(`SELECT technical_score FROM public.evaluations WHERE id=$1`, [hId])).rows[0].technical_score;
+rec('I2', 'Alteração direta da pontuação homologada é bloqueada pelo trigger', !tamper.ok && Number(curScore) === 72,
   tamper.ok ? `UPDATE aceite (falha). Pontuação agora ${curScore}` : `Bloqueado: ${tamper.err}`);
 
 const delFin = await tryq(() => as('authenticated', A.admin, async () =>
-  db.query(`DELETE FROM public.evaluations WHERE id=$1`, [evalId])));
-const stillThere = (await db.query(`SELECT count(*)::int n FROM public.evaluations WHERE id=$1`, [evalId])).rows[0].n;
+  db.query(`DELETE FROM public.evaluations WHERE id=$1`, [hId])));
+const stillThere = (await db.query(`SELECT count(*)::int n FROM public.evaluations WHERE id=$1`, [hId])).rows[0].n;
 rec('I3', 'Avaliação homologada NÃO pode ser eliminada (a linha permanece)', stillThere === 1,
   `${delFin.ok ? 'DELETE sem erro (RLS sem política de DELETE)' : 'Bloqueado: ' + delFin.err} | linhas existentes = ${stillThere}`);
 
@@ -437,35 +449,131 @@ rec('T6', 'Gravar critérios com soma diferente de 100 % é recusado no servidor
 const stillCode = (await db.query(`SELECT category_code FROM public.evaluation_criteria WHERE id='crit-qualidade'`)).rows[0].category_code;
 rec('T6b', 'Recusa não deixa alterações parciais', stillCode === 'QUALIDADE', `category_code=${stillCode}`);
 
-const submitNew = async (name) => (await db.query(`SELECT public.submit_evaluation($1::jsonb) AS r`, [JSON.stringify({
-  clientName: name, serviceId: svc, satisfactionRating: 4,
-  detailedAnswers: { 'tq-YES_NO_NA': { yesNo: 'YES' }, 'tq-SINGLE_CHOICE': { choice: 'A' } } })])).rows[0].r.id;
-const e2 = await as('anon', '', () => submitNew('Cliente Auditoria 1'));
-const ratings = JSON.stringify({ 'crit-qualidade': 4, 'crit-pontualidade': 4, 'crit-seguranca': 5, 'crit-atendimento': 3 });
-const review = JSON.stringify({ audio: { score: 4, transcript: 'Serviço rápido', notes: 'Áudio claro' }, writtenArguments: { score: 3.5, notes: 'Argumento genérico' } });
+const hA = await mkEval('Auditoria 1', ansMedio, 'submissions/a.webm', 'Texto geral do cliente');
+const review = JSON.stringify({ audio: { score: 4, transcript: 'Serviço rápido' }, writtenArguments: { score: 3.5, notes: 'Argumento genérico' } });
 const fin2 = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
-  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL, $3::jsonb) AS r`, [e2, ratings, review])).rows[0].r));
-rec('T7', 'Homologação com parecer qualitativo do auditor', fin2.ok && fin2.r.finalScore !== undefined, fin2.ok ? `score=${fin2.r.finalScore}` : `ERRO: ${fin2.err}`);
-const stored = (await db.query(`SELECT auditor_review, criteria_snapshot FROM public.evaluations WHERE id=$1`, [e2])).rows[0];
-rec('T8', 'Parecer gravado na avaliação e no snapshot imutável',
-  stored.auditor_review?.audio?.score === 4 && stored.criteria_snapshot?.auditorReview?.writtenArguments?.score === 3.5, JSON.stringify(stored.auditor_review));
-const mutate = await tryq(() => db.query(`UPDATE public.evaluations SET auditor_review = '{}'::jsonb WHERE id=$1`, [e2]));
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, $2::jsonb) AS r`, [hA, review])).rows[0].r));
+// 62 automático + 4×2 (áudio) + 3,5×2 (argumentos) = 77
+rec('T7', 'Homologação com áudio e argumentos classificados (esperado 77.00)', fin2.ok && Number(fin2.r.finalScore) === 77, fin2.ok ? `score=${fin2.r.finalScore}` : `ERRO: ${fin2.err}`);
+const stored = (await db.query(`SELECT auditor_review, criteria_snapshot FROM public.evaluations WHERE id=$1`, [hA])).rows[0];
+rec('T8', 'Parecer e partes (automático/áudio/argumentos) gravados no snapshot imutável',
+  stored.auditor_review?.audio?.score === 4 && stored.criteria_snapshot?.auditorReview?.writtenArguments?.score === 3.5
+  && Number(stored.criteria_snapshot?.audioPoints) === 8 && Number(stored.criteria_snapshot?.argumentPoints) === 7,
+  JSON.stringify(stored.criteria_snapshot?.audioPoints) + '/' + JSON.stringify(stored.criteria_snapshot?.argumentPoints));
+const mutate = await tryq(() => db.query(`UPDATE public.evaluations SET auditor_review = '{}'::jsonb WHERE id=$1`, [hA]));
 rec('T9', 'Parecer do auditor é imutável após a homologação', !mutate.ok, mutate.ok ? 'ALTERADO (falha)' : `Recusado: ${mutate.err}`);
 
-const e3 = await as('anon', '', () => submitNew('Cliente Auditoria 2'));
+const hB = await mkEval('Auditoria 2', ansMedio, 'submissions/b.webm', null);
 const badScore = await tryq(() => as('authenticated', A.hr, async () => db.query(
-  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL, $3::jsonb)`, [e3, ratings, JSON.stringify({ audio: { score: 7 } })])));
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, $2::jsonb)`, [hB, JSON.stringify({ audio: { score: 7 } })])));
 rec('T10', 'Nota qualitativa acima de 5 é recusada', !badScore.ok, badScore.ok ? 'ACEITE (falha)' : `Recusada: ${badScore.err}`);
-const stillOpen = (await db.query(`SELECT finalized_at FROM public.evaluations WHERE id=$1`, [e3])).rows[0].finalized_at;
+const stillOpen = (await db.query(`SELECT finalized_at FROM public.evaluations WHERE id=$1`, [hB])).rows[0].finalized_at;
 rec('T10b', 'Recusa não homologa a avaliação', stillOpen === null, stillOpen === null ? 'OK' : 'ficou homologada (falha)');
-const noReview = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
-  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL) AS r`, [e3, ratings])).rows[0].r));
-rec('T11', 'Homologação sem parecer continua a funcionar (compatibilidade)', noReview.ok, noReview.ok ? `score=${noReview.r.finalScore}` : `ERRO: ${noReview.err}`);
+
+const noAudioScore = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, '{}'::jsonb)`, [hB])));
+rec('T11', 'Áudio gravado sem nota do auditor é recusado', !noAudioScore.ok && /Falta classificar o áudio/.test(noAudioScore.err),
+  noAudioScore.ok ? 'ACEITE (falha)' : `Recusado: ${noAudioScore.err}`);
+
+const hC = await mkEval('Auditoria 3', ansMedio, null, 'Texto escrito pelo cliente');
+const noArgScore = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, '{}'::jsonb)`, [hC])));
+rec('T11b', 'Argumentos escritos sem nota do auditor são recusados', !noArgScore.ok && /argumentos/.test(noArgScore.err),
+  noArgScore.ok ? 'ACEITE (falha)' : `Recusados: ${noArgScore.err}`);
+
+const hMax = await mkEval('Máximo', ansMax, 'submissions/m.webm', 'Texto');
+const maxRes = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, $2::jsonb) AS r`,
+  [hMax, JSON.stringify({ audio: { score: 5 }, writtenArguments: { score: 5 } })])).rows[0].r));
+rec('T11c', 'Respostas máximas e 5/5 nos dois elementos dão 100.00', maxRes.ok && Number(maxRes.r.finalScore) === 100,
+  maxRes.ok ? `score=${maxRes.r.finalScore}` : `ERRO: ${maxRes.err}`);
+// Sem áudio e sem comentário: 10 do áudio são automáticos; o analisador decide os argumentos
+const hN = await mkEval('Sem Nada', ansMedio, null, null);
+const noDecision = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, '{}'::jsonb)`, [hN])));
+rec('N1', 'Sem comentário, a decisão do analisador é obrigatória', !noDecision.ok && /não escreveu comentário/.test(noDecision.err),
+  noDecision.ok ? 'ACEITE (falha)' : `Recusado: ${noDecision.err}`);
+const partial = await tryq(() => as('authenticated', A.hr, async () => db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, $2::jsonb)`, [hN, JSON.stringify({ writtenArguments: { score: 3 } })])));
+rec('N2', 'Sem comentário, não há nota parcial (só 10 ou 0)', !partial.ok && /tudo ou nada/.test(partial.err),
+  partial.ok ? 'ACEITE (falha)' : `Recusado: ${partial.err}`);
+const fullDecision = await tryq(() => as('authenticated', A.hr, async () => (await db.query(
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, $2::jsonb) AS r`, [hN, JSON.stringify({ writtenArguments: { score: 5 } })])).rows[0].r));
+rec('N3', 'Sem áudio e com 10 atribuídos pelo analisador: 62 + 10 + 10 = 82.00', fullDecision.ok && Number(fullDecision.r.finalScore) === 82 && Number(fullDecision.r.audioPoints) === 10,
+  fullDecision.ok ? `score=${fullDecision.r.finalScore}` : `ERRO: ${fullDecision.err}`);
+
 const prov2 = await tryq(() => as('authenticated', A.prov, async () => db.query(
-  `SELECT public.calculate_and_finalize_evaluation($1::uuid, $2::jsonb, NULL, NULL, '{}'::jsonb)`, [e3, ratings])));
+  `SELECT public.calculate_and_finalize_evaluation($1::uuid, '{}'::jsonb, NULL, NULL, '{}'::jsonb)`, [hC])));
 rec('T12', 'Prestador continua sem poder homologar', !prov2.ok, prov2.ok ? 'HOMOLOGOU (falha)' : `Recusado: ${prov2.err}`);
 const overloads = (await db.query(`SELECT count(*)::int n FROM pg_proc WHERE proname='calculate_and_finalize_evaluation'`)).rows[0].n;
 rec('T13', 'Existe uma única assinatura da função de homologação (sem ambiguidade no PostgREST)', overloads === 1, `assinaturas=${overloads}`);
+
+// ---------- 22. Associação automática de empresa e equipa na submissão (migração 1003) ----------
+await db.exec(`INSERT INTO public.teams (name, status) VALUES ('Equipa Luanda', 'ACTIVE'), ('Equipa Inativa', 'INACTIVE')`);
+const teamOk = (await db.query(`SELECT id FROM public.teams WHERE name='Equipa Luanda'`)).rows[0].id;
+const teamOff = (await db.query(`SELECT id FROM public.teams WHERE name='Equipa Inativa'`)).rows[0].id;
+const cliAntigo = (await db.query(`SELECT id FROM public.clients WHERE company_name='Cliente Antigo'`)).rows[0].id;
+const submitAs = (payload) => as('anon', '', async () => (await db.query(`SELECT public.submit_evaluation($1::jsonb) AS r`,
+  [JSON.stringify({ serviceId: svc, satisfactionRating: 4, ...payload })])).rows[0].r.id);
+const rowOf = async (id) => (await db.query(`SELECT client_id, client_name, team_id, team_name FROM public.evaluations WHERE id=$1`, [id])).rows[0];
+
+const idA = await submitAs({ clientName: '  cliente  ANTIGO ', teamId: teamOk });
+const rA = await rowOf(idA);
+rec('AUTO1', 'Nome da empresa (sem diferenças de maiúsculas/espaços) associa automaticamente o cliente', rA.client_id === cliAntigo && rA.client_name === 'Cliente Antigo', `client_id=${rA.client_id}`);
+rec('AUTO2', 'Equipa ativa é associada automaticamente à avaliação', rA.team_id === teamOk && rA.team_name === 'Equipa Luanda', `team=${rA.team_name}`);
+
+const idB = await submitAs({ clientName: 'Empresa Desconhecida Lda', teamId: teamOk });
+const rB = await rowOf(idB);
+rec('AUTO3', 'Empresa que não existe na base de dados fica sem associação (não inventa cliente)', rB.client_id === null, `client_id=${rB.client_id}`);
+
+const idC = await submitAs({ clientName: 'Cliente Antigo', teamId: teamOff });
+const rC = await rowOf(idC);
+rec('AUTO4', 'Equipa inativa não é associada', rC.team_id === null && rC.client_id === cliAntigo, `team_id=${rC.team_id}`);
+
+// ---------- 23. Equipa e funcionário na submissão pública (migração 1005) ----------
+await db.exec(`INSERT INTO public.providers (internal_code, name, professional_email, status, team_id) VALUES
+  ('P2', 'Tec Dois', 'tec2@t.ao', 'ACTIVE', '${teamOk}'),
+  ('P3', 'Tec Três', 'tec3@t.ao', 'ACTIVE', '${teamOff}')`);
+await db.exec(`UPDATE public.providers SET team_id='${teamOk}' WHERE internal_code='P1'`);
+await db.exec(`INSERT INTO public.teams (name, status) VALUES ('Equipa Solo', 'ACTIVE')`);
+const teamSolo = (await db.query(`SELECT id FROM public.teams WHERE name='Equipa Solo'`)).rows[0].id;
+await db.exec(`UPDATE public.providers SET team_id='${teamSolo}' WHERE internal_code='P3'`);
+const pId = async (code) => (await db.query(`SELECT id FROM public.providers WHERE internal_code=$1`, [code])).rows[0].id;
+const p1 = await pId('P1'), p2 = await pId('P2'), p3 = await pId('P3');
+const pubTeams = (await as('anon', '', async () => (await db.query(`SELECT name FROM public.v_public_teams ORDER BY name`)).rows)).map(r => r.name);
+rec('PT1', 'Formulário anónimo lê as equipas ativas (sem a tabela teams)', pubTeams.includes('Equipa Luanda') && !pubTeams.includes('Equipa Inativa'), `equipas=${pubTeams.join(',')}`);
+const pubProv = await as('anon', '', async () => (await db.query(`SELECT public.list_public_team_providers($1::uuid) AS r`, [teamOk])).rows[0].r);
+rec('PT2', 'Lista pública de prestadores da equipa só traz nomes (sem contactos)',
+  pubProv.length === 2 && pubProv.every(x => Object.keys(x).sort().join() === 'id,name'), JSON.stringify(pubProv));
+const idP1 = await submitAs({ clientName: 'Cliente Antigo', teamId: teamOk, providerId: p2 });
+rec('PT3', 'Funcionário escolhido da equipa fica associado à avaliação', (await rowOf(idP1)) && (await db.query(`SELECT provider_id FROM public.evaluations WHERE id=$1`, [idP1])).rows[0].provider_id === p2, 'OK');
+const idPA = await submitAs({ clientName: 'Cliente Antigo', teamId: teamSolo });
+const provA = (await db.query(`SELECT provider_id FROM public.evaluations WHERE id=$1`, [idPA])).rows[0].provider_id;
+rec('PT4', 'Equipa com um único prestador ativo associa-o automaticamente', provA === p3, `provider=${provA}`);
+const idPB = await submitAs({ clientName: 'Cliente Antigo', teamId: teamOk });
+const provB = (await db.query(`SELECT provider_id FROM public.evaluations WHERE id=$1`, [idPB])).rows[0].provider_id;
+rec('PT5', 'Equipa com vários prestadores e sem escolha deixa o prestador por atribuir', provB === null, `provider=${provB}`);
+const mismatch = await tryq(() => submitAs({ clientName: 'Cliente Antigo', teamId: teamOk, providerId: p3 }));
+rec('PT6', 'Funcionário de outra equipa é recusado', !mismatch.ok && /não pertence à equipa/.test(mismatch.err), mismatch.ok ? 'ACEITE (falha)' : `Recusado: ${mismatch.err}`);
+const anonTeamsTable = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*)::int n FROM public.teams`)));
+rec('PT7', 'Anónimo continua sem acesso à tabela teams', !anonTeamsTable.ok, anonTeamsTable.ok ? 'LEU (falha)' : `Recusado: ${anonTeamsTable.err}`);
+
+// ---------- 24. Apagar cliente e importação em lote (clientes) ----------
+const delC = (await db.query(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Cliente Apagar','DEL-1','ACTIVE') RETURNING id`)).rows[0].id;
+const delE = (await db.query(`INSERT INTO public.evaluations (client_id, client_name, client_name_input, service_name, satisfaction_rating) VALUES ($1,'Cliente Apagar','Cliente Apagar','Limpeza',4) RETURNING id`, [delC])).rows[0].id;
+await db.query(`DELETE FROM public.clients WHERE id=$1`, [delC]);
+const afterE = (await db.query(`SELECT client_id, client_name FROM public.evaluations WHERE id=$1`, [delE])).rows[0];
+rec('DEL1', 'Apagar cliente mantém a avaliação no histórico, com o nome da empresa', afterE && afterE.client_id === null && afterE.client_name === 'Cliente Apagar',
+  afterE ? `client_id=${afterE.client_id} nome=${afterE.client_name}` : 'avaliação perdida');
+
+const batch40 = Array.from({ length: 40 }, (_, i) => `(${`'Lote ${i}'`}, ${`'LOT-${i}'`}, 'ACTIVE')`).join(',');
+const okBatch = await tryq(() => db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ${batch40}`));
+const batchCount = (await db.query(`SELECT count(*)::int n FROM public.clients WHERE internal_code LIKE 'LOT-%'`)).rows[0].n;
+rec('DEL2', 'Lote de 40 clientes é gravado num só pedido', okBatch.ok && batchCount === 40, `gravados=${batchCount}`);
+
+const badBatch = await tryq(() => db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Lote Dup X','DUP-1','ACTIVE'), ('Lote 0','DUP-2','ACTIVE')`));
+const dupLeft = (await db.query(`SELECT count(*)::int n FROM public.clients WHERE internal_code LIKE 'DUP-%'`)).rows[0].n;
+rec('DEL3', 'Lote com um nome duplicado é recusado por inteiro (sem dados parciais)', !badBatch.ok && dupLeft === 0, `recusado=${!badBatch.ok} parciais=${dupLeft}`);
 
 // ---------- Resumo ----------
 const falhas = R.filter(r => !r.ok);

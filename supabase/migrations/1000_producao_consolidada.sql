@@ -900,6 +900,8 @@ CREATE OR REPLACE VIEW public.v_public_providers AS
 CREATE OR REPLACE VIEW public.v_public_services AS
   SELECT id, name, code, description, evaluation_indicator FROM public.services WHERE status = 'ACTIVE';
 
+-- DROP antes do CREATE: a 1001 acrescenta colunas à vista; sem o DROP, a re-execução falha ("cannot drop columns from view")
+DROP VIEW IF EXISTS public.v_public_form_questions;
 CREATE OR REPLACE VIEW public.v_public_form_questions AS
   SELECT id, version_id, text, description, category, type, required, active, display_order,
          service_id, options, conditional_on

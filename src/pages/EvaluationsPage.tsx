@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 import { calculateStringSimilarity, getQueueStatus } from '../services/evaluationUtils';
+import { exportEvaluationsPdf } from '../services/pdfExport';
 
 export const EvaluationsPage: React.FC = () => {
   const { 
@@ -555,6 +556,15 @@ export const EvaluationsPage: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => exportEvaluationsPdf(filteredEvaluations, currentUser?.name || 'Sistema')}
+            disabled={filteredEvaluations.length === 0}
+            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-800 font-bold rounded-xl text-xs flex items-center gap-1.5 transition"
+            title="Exportar a lista filtrada para PDF"
+          >
+            <Download className="w-4 h-4 text-slate-600" />
+            <span>Exportar avaliações (PDF)</span>
+          </button>
           <button
             onClick={handleExportCSV}
             disabled={filteredEvaluations.length === 0}

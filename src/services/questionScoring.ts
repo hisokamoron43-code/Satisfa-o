@@ -183,3 +183,22 @@ export function validateQuestionConfig(q: QuestionLike): string[] {
   }
   return errors;
 }
+
+/**
+ * Conformidade (0–1) de cada critério ATIVO, a partir das respostas. Critérios sem respostas pontuáveis
+ * neste serviço não aparecem no resultado. Usa a mesma chave de ligação que o servidor (category_code ou nome).
+ */
+export function criterionConformity(
+  criteria: CriterionLike[],
+  questions: QuestionLike[],
+  answers: Record<string, AnswerLike | undefined>,
+): Record<string, number> {
+  const byCategory = categoryConformity(questions, answers, null);
+  const out: Record<string, number> = {};
+  for (const c of criteria) {
+    if (!c.active) continue;
+    const r = byCategory[criterionKey(c)]?.ratio;
+    if (r !== null && r !== undefined) out[c.id] = r;
+  }
+  return out;
+}

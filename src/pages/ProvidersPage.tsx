@@ -5,7 +5,7 @@ import { UserCheck, Search, Plus, Edit3, Trash2, Power, CheckCircle2, XCircle, S
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 
 export const ProvidersPage: React.FC = () => {
-  const { providers, addProvider, updateProvider, deleteProvider, toggleProviderAccess, services, currentUser, evaluations, clients } = useApp();
+  const { providers, addProvider, updateProvider, deleteProvider, toggleProviderAccess, services, teams, currentUser, evaluations, clients } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedKpiModal, setSelectedKpiModal] = useState<string | null>(null);
 
@@ -32,6 +32,7 @@ export const ProvidersPage: React.FC = () => {
   const [internalCode, setInternalCode] = useState('');
   const [professionalEmail, setProfessionalEmail] = useState('');
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [teamId, setTeamId] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const filteredProviders = providers.filter(prov => 
@@ -47,12 +48,14 @@ export const ProvidersPage: React.FC = () => {
       setInternalCode(prov.internalCode);
       setProfessionalEmail(prov.professionalEmail);
       setSelectedServices(prov.services);
+      setTeamId(prov.teamId ?? '');
     } else {
       setEditingProvider(null);
       setName('');
       setInternalCode('');
       setProfessionalEmail('');
       setSelectedServices(services[0] ? [services[0].name] : []);
+      setTeamId('');
     }
     setErrorMsg('');
     setIsModalOpen(true);
@@ -71,6 +74,7 @@ export const ProvidersPage: React.FC = () => {
         internalCode,
         professionalEmail,
         services: selectedServices,
+        teamId: teamId || undefined,
         status: 'ACTIVE',
         evaluationAccessAuthorized: false
       });
@@ -79,7 +83,8 @@ export const ProvidersPage: React.FC = () => {
         name,
         internalCode,
         professionalEmail,
-        services: selectedServices
+        services: selectedServices,
+        teamId: teamId || undefined
       });
     }
     setIsModalOpen(false);
@@ -484,6 +489,21 @@ export const ProvidersPage: React.FC = () => {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1.5">Equipa</label>
+                <select
+                  value={teamId}
+                  onChange={(e) => setTeamId(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-950"
+                >
+                  <option value="">Sem equipa</option>
+                  {teams.filter(t => t.status === 'ACTIVE').map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">A equipa define os funcionários que aparecem no formulário de satisfação para essa equipa.</p>
               </div>
 
               <div>

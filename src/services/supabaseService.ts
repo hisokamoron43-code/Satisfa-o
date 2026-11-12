@@ -364,9 +364,10 @@ export async function fetchClientsFromDb(): Promise<Client[] | null> {
       }));
     }
 
-    return getStore('clients', MOCK_CLIENTS);
-  } catch (e) {
-    return getStore('clients', MOCK_CLIENTS);
+    return [];
+  } catch {
+    // Erro de leitura: mantém o estado atual (nunca devolve dados de demonstração)
+    return null;
   }
 }
 
@@ -498,9 +499,10 @@ export async function fetchServicesFromDb(): Promise<ServiceItem[] | null> {
       }));
     }
 
-    return getStore('services', MOCK_SERVICES);
+    return [];
   } catch {
-    return getStore('services', MOCK_SERVICES);
+    // Erro de leitura: mantém o estado atual (nunca devolve dados de demonstração)
+    return null;
   }
 }
 
@@ -602,6 +604,7 @@ export async function fetchProvidersFromDb(): Promise<Provider[] | null> {
         internalCode: item.internal_code,
         name: item.name,
         professionalEmail: item.professional_email,
+        teamId: item.team_id || undefined,
         services: item.services || [],
         status: item.status || 'ACTIVE',
         createdAt: item.created_at ? item.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10),
@@ -631,9 +634,10 @@ export async function fetchProvidersFromDb(): Promise<Provider[] | null> {
       }));
     }
 
-    return getStore('providers', MOCK_PROVIDERS);
+    return [];
   } catch {
-    return getStore('providers', MOCK_PROVIDERS);
+    // Erro de leitura: mantém o estado atual (nunca devolve dados de demonstração)
+    return null;
   }
 }
 
@@ -661,6 +665,7 @@ export async function insertProviderInDb(prov: Omit<Provider, 'id' | 'createdAt'
     const { data, error } = await supabase
       .from('providers')
       .insert({
+        team_id: isValidUuid(prov.teamId) ? prov.teamId : null,
         internal_code: prov.internalCode,
         name: prov.name,
         professional_email: prov.professionalEmail,
@@ -706,6 +711,7 @@ export async function updateProviderInDb(
     const updatePayload: Record<string, any> = {};
     if (prov.name !== undefined) updatePayload.name = prov.name;
     if (prov.internalCode !== undefined) updatePayload.internal_code = prov.internalCode;
+    if (prov.teamId !== undefined) updatePayload.team_id = isValidUuid(prov.teamId) ? prov.teamId : null;
     if (prov.professionalEmail !== undefined) updatePayload.professional_email = prov.professionalEmail;
     if (prov.services !== undefined) updatePayload.services = prov.services;
     if (prov.status !== undefined) updatePayload.status = prov.status;
@@ -763,7 +769,8 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       .select('*, clients(company_name), services(name), providers(name)')
       .order('evaluation_date', { ascending: false });
 
-    if (error || !data || data.length === 0) return getStore('evaluations', MOCK_EVALUATIONS);
+    if (error) return null;
+    if (!data) return [];
 
     return data.map((item: any) => ({
       id: item.id,
@@ -800,7 +807,8 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       serviceTypesProvided: item.service_types_provided || undefined,
     }));
   } catch {
-    return getStore('evaluations', MOCK_EVALUATIONS);
+    // Erro de leitura: mantém o estado atual (nunca devolve dados de demonstração)
+    return null;
   }
 }
 
@@ -1671,6 +1679,25 @@ export async function deleteFormCategoryInDb(id: string): Promise<{ success: boo
 /**
  * TEAMS Service
  */
+/** Equipas ativas para o formulário anónimo (vista pública, sem a tabela teams). */
+async function fetchPublicTeams(): Promise<Team[] | null> {
+  const { data, error } = await supabase.from('v_public_teams').select('id,name,code,department').order('name');
+  if (error || !data) return null;
+  return data.map((t: any) => ({
+    id: t.id, name: t.name, code: t.code, department: t.department || 'Operações',
+    status: 'ACTIVE' as const, membersCount: 0,
+    createdAt: new Date().toISOString().substring(0, 10),
+  }));
+}
+
+/** Nomes dos prestadores ativos de uma equipa, para o formulário anónimo (sem contactos). */
+export async function fetchTeamProvidersForPublic(teamId: string): Promise<{ id: string; name: string }[]> {
+  if (!isSupabaseConfigured || !isValidUuid(teamId)) return [];
+  const { data, error } = await supabase.rpc('list_public_team_providers', { p_team_id: teamId });
+  if (error || !Array.isArray(data)) return [];
+  return data as { id: string; name: string }[];
+}
+
 export async function fetchTeamsFromDb(): Promise<Team[] | null> {
   if (!isSupabaseConfigured) {
     return getStore('teams', MOCK_TEAMS);
@@ -1681,7 +1708,8 @@ export async function fetchTeamsFromDb(): Promise<Team[] | null> {
       .select('*')
       .order('name');
 
-    if (error || !data) return null;
+    // Utilizadores anónimos não leem a tabela teams (RLS devolve vazio): usa a vista pública
+    if (error || !data || data.length === 0) return fetchPublicTeams();
 
     return data.map((t: any) => ({
       id: t.id,
@@ -2245,7 +2273,8 @@ export async function uploadEvaluationAudio(
     const { data, error } = await supabase.storage
       .from('evaluation-audio')
       .upload(filename, audioBlob, {
-        contentType: audioBlob.type || 'audio/webm',
+        // Sem parâmetros (ex.: ';codecs=opus'): o bucket aceita apenas o tipo base
+        contentType: (audioBlob.type || 'audio/webm').split(';')[0].trim(),
         cacheControl: '3600',
         upsert: false
       });
@@ -2747,4 +2776,117 @@ export async function deleteClientGoalInDb(id: string): Promise<{ success: boole
   }
   const { error } = await supabase.from('client_goals').delete().eq('id', id);
   return error ? { success: false, error: error.message } : { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// CLIENTES: eliminação e importação em lote
+// ---------------------------------------------------------------------------
+
+type ClientRecord = Omit<Client, 'id' | 'createdAt'>;
+
+function clientToDbRow(c: ClientRecord) {
+  return {
+    company_name: c.companyName,
+    internal_code: c.internalCode || null,
+    contact_person: c.contactPerson || null,
+    nif: c.nif || null,
+    address: c.address || null,
+    city: c.city || null,
+    sector: c.sector || null,
+    contract_start: c.contractStart || null,
+    contract_end: c.contractEnd || null,
+    notes: c.notes || null,
+    email: c.email || null,
+    phone: c.phone || null,
+    contracted_services: c.contractedServices || [],
+    status: c.status || 'ACTIVE',
+  };
+}
+
+function dbRowToClient(d: any): Client {
+  return {
+    id: d.id,
+    companyName: d.company_name,
+    internalCode: d.internal_code,
+    nif: d.nif || undefined,
+    contactPerson: d.contact_person || '',
+    email: d.email || '',
+    phone: d.phone || '',
+    address: d.address || undefined,
+    city: d.city || undefined,
+    sector: d.sector || undefined,
+    contractStart: d.contract_start || undefined,
+    contractEnd: d.contract_end || undefined,
+    notes: d.notes || undefined,
+    contractedServices: d.contracted_services || [],
+    status: d.status,
+    createdAt: d.created_at ? String(d.created_at).substring(0, 10) : new Date().toISOString().substring(0, 10),
+  };
+}
+
+/**
+ * Elimina um cliente. As avaliações mantêm o nome da empresa (histórico), as atividades ficam sem cliente
+ * e as metas são removidas (ON DELETE CASCADE na base de dados).
+ */
+export async function deleteClientInDb(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    setStore('clients', getStore('clients', MOCK_CLIENTS).filter((c: Client) => c.id !== id));
+    return { success: true };
+  }
+  try {
+    const { error } = await supabase.from('clients').delete().eq('id', id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao eliminar cliente.' };
+  }
+}
+
+/**
+ * Insere um bloco de clientes (máximo CLIENT_IMPORT_BATCH_SIZE, um pedido). Se o bloco for recusado,
+ * insere linha a linha para indicar exatamente quais falharam, sem perder os restantes.
+ * Devolve um resultado por cliente, na mesma ordem.
+ */
+export async function insertClientsChunkInDb(
+  rows: ClientRecord[],
+): Promise<Array<{ ok: boolean; client?: Client; error?: string }>> {
+  if (!isSupabaseConfigured) {
+    const list = getStore('clients', MOCK_CLIENTS);
+    const created: Client[] = rows.map((r, i) => ({
+      ...r,
+      id: `c${Date.now()}-${i}-0000-4000-8000-${Math.random().toString(16).substring(2, 14)}`,
+      createdAt: new Date().toISOString().substring(0, 10),
+      contactPerson: r.contactPerson || '',
+      email: r.email || '',
+      phone: r.phone || '',
+      contractedServices: r.contractedServices || [],
+      status: r.status || 'ACTIVE',
+    }));
+    setStore('clients', [...created, ...list]);
+    return created.map((client) => ({ ok: true, client }));
+  }
+
+  try {
+    const { data, error } = await supabase.from('clients').insert(rows.map(clientToDbRow)).select('*');
+    if (!error && Array.isArray(data) && data.length === rows.length) {
+      const byCode = new Map(data.map((d: any) => [d.internal_code, dbRowToClient(d)]));
+      return rows.map((r) => {
+        const client = byCode.get(r.internalCode);
+        return client ? { ok: true, client } : { ok: false, error: 'Cliente não confirmado pelo servidor.' };
+      });
+    }
+  } catch {
+    // cai para inserção linha a linha abaixo
+  }
+
+  const results: Array<{ ok: boolean; client?: Client; error?: string }> = [];
+  for (const r of rows) {
+    try {
+      const { data, error } = await supabase.from('clients').insert(clientToDbRow(r)).select('*').single();
+      results.push(error ? { ok: false, error: error.message } : { ok: true, client: dbRowToClient(data) });
+    } catch (err: any) {
+      results.push({ ok: false, error: err?.message || 'Erro ao gravar cliente.' });
+    }
+  }
+  return results;
 }

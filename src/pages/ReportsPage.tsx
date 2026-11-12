@@ -5,6 +5,7 @@ import {
   ReportOptions, ReportScope, ReportSection, SECTION_LABELS, buildReportText, splitForMessages,
 } from '../services/reportBuilder';
 import { csatPercent, npsValue } from '../services/goalProgress';
+import { exportClientsPdf, exportEvaluationsPdf, exportReportPdf } from '../services/pdfExport';
 import {
   MessageRecipient, fetchClientGoals, fetchMessageRecipients, createConversationInDb, sendMessageInDb,
 } from '../services/supabaseService';
@@ -61,6 +62,14 @@ export const ReportsPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = async () => {
+    if (!scopeReady) { setNotice('Escolha o serviço, funcionário ou cliente antes de exportar.'); return; }
+    await exportReportPdf({ evaluations, clients, goals, services, providers, activities, hrCases }, {
+      scope, serviceId: serviceId || undefined, providerId: providerId || undefined, clientId: clientId || undefined,
+      from: from || undefined, to: to || undefined, sections, generatedBy: currentUser?.name || 'Sistema',
+    });
+  };
+
   const exportCsv = () => {
     if (evaluations.length === 0) { setNotice('Não existem avaliações para exportar.'); return; }
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -81,7 +90,12 @@ export const ReportsPage: React.FC = () => {
           <h2 className="text-xl font-black text-slate-900 tracking-tight">Relatórios</h2>
           <p className="text-xs text-slate-500">Relatórios por serviço, funcionário ou cliente, para acompanhar e partilhar por mensagem.</p>
         </div>
-        <button onClick={exportCsv} className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer">Exportar avaliações (CSV)</button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={exportPdf} disabled={!scopeReady || sections.length === 0} className="px-3 py-2 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-xs font-bold cursor-pointer disabled:opacity-40">Relatório (PDF)</button>
+          <button onClick={() => exportEvaluationsPdf(evaluations, currentUser?.name || 'Sistema')} disabled={evaluations.length === 0} className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-40">Avaliações (PDF)</button>
+          <button onClick={() => exportClientsPdf(clients, currentUser?.name || 'Sistema')} disabled={clients.length === 0} className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-40">Clientes (PDF)</button>
+          <button onClick={exportCsv} className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer">Avaliações (CSV)</button>
+        </div>
       </div>
 
       {/* Indicadores */}

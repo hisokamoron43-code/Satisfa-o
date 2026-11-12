@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
 import { SecureAudio } from '../components/SecureAudio';
 import { useApp } from '../context/AppContext';
-import { Evaluation, EvaluationCriterion, Provider } from '../types';
-import { 
-  calculateWeightedScore, 
-  CalculationResult 
-} from '../services/evaluationUtils';
+import { Evaluation, EvaluationCriterion, Provider, AuditorReview } from '../types';
+import { AuditorQualitativePanel, qualitativeContent, missingQualitativeMessage, automaticConformity } from '../components/evaluation/EvaluationReviewWorkspace';
+import { calculateFinalScore, type FinalScoreResult } from '../services/finalScore';
 import { 
   CheckCircle2, 
   Clock, 
@@ -63,6 +61,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
   const [selectedEval, setSelectedEval] = useState<Evaluation | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reviewRatings, setReviewRatings] = useState<Record<string, number>>({});
+  const [auditorReview, setAuditorReview] = useState<AuditorReview>({});
   
   // Limiar Excecional
   const [isCustomThresholdEnabled, setIsCustomThresholdEnabled] = useState(false);
@@ -114,17 +113,8 @@ export const EvaluationAnalysisPage: React.FC = () => {
     setInlineProviderId('');
 
     // Inicializar notas de revisão com base nas notas já existentes ou média calculada
-    const initial: Record<string, number> = {};
-    criteria.filter(c => c.active).forEach(c => {
-      if (evalItem.criterionRatings && evalItem.criterionRatings[c.id] !== undefined) {
-        initial[c.id] = evalItem.criterionRatings[c.id];
-      } else {
-        const minScore = c.minScore ?? 0;
-        const clientScoreNormalized = Math.min(c.maxScore, Math.max(minScore, (evalItem.satisfactionRating / 5) * c.maxScore));
-        initial[c.id] = Math.round(clientScoreNormalized * 10) / 10;
-      }
-    });
-    setReviewRatings(initial);
+    setReviewRatings(automaticConformity(evalItem, criteria, []));
+    setAuditorReview(evalItem.auditorReview ?? {});
     setIsModalOpen(true);
   };
 
@@ -135,22 +125,23 @@ export const EvaluationAnalysisPage: React.FC = () => {
     }
   }, [selectedEvaluationForAnalysis]);
 
-  const handleRatingChange = (criterionId: string, value: number) => {
-    setReviewRatings(prev => ({
-      ...prev,
-      [criterionId]: value
-    }));
-  };
+
+  const liveApplicableWeight = criteria.filter(c => c.active && reviewRatings[c.id] !== undefined).reduce((s, c) => s + c.weightPercentage, 0);
 
   // Limiar ativo no cálculo (padrão ou excecional)
   const activeCalculationThreshold = isCustomThresholdEnabled ? customThreshold : passingThreshold;
 
   // Cálculo em tempo real para pré-visualização no modal
-  const liveCalculation: CalculationResult = calculateWeightedScore(
-    reviewRatings, 
-    criteria.filter(c => c.active), 
-    activeCalculationThreshold
-  );
+  const liveQual = selectedEval ? qualitativeContent(selectedEval) : { hasAudio: false, hasWritten: false };
+  const liveCalculation: FinalScoreResult = calculateFinalScore({
+    criteria: criteria.filter(c => c.active),
+    conformity: reviewRatings,
+    hasAudio: liveQual.hasAudio,
+    audioScore: auditorReview.audio?.score ?? null,
+    hasWritten: liveQual.hasWritten,
+    argumentScore: auditorReview.writtenArguments?.score ?? null,
+    passingThreshold: activeCalculationThreshold,
+  });
 
   // Verificação de pré-requisitos antes de homologar
   const isMissingClient = selectedEval && !selectedEval.clientId;
@@ -171,6 +162,11 @@ export const EvaluationAnalysisPage: React.FC = () => {
       setErrorMsg('Não é possível homologar: resolva as pendências de cliente oficial e funcionário.');
       return;
     }
+    const missingQual = selectedEval ? missingQualitativeMessage(selectedEval, auditorReview) : null;
+    if (missingQual) {
+      setErrorMsg(missingQual);
+      return;
+    }
     if (isThresholdChanged && !isReasonValid) {
       setErrorMsg('A aplicação de um limiar excecional exige uma justificação formal (mínimo 5 caracteres).');
       return;
@@ -187,7 +183,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
     const thresholdToApply = isThresholdChanged ? customThreshold : undefined;
     const reasonToApply = isThresholdChanged ? thresholdOverrideReason.trim() : undefined;
 
-    const res = await finalizeEvaluation(selectedEval.id, reviewRatings, thresholdToApply, reasonToApply);
+    const res = await finalizeEvaluation(selectedEval.id, reviewRatings, thresholdToApply, reasonToApply, auditorReview);
     setIsSubmitting(false);
 
     if (!res.success) {
@@ -671,7 +667,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
                       Pontuação Técnica por Critério (RH)
                     </h4>
                     <p className="text-[11px] text-slate-500">
-                      Ajuste a pontuação de conformidade normativa para cada critério auditado.
+                      Parte automática (80 pontos), calculada a partir das respostas do cliente. Não é editável.
                     </p>
                   </div>
                   <span className="text-xs font-bold text-brand-dark bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
@@ -681,38 +677,26 @@ export const EvaluationAnalysisPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {criteria.filter(c => c.active).map(crit => {
-                    const currentScore = reviewRatings[crit.id] !== undefined ? reviewRatings[crit.id] : 4;
-
+                    const ratio = reviewRatings[crit.id];
+                    const pts = ratio !== undefined && liveApplicableWeight > 0 ? (ratio * crit.weightPercentage / liveApplicableWeight) * 80 : null;
                     return (
                       <div key={crit.id} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-slate-900 text-xs">{crit.categoryName}</span>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded bg-slate-200 text-slate-700">
-                            Peso: {crit.weightPercentage}%
-                          </span>
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded bg-slate-200 text-slate-700">Peso: {crit.weightPercentage}%</span>
                         </div>
-                        <p className="text-[10px] text-slate-500 line-clamp-1">{crit.description}</p>
-                        
-                        <div className="flex items-center gap-3 pt-1">
-                          <input
-                            type="range"
-                            min={crit.minScore}
-                            max={crit.maxScore}
-                            step="0.5"
-                            disabled={!!selectedEval.finalizedAt}
-                            value={currentScore}
-                            onChange={(e) => handleRatingChange(crit.id, parseFloat(e.target.value))}
-                            className="flex-1 accent-brand-dark cursor-pointer"
-                          />
-                          <span className="font-mono text-xs font-black text-slate-900 w-12 text-right">
-                            {currentScore.toFixed(1)} / {crit.maxScore}
-                          </span>
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                          <span>{ratio === undefined ? 'Sem respostas pontuáveis' : `Conformidade ${(ratio * 100).toFixed(0)}%`}</span>
+                          <span className="font-mono">{pts === null ? '—' : `+${pts.toFixed(2)} / 80`}</span>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
+
+              {/* CLASSIFICAÇÃO DO ÁUDIO E DOS ARGUMENTOS (complementa a avaliação) */}
+              <AuditorQualitativePanel evaluation={selectedEval} review={auditorReview} onReviewChange={setAuditorReview} locked={!!selectedEval.finalizedAt} />
 
               {/* OPÇÃO DE LIMIAR EXCECIONAL */}
               {!selectedEval.finalizedAt && (
@@ -789,7 +773,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
                 </div>
 
                 <div className="text-[10px] text-slate-400 font-mono bg-white/5 p-2 rounded-lg border border-white/10 break-all">
-                  {liveCalculation.formula}
+                  Automático {liveCalculation.automaticPoints.toFixed(2)} + Áudio {liveCalculation.audioPoints.toFixed(1)} + Argumentos {liveCalculation.argumentPoints.toFixed(1)} = {liveCalculation.finalScore.toFixed(2)}
                 </div>
               </div>
 

@@ -2,9 +2,9 @@ import React, { useMemo } from 'react';
 import { Mic, Star, Wand2 } from 'lucide-react';
 import type { AuditorReview, Evaluation, EvaluationCriterion, FormQuestion, QualitativeScore } from '../../types';
 import { SecureAudio } from '../SecureAudio';
-import { calculateWeightedScore } from '../../services/evaluationUtils';
+import { calculateFinalScore } from '../../services/finalScore';
 import {
-  categoryConformity, criterionKey, QUALITATIVE_TYPES, questionConformity, suggestRatings,
+  categoryConformity, criterionConformity, criterionKey, QUALITATIVE_TYPES, questionConformity,
   type AnswerLike, type QuestionLike,
 } from '../../services/questionScoring';
 import { normalizeKey } from '../../services/weightBalancer';
@@ -65,13 +65,12 @@ export function questionsForEvaluation(ev: Evaluation, catalog: FormQuestion[]):
   return out;
 }
 
-/** Notas sugeridas (só onde há respostas pontuáveis). O auditor tem de confirmar ou ajustar cada uma. */
-export function initialSuggestions(ev: Evaluation, criteria: EvaluationCriterion[], catalog: FormQuestion[]): Record<string, number> {
-  return suggestRatings(
+/** Conformidade automática (0–1) por critério, calculada a partir das respostas do cliente. Não é editável. */
+export function automaticConformity(ev: Evaluation, criteria: EvaluationCriterion[], catalog: FormQuestion[]): Record<string, number> {
+  return criterionConformity(
     criteria.map((c) => ({ id: c.id, categoryCode: c.categoryCode, categoryName: c.categoryName, maxScore: c.maxScore, minScore: c.minScore, active: c.active })),
     questionsForEvaluation(ev, catalog),
     (ev.detailedAnswers ?? {}) as Answers,
-    null,
   );
 }
 
@@ -164,25 +163,143 @@ const AnswerBody: React.FC<{ q: QuestionView; a?: Answers[string] }> = ({ q, a }
 // ---------------------------------------------------------------------------
 // Controlo de nota 0..5 do auditor para conteúdos livres
 // ---------------------------------------------------------------------------
-const QualitativeInput: React.FC<{
+export const QualitativeInput: React.FC<{
   label: string;
   value?: QualitativeScore;
   onChange: (v: QualitativeScore | undefined) => void;
   compact?: boolean;
-}> = ({ label, value, onChange, compact }) => (
+  readOnly?: boolean;
+}> = ({ label, value, onChange, compact, readOnly }) => (
   <div className={`flex flex-wrap items-center gap-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
-    <label className="font-bold text-slate-700">{label}</label>
-    <input
-      type="range" min={0} max={5} step={0.5} value={value?.score ?? 0}
-      onChange={(e) => onChange({ ...value, score: Number(e.target.value) })}
-      aria-label={label} className="w-28 accent-slate-900"
-    />
-    <span className="font-black tabular-nums w-14">{value ? `${value.score.toFixed(1)} / 5` : 'por avaliar'}</span>
-    {value && (
+    <span className="font-bold text-slate-700">{label}</span>
+    <div className="flex items-center gap-1" role="radiogroup" aria-label={label}>
+      {[0, 1, 2, 3, 4, 5].map((n) => {
+        const on = value !== undefined && Math.round(value.score) === n && Number.isInteger(value.score);
+        return (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={readOnly}
+            onClick={() => onChange({ ...value, score: n })}
+            className={`w-9 h-9 rounded-lg border-2 font-black tabular-nums transition ${on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:border-slate-900'} ${readOnly ? 'opacity-70 cursor-default' : 'cursor-pointer'}`}
+          >
+            {n}
+          </button>
+        );
+      })}
+    </div>
+    <span className="font-black tabular-nums">{value ? `${value.score.toFixed(1)} / 5` : 'por classificar'}</span>
+    {value && !readOnly && (
       <button type="button" onClick={() => onChange(undefined)} className="text-[10px] underline text-slate-500">limpar</button>
     )}
   </div>
 );
+
+/** Que conteúdo livre o cliente deixou (áudio e/ou texto) — é isso que o auditor tem de classificar. */
+/** Marcador que o formulário acrescenta ao comentário quando o cliente gravou áudio (não é texto escrito). */
+export const AUDIO_MARK = '*(Áudio de testemunho gravado pelo cliente)*';
+
+export function qualitativeContent(evaluation: Evaluation): { hasAudio: boolean; hasWritten: boolean } {
+  const answers = Object.values((evaluation.detailedAnswers ?? {}) as Record<string, any>);
+  const hasAudio = Boolean(evaluation.audioRecordingUrl) || answers.some((a) => a?.audioUrl);
+  const writtenComment = (evaluation.comment ?? '').split(AUDIO_MARK).join('').trim();
+  const hasWritten = writtenComment.length > 0 || answers.some((a) => typeof a?.textAnswer === 'string' && a.textAnswer.trim());
+  return { hasAudio, hasWritten };
+}
+
+/** Mensagem de erro se falta classificar o áudio ou os argumentos (0 a 5); null se está completo. */
+/** Painel do analisador: áudio (0–5) e argumentos escritos (0–5), ou decisão tudo ou nada quando não há comentário. */
+export const AuditorQualitativePanel: React.FC<{
+  evaluation: Evaluation;
+  review: AuditorReview;
+  onReviewChange: (r: AuditorReview) => void;
+  locked?: boolean;
+}> = ({ evaluation, review, onReviewChange, locked }) => {
+  const { hasAudio, hasWritten } = qualitativeContent(evaluation);
+
+  const setQual = (key: 'audio' | 'writtenArguments', v: QualitativeScore | undefined) => {
+    const next = { ...review } as Record<string, unknown>;
+    if (v) next[key] = { ...(review[key] ?? {}), ...v };
+    else delete next[key];
+    onReviewChange(next as AuditorReview);
+  };
+  const setDecision = (full: boolean) =>
+    onReviewChange({ ...review, writtenArguments: { ...(review.writtenArguments ?? {}), score: full ? 5 : 0 } as QualitativeScore });
+
+  const decided = review.writtenArguments?.score;
+  return (
+    <div className="p-3 bg-white border-2 border-black rounded-xl space-y-3">
+      <h4 className="text-xs font-black uppercase text-slate-950">Auditoria qualitativa</h4>
+
+      {hasAudio ? (
+        <div className="space-y-1.5">
+          <QualitativeInput label="Áudio do cliente (0 a 5 → 0 a 10 pts)" value={review.audio} onChange={(v) => setQual('audio', v)} readOnly={locked} />
+          <textarea
+            rows={2} maxLength={2000} value={review.audio?.transcript ?? ''} disabled={locked}
+            onChange={(e) => onReviewChange({ ...review, audio: { score: review.audio?.score ?? 0, ...review.audio, transcript: e.target.value } })}
+            placeholder="Transcrição ou resumo do que o cliente disse no áudio…"
+            className="w-full text-[11px] border border-black rounded-lg p-2 disabled:bg-slate-100"
+            aria-label="Transcrição do áudio"
+          />
+        </div>
+      ) : (
+        <p className="text-[11px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 rounded-lg p-2">
+          Sem áudio gravado: 10 pontos atribuídos automaticamente.
+        </p>
+      )}
+
+      {hasWritten ? (
+        <div className="space-y-1.5">
+          <QualitativeInput label="Argumentos escritos (0 a 5 → 0 a 10 pts)" value={review.writtenArguments} onChange={(v) => setQual('writtenArguments', v)} readOnly={locked} />
+          <textarea
+            rows={2} maxLength={2000} value={review.writtenArguments?.notes ?? ''} disabled={locked}
+            onChange={(e) => onReviewChange({ ...review, writtenArguments: { score: review.writtenArguments?.score ?? 0, ...review.writtenArguments, notes: e.target.value } })}
+            placeholder="Análise crítica dos argumentos: fundamentados, concretos, coerentes com o serviço?"
+            className="w-full text-[11px] border border-black rounded-lg p-2 disabled:bg-slate-100"
+            aria-label="Análise dos argumentos escritos"
+          />
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold text-slate-900">
+            O cliente não escreveu comentário. Pelas respostas dadas, o analisador decide se atribui os 10 pontos dos argumentos ou nenhum (ex.: cliente demasiado irritado para dar parecer).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={locked} onClick={() => setDecision(true)}
+              className={`px-3 py-1.5 rounded-lg border-2 text-[11px] font-black disabled:opacity-50 ${decided === 5 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-300'}`}>
+              Atribuir 10 pontos
+            </button>
+            <button type="button" disabled={locked} onClick={() => setDecision(false)}
+              className={`px-3 py-1.5 rounded-lg border-2 text-[11px] font-black disabled:opacity-50 ${decided === 0 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-300'}`}>
+              Não atribuir (0 pontos)
+            </button>
+          </div>
+          <textarea
+            rows={2} maxLength={2000} value={review.writtenArguments?.notes ?? ''} disabled={locked}
+            onChange={(e) => onReviewChange({ ...review, writtenArguments: { score: review.writtenArguments?.score ?? 0, ...review.writtenArguments, notes: e.target.value } })}
+            placeholder="Justificação da decisão (opcional)"
+            className="w-full text-[11px] border border-black rounded-lg p-2 disabled:bg-slate-100"
+            aria-label="Justificação da decisão sobre os argumentos"
+          />
+        </div>
+      )}
+
+      <p className="text-[10px] text-slate-500">Cada nota vale o dobro em pontos. Ficam gravadas, de forma imutável, junto da homologação.</p>
+    </div>
+  );
+};
+
+export function missingQualitativeMessage(evaluation: Evaluation, review: AuditorReview): string | null {
+  const { hasAudio, hasWritten } = qualitativeContent(evaluation);
+  const missing: string[] = [];
+  if (hasAudio && review.audio?.score === undefined) missing.push('o áudio do cliente (0 a 5)');
+  if (hasWritten && review.writtenArguments?.score === undefined) missing.push('os argumentos escritos (0 a 5)');
+  const decision = review.writtenArguments?.score;
+  if (!hasWritten && decision !== 0 && decision !== 5) missing.push('se o analisador atribui os 10 pontos dos argumentos ou nenhum');
+  return missing.length > 0 ? `Falta classificar ${missing.join(' e ')} antes de homologar.` : null;
+}
 
 // ---------------------------------------------------------------------------
 // Ecrã principal
@@ -192,21 +309,20 @@ interface Props {
   criteria: EvaluationCriterion[];
   catalog: FormQuestion[];
   passingThreshold: number;
-  ratings: Record<string, number>;
-  onRatingsChange: (r: Record<string, number>) => void;
   review: AuditorReview;
   onReviewChange: (r: AuditorReview) => void;
   error?: string | null;
 }
 
 export const EvaluationReviewWorkspace: React.FC<Props> = ({
-  evaluation, criteria, catalog, passingThreshold, ratings, onRatingsChange, review, onReviewChange, error,
+  evaluation, criteria, catalog, passingThreshold, review, onReviewChange, error,
 }) => {
   const answers = (evaluation.detailedAnswers ?? {}) as Answers;
   const questions = useMemo(() => questionsForEvaluation(evaluation, catalog), [evaluation, catalog]);
   const activeCriteria = useMemo(() => criteria.filter((c) => c.active), [criteria]);
 
-  const suggestions = useMemo(() => initialSuggestions(evaluation, criteria, catalog), [evaluation, criteria, catalog]);
+  const conformity = useMemo(() => automaticConformity(evaluation, criteria, catalog), [evaluation, criteria, catalog]);
+  const applicableWeight = activeCriteria.reduce((s, c) => (conformity[c.id] !== undefined ? s + c.weightPercentage : s), 0);
   const byCategory = useMemo(() => categoryConformity(questions, answers, null), [questions, answers]);
 
   // Agrupa as questões por categoria, na ordem do formulário
@@ -221,23 +337,25 @@ export const EvaluationReviewWorkspace: React.FC<Props> = ({
 
   const criterionByKey = useMemo(() => new Map(activeCriteria.map((c) => [criterionKey(c), c])), [activeCriteria]);
 
-  const hasAudio = Boolean(evaluation.audioRecordingUrl) || Object.values(answers).some((a) => a.audioUrl);
-  const hasWritten = Boolean(evaluation.comment?.trim()) || Object.values(answers).some((a) => a.textAnswer?.trim());
+  const { hasAudio, hasWritten } = qualitativeContent(evaluation);
+  const missingQual = missingQualitativeMessage(evaluation, review);
 
-  const setQual = (key: 'audio' | 'writtenArguments', v: QualitativeScore | undefined) => {
-    const next = { ...review };
-    if (v) (next as any)[key] = { ...(review[key] ?? {}), ...v };
-    else delete next[key];
-    onReviewChange(next);
-  };
   const setPerQuestion = (id: string, v: QualitativeScore | undefined) => {
     const per = { ...(review.perQuestion ?? {}) };
     if (v) per[id] = v; else delete per[id];
     onReviewChange({ ...review, perQuestion: Object.keys(per).length > 0 ? per : undefined });
   };
 
-  const calc = calculateWeightedScore(ratings, criteria, passingThreshold);
-  const pendingCriteria = activeCriteria.filter((c) => ratings[c.id] === undefined).length;
+  const calc = calculateFinalScore({
+    criteria: activeCriteria,
+    conformity,
+    hasAudio,
+    audioScore: review.audio?.score ?? null,
+    hasWritten,
+    argumentScore: review.writtenArguments?.score ?? null,
+    passingThreshold,
+  });
+  const ready = calc.success && !missingQual;
 
   return (
     <div className="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -313,94 +431,47 @@ export const EvaluationReviewWorkspace: React.FC<Props> = ({
       {/* ===================== DIREITA: painel do auditor ===================== */}
       <aside className="lg:col-span-2 space-y-3 lg:sticky lg:top-2 self-start" aria-label="Avaliação técnica do auditor">
         <div className="p-3 bg-white border-2 border-black rounded-xl space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="text-xs font-black uppercase text-slate-950">Notas por critério</h4>
-            <button
-              type="button"
-              disabled={Object.keys(suggestions).length === 0}
-              onClick={() => onRatingsChange({ ...ratings, ...suggestions })}
-              className="px-2 py-1 rounded-lg border border-black text-[10px] font-black flex items-center gap-1 bg-white hover:bg-slate-100 disabled:opacity-40"
-            >
-              <Wand2 className="w-3 h-3" /> Usar sugestões
-            </button>
+          <div>
+            <h4 className="text-xs font-black uppercase text-slate-950">Parte automática · 80 pontos</h4>
+            <p className="text-[10px] text-slate-600">Calculada a partir das respostas do cliente. Não é editável.</p>
           </div>
-
           {activeCriteria.map((c) => {
-            const value = ratings[c.id];
-            const sug = suggestions[c.id];
-            const conf = byCategory[criterionKey(c)];
-            const contribution = value !== undefined && c.maxScore > 0 ? Math.round((value / c.maxScore) * c.weightPercentage * 100) / 100 : null;
+            const r = conformity[c.id];
+            const pts = r !== undefined && applicableWeight > 0 ? (r * c.weightPercentage / applicableWeight) * 80 : null;
             return (
               <div key={c.id} className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-black text-slate-950">{c.categoryName} <span className="font-bold text-slate-500">· {c.weightPercentage}%</span></span>
-                  <span className="text-[11px] font-black tabular-nums">{value === undefined ? 'sem nota' : `${value.toFixed(1)} / ${c.maxScore}`}</span>
+                  <span className="text-xs font-black text-slate-950">{c.categoryName} <span className="font-bold text-slate-500">· peso {c.weightPercentage}%</span></span>
+                  <span className="text-[11px] font-black tabular-nums">{r === undefined ? 'sem respostas pontuáveis' : `${(r * 100).toFixed(0)}%`}</span>
                 </div>
-                <input
-                  type="range" min={c.minScore ?? 0} max={c.maxScore} step={0.1} value={value ?? 0}
-                  onChange={(e) => onRatingsChange({ ...ratings, [c.id]: Number(e.target.value) })}
-                  aria-label={`Nota do critério ${c.categoryName}`}
-                  className={`w-full ${value === undefined ? 'opacity-40' : ''} accent-slate-900`}
-                />
-                <div className="flex items-center justify-between text-[10px] text-slate-600">
-                  <span>
-                    {sug !== undefined
-                      ? <>Sugestão das respostas: <strong>{sug.toFixed(1)}</strong> ({conf?.scored}/{conf?.total} questões pontuáveis)</>
-                      : 'Sem respostas pontuáveis: avalie manualmente'}
-                  </span>
-                  {contribution !== null && <span className="font-mono">+{contribution.toFixed(2)} pts</span>}
+                <div className="h-2 bg-slate-200 rounded-full overflow-hidden" aria-hidden="true">
+                  <div className="h-2 bg-slate-900" style={{ width: `${(r ?? 0) * 100}%` }} />
                 </div>
+                <div className="text-right text-[10px] font-mono text-slate-700">{pts === null ? '—' : `+${pts.toFixed(2)} pts`}</div>
               </div>
             );
           })}
         </div>
 
-        {(hasAudio || hasWritten) && (
-          <div className="p-3 bg-white border-2 border-black rounded-xl space-y-3">
-            <h4 className="text-xs font-black uppercase text-slate-950">Auditoria qualitativa</h4>
-            {hasAudio && (
-              <div className="space-y-1.5">
-                <QualitativeInput label="Áudio do cliente" value={review.audio} onChange={(v) => setQual('audio', v)} />
-                <textarea
-                  rows={2} maxLength={2000} value={review.audio?.transcript ?? ''}
-                  onChange={(e) => onReviewChange({ ...review, audio: { score: review.audio?.score ?? 0, ...review.audio, transcript: e.target.value } })}
-                  placeholder="Transcrição ou resumo do que o cliente disse no áudio…"
-                  className="w-full text-[11px] border border-black rounded-lg p-2"
-                  aria-label="Transcrição do áudio"
-                />
-              </div>
-            )}
-            {hasWritten && (
-              <div className="space-y-1.5">
-                <QualitativeInput label="Argumentos escritos" value={review.writtenArguments} onChange={(v) => setQual('writtenArguments', v)} />
-                <textarea
-                  rows={2} maxLength={2000} value={review.writtenArguments?.notes ?? ''}
-                  onChange={(e) => onReviewChange({ ...review, writtenArguments: { score: review.writtenArguments?.score ?? 0, ...review.writtenArguments, notes: e.target.value } })}
-                  placeholder="Análise crítica dos argumentos: fundamentados, concretos, coerentes com o serviço?"
-                  className="w-full text-[11px] border border-black rounded-lg p-2"
-                  aria-label="Análise dos argumentos escritos"
-                />
-              </div>
-            )}
-            <p className="text-[10px] text-slate-500">
-              Estas notas ficam gravadas, de forma imutável, junto da homologação. Não alteram o cálculo ponderado, que usa só as notas por critério.
-            </p>
-          </div>
-        )}
+        <AuditorQualitativePanel evaluation={evaluation} review={review} onReviewChange={onReviewChange} />
 
         <div className="p-3 bg-white border-2 border-black rounded-xl space-y-1.5" aria-live="polite">
-          <span className="text-[10px] font-black uppercase text-slate-600">Resultado ponderado</span>
-          <div className="text-2xl font-black text-slate-950">{calc.success ? `${calc.finalScore}%` : '—'}</div>
-          {calc.success ? (
+          <span className="text-[10px] font-black uppercase text-slate-600">Pontuação final</span>
+          <div className="text-2xl font-black text-slate-950">{ready ? `${calc.finalScore.toFixed(2)} / 100` : '—'}</div>
+          {ready ? (
             <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-black border border-black ${calc.finalClassification === 'POSITIVE' ? 'bg-emerald-100 text-emerald-950' : 'bg-red-100 text-red-950'}`}>
               {calc.finalClassification === 'POSITIVE' ? '✓ Classificação positiva' : '✕ Classificação negativa'} (limiar {passingThreshold}%)
             </span>
           ) : (
             <span className="inline-block px-2 py-1 rounded bg-amber-100 text-amber-950 font-bold text-xs border border-black">
-              {pendingCriteria > 0 ? `Falta atribuir nota a ${pendingCriteria} critério(s)` : 'Configuração de critérios inválida'}
+              {missingQual ?? calc.errors[0] ?? 'Sem cálculo'}
             </span>
           )}
-          {calc.success && <p className="text-[10px] text-slate-600 font-mono break-all">{calc.formula}</p>}
+          {calc.success && (
+            <p className="text-[10px] text-slate-600 font-mono">
+              Automático {calc.automaticPoints.toFixed(2)} / 80 · Áudio {calc.audioPoints.toFixed(1)} / 10 · Argumentos {calc.argumentPoints.toFixed(1)} / 10
+            </p>
+          )}
           {error && <p className="text-xs text-red-700 font-bold bg-red-50 p-2 rounded-lg border border-red-300">{error}</p>}
         </div>
       </aside>

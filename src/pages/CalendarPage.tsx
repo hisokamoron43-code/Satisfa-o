@@ -22,7 +22,8 @@ import {
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 
 export const CalendarPage: React.FC = () => {
-  const { clients, services, teams, providers, activities, addActivity, deleteActivity, evaluations } = useApp();
+  const { clients, services, teams, providers, activities, addActivity, deleteActivity, evaluations, undoLastActivityChange, activityUndoLabel, activityUndoCount } = useApp();
+  const [undoError, setUndoError] = useState<string | null>(null);
 
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('month');
   const [selectedClientFilter, setSelectedClientFilter] = useState<string>('all');
@@ -144,6 +145,23 @@ export const CalendarPage: React.FC = () => {
 
         {/* Controles de Visão & Novo Agendamento */}
         <div className="flex items-center gap-3">
+          {/* Desfazer a última alteração do calendário (criar ou cancelar atividade) */}
+          <div className="flex flex-col items-end">
+            <button
+              onClick={async () => {
+                setUndoError(null);
+                const r = await undoLastActivityChange();
+                if (!r.success) setUndoError(r.error || 'Não foi possível desfazer.');
+              }}
+              disabled={!activityUndoLabel}
+              title={activityUndoLabel ? `Desfazer: ${activityUndoLabel}` : 'Sem alterações para desfazer'}
+              className="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 rounded-xl text-xs font-bold text-slate-800"
+            >
+              ↶ Desfazer{activityUndoCount > 0 ? ` (${activityUndoCount})` : ''}
+            </button>
+            {undoError && <span className="text-[10px] text-red-700 mt-1 max-w-[220px] text-right">{undoError}</span>}
+          </div>
+
           {/* Alternador de Visão (Dia / Semana / Mês) */}
           <div className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex text-xs font-bold">
             <button 

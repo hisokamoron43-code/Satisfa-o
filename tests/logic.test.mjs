@@ -183,3 +183,142 @@ test('validação de configuração', () => {
   assert.equal(validateQuestionConfig({ id: 'a', category: 'X', type: 'SINGLE_CHOICE', options: ['A', 'B'], optionScores: { A: 1, B: 0 } }).length, 0);
   assert.ok(validateQuestionConfig({ id: 'a', category: 'X', type: 'SINGLE_CHOICE', options: ['A', 'a'], optionScores: { A: 1 } }).length > 0);
 });
+
+// ---------- Pontuação 80/20 (regras 1004) ----------
+import { calculateFinalScore } from '../src/services/finalScore.ts';
+
+const CRIT = [
+  { id: 'qual', categoryName: 'Qualidade', weightPercentage: 40, maxScore: 5, minScore: 0, active: true },
+  { id: 'pont', categoryName: 'Pontualidade', weightPercentage: 20, maxScore: 5, minScore: 0, active: true },
+  { id: 'seg', categoryName: 'Segurança', weightPercentage: 25, maxScore: 5, minScore: 0, active: true },
+  { id: 'aten', categoryName: 'Atendimento', weightPercentage: 15, maxScore: 5, minScore: 0, active: true },
+];
+const ALL = { qual: 0.8, pont: 0.8, seg: 1, aten: 0.3 }; // automático = 80 × 77,5 / 100 = 62
+
+test('80/20: sem áudio gravado, 10 pontos automáticos; com comentário decidido com 0 → 72', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: false, hasWritten: false, argumentScore: 0, passingThreshold: 70 });
+  assert.equal(r.success, true);
+  assert.equal(r.automaticPoints, 62);
+  assert.equal(r.audioPoints, 10);
+  assert.equal(r.finalScore, 72);
+});
+
+test('80/20: sem comentário, o analisador atribui os 10 pontos → 82', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: false, hasWritten: false, argumentScore: 5, passingThreshold: 70 });
+  assert.equal(r.argumentPoints, 10);
+  assert.equal(r.finalScore, 82);
+});
+
+test('80/20: sem comentário não há nota parcial', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: false, hasWritten: false, argumentScore: 3, passingThreshold: 70 });
+  assert.equal(r.success, false);
+  assert.match(r.errors[0], /tudo ou nada/);
+});
+
+test('80/20: sem comentário exige a decisão do analisador', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: false, hasWritten: false, passingThreshold: 70 });
+  assert.equal(r.success, false);
+  assert.match(r.errors[0], /não escreveu comentário/);
+});
+
+test('80/20: áudio 4/5 e argumentos 3,5/5 somam 8 e 7 → 77', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: true, audioScore: 4, hasWritten: true, argumentScore: 3.5, passingThreshold: 70 });
+  assert.equal(r.audioPoints, 8);
+  assert.equal(r.argumentPoints, 7);
+  assert.equal(r.finalScore, 77);
+  assert.equal(r.finalClassification, 'POSITIVE');
+});
+
+test('80/20: áudio gravado sem nota do analisador é recusado', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: true, hasWritten: true, argumentScore: 5, passingThreshold: 70 });
+  assert.equal(r.success, false);
+  assert.match(r.errors[0], /Falta classificar o áudio/);
+});
+
+test('80/20: máximo absoluto é 100', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: { qual: 1, pont: 1, seg: 1, aten: 1 }, hasAudio: true, audioScore: 5, hasWritten: true, argumentScore: 5, passingThreshold: 70 });
+  assert.equal(r.finalScore, 100);
+});
+
+test('80/20: critério sem respostas fica de fora e os pesos reescalam-se', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: { qual: 1 }, hasAudio: false, hasWritten: false, argumentScore: 0, passingThreshold: 70 });
+  assert.equal(r.automaticPoints, 80);
+  assert.equal(r.applicableWeight, 40);
+});
+
+test('80/20: pesos errados e notas fora de 0–5 são recusados', () => {
+  assert.equal(calculateFinalScore({ criteria: CRIT, conformity: ALL, hasAudio: true, audioScore: 6, hasWritten: true, argumentScore: 1, passingThreshold: 70 }).success, false);
+  const bad = CRIT.map((c) => (c.id === 'qual' ? { ...c, weightPercentage: 30 } : c));
+  const r = calculateFinalScore({ criteria: bad, conformity: ALL, hasAudio: false, hasWritten: false, argumentScore: 0, passingThreshold: 70 });
+  assert.equal(r.success, false);
+  assert.match(r.errors[0], /soma atual: 90/);
+});
+
+test('80/20: sem nenhuma resposta pontuável não há cálculo', () => {
+  const r = calculateFinalScore({ criteria: CRIT, conformity: {}, hasAudio: false, hasWritten: false, argumentScore: 0, passingThreshold: 70 });
+  assert.equal(r.success, false);
+});
+
+// ---------- Importação de clientes em lote ----------
+import { parseCsv, analyzeClientImport, parseImportDate, clientCsvTemplate, CLIENT_IMPORT_BATCH_SIZE } from '../src/services/clientImport.ts';
+
+test('importação: CSV com ponto e vírgula, aspas e quebra de linha dentro das aspas', () => {
+  const m = parseCsv('Nome da empresa;Notas\n"Empresa, Lda";"linha 1\nlinha 2"\n');
+  assert.deepEqual(m, [['Nome da empresa', 'Notas'], ['Empresa, Lda', 'linha 1\nlinha 2']]);
+});
+
+test('importação: só o nome é obrigatório; o resto é opcional', () => {
+  const a = analyzeClientImport([['Nome da empresa', 'NIF', 'Pessoa de contacto'], ['Só Nome Lda', '', '']], []);
+  assert.equal(a.rows[0].valid, true);
+  assert.equal(a.rows[0].data.companyName, 'Só Nome Lda');
+  assert.equal(a.rows[0].data.nif, undefined);
+  assert.match(a.rows[0].data.internalCode, /^CLI-/);
+});
+
+test('importação: nome em falta é recusado e sem coluna de nome o ficheiro não é aceite', () => {
+  const a = analyzeClientImport([['Nome da empresa'], ['']], []);
+  assert.equal(a.rows[0].valid, false);
+  assert.match(a.rows[0].errors[0], /obrigatório/);
+  assert.match(analyzeClientImport([['NIF'], ['5417123456']], []).fatal, /Nome da empresa/);
+});
+
+test('importação: NIF inválido, e-mail inválido e datas (formato e ordem) são assinalados', () => {
+  const a = analyzeClientImport([
+    ['Nome da empresa', 'NIF', 'E-mail', 'Início do contrato', 'Fim do contrato'],
+    ['A Lda', '12', 'xx', '2026-01-01', '2026-12-31'],
+    ['B Lda', '', '', '31/12/2026', '01/01/2026'],
+    ['C Lda', '', '', '2026-02-30', ''],
+  ], []);
+  assert.equal(a.rows[0].valid, false);
+  assert.equal(a.rows[0].errors.length, 2);
+  assert.match(a.rows[1].errors[0], /anterior/);
+  assert.match(a.rows[2].errors[0], /inválida/);
+});
+
+test('importação: duplicados contra a base de dados e dentro do próprio ficheiro', () => {
+  const a = analyzeClientImport([
+    ['Nome da empresa', 'NIF'],
+    ['Cliente Antigo', ''],
+    ['Novo Cliente', '5417000001'],
+    ['novo  cliente', ''],
+    ['Outro', '5417000001'],
+  ], [{ companyName: 'cliente antigo', nif: undefined, internalCode: 'X' }]);
+  assert.equal(a.rows[0].valid, false);
+  assert.equal(a.rows[1].valid, true);
+  assert.equal(a.rows[2].valid, false);
+  assert.equal(a.rows[3].valid, false);
+});
+
+test('importação: datas aceites e rejeitadas', () => {
+  assert.equal(parseImportDate('5/3/2026'), '2026-03-05');
+  assert.equal(parseImportDate('2026-03-05'), '2026-03-05');
+  assert.equal(parseImportDate('31/02/2026'), null);
+});
+
+test('importação: modelo CSV e tamanho do lote', () => {
+  const back = analyzeClientImport(parseCsv(clientCsvTemplate()), []);
+  assert.equal(back.fatal, undefined);
+  assert.equal(back.rows[0].valid, true);
+  assert.equal(back.rows[0].data.contractedServices.length, 2);
+  assert.equal(CLIENT_IMPORT_BATCH_SIZE, 40);
+});
