@@ -144,7 +144,7 @@ export const CalendarPage: React.FC = () => {
         </div>
 
         {/* Controles de Visão & Novo Agendamento */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
           {/* Desfazer a última alteração do calendário (criar ou cancelar atividade) */}
           <div className="flex flex-col items-end">
             <button
@@ -326,26 +326,26 @@ export const CalendarPage: React.FC = () => {
       {/* VISÃO MENSAL REAL */}
       {viewMode === 'month' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-brand" />
-              <span>Visão Mensal de Operações — {monthNames[month]} {year} (Clique em qualquer dia para ver ou agendar)</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <h3 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
+              <CalendarIcon className="w-5 h-5 text-brand shrink-0" />
+              <span>Visão Mensal — {monthNames[month]} {year}<span className="hidden md:inline"> (Clique em qualquer dia para ver ou agendar)</span></span>
             </h3>
-            <span className="text-xs text-slate-500 font-semibold">{daysInMonth} Dias • Gestão Global de Clientes</span>
+            <span className="text-[11px] md:text-xs text-slate-500 font-semibold">{daysInMonth} dias</span>
           </div>
 
-          <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-600">
-            <div className="p-2 bg-slate-100 rounded-lg">Seg</div>
-            <div className="p-2 bg-slate-100 rounded-lg">Ter</div>
-            <div className="p-2 bg-slate-100 rounded-lg">Qua</div>
-            <div className="p-2 bg-slate-100 rounded-lg">Qui</div>
-            <div className="p-2 bg-slate-100 rounded-lg">Sex</div>
-            <div className="p-2 bg-slate-100 rounded-lg">Sáb</div>
-            <div className="p-2 bg-slate-100 rounded-lg">Dom</div>
+          <div className="grid grid-cols-7 gap-1 md:gap-2 text-center text-[10px] md:text-xs font-bold text-slate-600">
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Seg</div>
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Ter</div>
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Qua</div>
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Qui</div>
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Sex</div>
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Sáb</div>
+            <div className="py-1.5 md:p-2 bg-slate-100 rounded-lg">Dom</div>
 
             {/* Espaços vazios iniciais antes do dia 1 do mês */}
             {Array.from({ length: startDayOfWeek }).map((_, idx) => (
-              <div key={`empty-${idx}`} className="min-h-[85px] border border-slate-100 rounded-xl p-2.5 bg-slate-50/20 opacity-40"></div>
+              <div key={`empty-${idx}`} className="min-h-[52px] md:min-h-[85px] border border-slate-100 rounded-lg md:rounded-xl p-1 md:p-2.5 bg-slate-50/20 opacity-40"></div>
             ))}
 
             {/* Dias reais do mês */}
@@ -364,16 +364,17 @@ export const CalendarPage: React.FC = () => {
                 <div 
                   key={dayNum} 
                   onClick={() => setSelectedDayDate(dateStr)}
-                  className={`min-h-[90px] border border-slate-200 rounded-xl p-2.5 flex flex-col justify-between transition cursor-pointer hover:border-brand hover:shadow-md ${
+                  className={`min-h-[52px] md:min-h-[90px] border border-slate-200 rounded-lg md:rounded-xl p-1 md:p-2.5 flex flex-col justify-between overflow-hidden transition cursor-pointer hover:border-brand hover:shadow-md ${
                     isToday ? 'bg-emerald-50 border-brand ring-1 ring-brand' : 'bg-slate-50/50 hover:bg-white'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold ${isToday ? 'text-brand-dark' : 'text-slate-800'}`}>{dayNum}</span>
-                    {isToday && <span className="text-[8px] bg-brand text-slate-950 font-extrabold px-1.5 py-0.5 rounded">Hoje</span>}
+                    <span className={`text-[11px] md:text-xs font-bold ${isToday ? 'text-brand-dark' : 'text-slate-800'}`}>{dayNum}</span>
+                    {isToday && <span className="hidden md:inline text-[8px] bg-brand text-slate-950 font-extrabold px-1.5 py-0.5 rounded">Hoje</span>}
+                    {isToday && <span className="md:hidden w-1.5 h-1.5 rounded-full bg-brand-dark" aria-label="Hoje" />}
                   </div>
                   
-                  <div className="space-y-1 my-1">
+                  <div className="hidden md:block space-y-1 my-1">
                     {dayActivities.slice(0, 2).map((act, idx) => (
                       <div key={idx} className="text-[9px] bg-white border border-slate-200 p-1 rounded truncate font-bold text-slate-800">
                         {act.startTime} {act.clientName || act.title}
@@ -384,7 +385,14 @@ export const CalendarPage: React.FC = () => {
                     )}
                   </div>
 
-                  <span className="text-[9px] font-bold text-brand-dark text-right">
+                  {/* Mobile: contagem de tarefas (o detalhe abre ao tocar no dia) */}
+                  <div className="md:hidden text-center">
+                    {dayActivities.length > 0 && (
+                      <span className="inline-block min-w-[18px] text-[10px] font-black text-slate-950 bg-brand rounded-full px-1">{dayActivities.length}</span>
+                    )}
+                  </div>
+
+                  <span className="hidden md:block text-[9px] font-bold text-brand-dark text-right">
                     {dayActivities.length > 0 ? `${dayActivities.length} Tarefa(s)` : '+ Agendar'}
                   </span>
                 </div>
@@ -407,11 +415,11 @@ export const CalendarPage: React.FC = () => {
 
           <div className="space-y-3">
             {hoursList.map(hour => (
-              <div key={hour} className="flex items-start gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div key={hour} className="flex items-start gap-2 md:gap-4 p-2.5 md:p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <span className="w-16 font-mono font-bold text-xs text-slate-500 pt-1">{hour}</span>
                 <div className="flex-1 space-y-2">
                   {filteredActivities.filter(a => a.startTime?.startsWith(hour.substring(0, 2))).map(act => (
-                    <div key={act.id} className="bg-white border border-slate-200 p-3 rounded-xl flex items-center justify-between shadow-xs">
+                    <div key={act.id} className="bg-white border border-slate-200 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow-xs">
                       <div>
                         <span className="font-bold text-xs text-slate-950 block">{act.activityDate} • {act.startTime} - {act.title}</span>
                         <span className="text-xs text-slate-500">Cliente: {act.clientName} • Serviço: {act.serviceName} • Equipa: {act.teamName}</span>
@@ -456,11 +464,11 @@ export const CalendarPage: React.FC = () => {
               const dayActs = filteredActivities.filter(a => a.activityDate === dateStr && a.startTime?.startsWith(hour.substring(0, 2)));
 
               return (
-                <div key={hour} className="flex items-start gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div key={hour} className="flex items-start gap-2 md:gap-4 p-2.5 md:p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <span className="w-16 font-mono font-bold text-xs text-slate-500 pt-1">{hour}</span>
                   <div className="flex-1 space-y-2">
                     {dayActs.map(act => (
-                      <div key={act.id} className="bg-white border border-slate-200 p-3 rounded-xl flex items-center justify-between shadow-xs">
+                      <div key={act.id} className="bg-white border border-slate-200 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow-xs">
                         <div>
                           <span className="font-bold text-xs text-slate-900 block">{act.startTime} - {act.title}</span>
                           <span className="text-xs text-slate-500">Cliente: {act.clientName} • Equipa: {act.teamName}</span>

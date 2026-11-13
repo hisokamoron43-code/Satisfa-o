@@ -5,7 +5,7 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // As migrações 1000 e 1001 executam-se SEMPRE juntas e por esta ordem (a 1000 recria funções que a 1001 altera).
-const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql', '1006_temas_conversas.sql', '1007_temas_historico_membros.sql']
+const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql', '1006_temas_conversas.sql', '1007_temas_historico_membros.sql', '1008_referencia_avaliacoes.sql', '1009_equipas_anexos_prestadores.sql']
   .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8')).join('\n;\n');
 
 const R = [];
@@ -31,6 +31,7 @@ await db.exec(`
   CREATE TABLE storage.buckets (id text PRIMARY KEY, name text, public boolean DEFAULT false, file_size_limit bigint, allowed_mime_types text[]);
   CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text, name text);
   ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+  CREATE FUNCTION storage.foldername(name text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $$ SELECT (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
   GRANT USAGE ON SCHEMA public, auth, storage TO anon, authenticated, service_role;
   GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO anon, authenticated;
   GRANT SELECT ON storage.buckets TO anon, authenticated;
@@ -627,6 +628,38 @@ rec('HS2', 'Membro com histórico partilhado vê também as mensagens anteriores
   seenWithHist.ok ? `vê=${seenWithHist.r.join('|')}` : `ERRO: ${seenWithHist.err}`);
 const addByOther = await tryq(() => as('authenticated', B.ops, async () => db.query(`SELECT public.add_group_members_v2($1::uuid,$2::uuid[],true)`, [hg.r, [A.hr]])));
 rec('HS3', 'Quem não criou o grupo não acrescenta membros', !addByOther.ok, addByOther.ok ? 'ACEITE (falha)' : `Recusado: ${addByOther.err}`);
+
+// ---------- 27. Numeração das avaliações (migração 1008) ----------
+const refNow = (await db.query(`SELECT public.next_evaluation_reference() AS r`)).rows[0].r;
+rec('REF1', 'Nova referência segue o formato AVAL-0001, AVAL-0002, ... (não começa em 1000)', /^AVAL-\d{4}$/.test(refNow) && refNow !== 'AVAL-1000', `próxima=${refNow}`);
+const refPrimeiro = (await db.query(`SELECT count(*)::int n FROM public.evaluations WHERE reference = 'AVAL-0001'`)).rows[0].n;
+const refTotal = (await db.query(`SELECT count(*)::int n, count(DISTINCT reference)::int d FROM public.evaluations`)).rows[0];
+rec('REF2', 'Referências novas não se repetem', refTotal.n === refTotal.d, `avaliações=${refTotal.n} distintas=${refTotal.d} (AVAL-0001 usada=${refPrimeiro})`);
+
+// ---------- 28. Supervisor de equipa, anexos e destinatários com prestadores (migração 1009) ----------
+const supFake = await tryq(() => db.query(`INSERT INTO public.teams (name, code, status, supervisor_provider_id) VALUES ('Equipa Fantasma','FAN','ACTIVE', gen_random_uuid())`));
+rec('SUP1', 'Supervisor inventado (sem prestador cadastrado) é recusado', !supFake.ok && /foreign key|supervisor_provider_id/i.test(supFake.err), supFake.ok ? 'ACEITE (falha)' : `Recusado: ${supFake.err}`);
+const supOk = await tryq(() => db.query(`INSERT INTO public.teams (name, code, status, supervisor_provider_id) VALUES ('Equipa Com Supervisor','SUP','ACTIVE', $1) RETURNING id`, [p1]));
+rec('SUP2', 'Supervisor escolhido entre os prestadores cadastrados fica guardado', supOk.ok, supOk.ok ? 'OK' : `ERRO: ${supOk.err}`);
+
+const docName = 'Relatorio_Auditoria.pdf';
+const docPath = `${gConv}/1700000000000-${docName}`;
+const att1 = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.send_message_v2($1::uuid,'', false, $2::jsonb) AS r`,
+  [gConv, JSON.stringify({ name: docName, path: docPath, size: 2048, type: 'application/pdf' })])).rows[0].r));
+const att1row = att1.ok ? (await db.query(`SELECT attachment_name, attachment_path, body FROM public.messages WHERE id=$1`, [att1.r])).rows[0] : null;
+rec('ATT1', 'Documento enviado fica guardado na conversa com o nome original', !!att1row && att1row.attachment_name === docName && att1row.attachment_path === docPath,
+  att1row ? `nome=${att1row.attachment_name} corpo=${att1row.body}` : `ERRO: ${att1.err}`);
+const attBad = await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.send_message_v2($1::uuid,'', false, $2::jsonb)`,
+  [gConv, JSON.stringify({ name: 'x.pdf', path: `${dConv}/x.pdf`, size: 10, type: 'application/pdf' })])));
+rec('ATT2', 'Documento de outra conversa não pode ser anexado aqui', !attBad.ok && /não pertence/.test(attBad.err), attBad.ok ? 'ACEITE (falha)' : `Recusado: ${attBad.err}`);
+const attOut = await tryq(() => as('authenticated', A.admin, async () => db.query(`SELECT public.send_message_v2($1::uuid,'', false, $2::jsonb)`,
+  [gConv, JSON.stringify({ name: docName, path: docPath, size: 2048, type: 'application/pdf' })])));
+rec('ATT3', 'Quem não é membro não envia documentos à conversa', !attOut.ok, attOut.ok ? 'ACEITE (falha)' : `Recusado: ${attOut.err}`);
+const dup = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND lower(attachment_name)=lower($2)`, [gConv, docName])).rows[0].n;
+rec('ATT4', 'Documento repetido (mesmo nome) é detetado na conversa', dup === 1, `ocorrências=${dup}`);
+const recips = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.list_message_recipients_v2() AS r`)).rows[0].r));
+rec('RC1', 'Lista de destinatários devolve prestadores com a ligação ao prestador', recips.ok && Array.isArray(recips.r) && recips.r.every(x => 'providerId' in x),
+  recips.ok ? `destinatários=${recips.r.length}` : `ERRO: ${recips.err}`);
 
 // ---------- Resumo ----------
 const falhas = R.filter(r => !r.ok);

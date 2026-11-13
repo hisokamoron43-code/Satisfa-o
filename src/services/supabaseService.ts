@@ -1716,7 +1716,7 @@ export async function fetchTeamsFromDb(): Promise<Team[] | null> {
       name: t.name,
       code: t.code,
       department: t.department || 'Operações',
-      supervisorName: t.supervisor_name,
+      supervisorProviderId: t.supervisor_provider_id ?? undefined,
       status: t.status || 'ACTIVE',
       membersCount: t.members_count || 0,
       createdAt: t.created_at ? t.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10)
@@ -1744,7 +1744,7 @@ export async function insertTeamInDb(team: Omit<Team, 'id' | 'createdAt'>): Prom
         name: team.name,
         code: team.code,
         department: team.department,
-        supervisor_name: team.supervisorName || null,
+        supervisor_provider_id: team.supervisorProviderId || null,
         status: team.status || 'ACTIVE',
         members_count: team.membersCount || 0
       })
@@ -1760,7 +1760,7 @@ export async function insertTeamInDb(team: Omit<Team, 'id' | 'createdAt'>): Prom
         name: data.name,
         code: data.code,
         department: data.department,
-        supervisorName: data.supervisor_name,
+        supervisorProviderId: data.supervisor_provider_id ?? undefined,
         status: data.status,
         membersCount: data.members_count,
         createdAt: data.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10)
@@ -2502,7 +2502,7 @@ export const SUPABASE_MIGRATION_SCHEMA_SQL = '-- Execute supabase/migrations/100
 // ============================================================================
 // MENSAGENS INTERNAS (conversas diretas e grupos, apenas entre membros)
 // ============================================================================
-export interface MessageRecipient { id: string; name: string; role: string; department: string; }
+export interface MessageRecipient { id: string; name: string; role: string; department: string; providerId?: string; }
 export interface ConversationMember { id: string; name: string; }
 export interface ConversationSummary {
   id: string; kind: 'DIRECT' | 'GROUP'; title: string; createdBy?: string;
@@ -2513,6 +2513,7 @@ export interface ConversationSummary {
   lastSenderId?: string;
 }
 export interface ChatMessage {
+  attachmentName?: string; attachmentPath?: string; attachmentSize?: number; attachmentType?: string;
   id: string; senderId?: string; senderName: string; body: string; createdAt: string;
   topicId?: string; topicTitle?: string; important?: boolean;
 }
@@ -2540,9 +2541,9 @@ export async function fetchMessageRecipients(): Promise<MessageRecipient[]> {
       { id: 'u5555555-5555-4555-8555-555555555555', name: 'Mateus Domingos', role: 'PROVIDER', department: 'Equipa Técnica' }
     ];
   }
-  const { data, error } = await supabase.rpc('list_message_recipients');
+  const { data, error } = await supabase.rpc('list_message_recipients_v2');
   if (error || !data) return [];
-  return (data as any[]).map(r => ({ id: r.id, name: r.name, role: r.role, department: r.department }));
+  return (data as any[]).map(r => ({ id: r.id, name: r.name, role: r.role, department: r.department, providerId: r.providerId ?? undefined }));
 }
 
 export async function fetchConversations(meId: string, meName: string): Promise<ConversationSummary[]> {
@@ -2627,7 +2628,7 @@ export async function fetchMessages(conversationId: string, meId: string, meName
     return (allMsgs[conversationId] || []).filter(m => messageMatchesFilter(m, filter));
   }
   let query = supabase.from('messages')
-    .select('id, sender_id, body, created_at, topic_id, important, conversation_topics(title)')
+    .select('id, sender_id, body, created_at, topic_id, important, attachment_name, attachment_path, attachment_size, attachment_type, conversation_topics(title)')
     .eq('conversation_id', conversationId);
   if (filter.from) query = query.gte('created_at', new Date(`${filter.from}T00:00:00`).toISOString());
   if (filter.to) query = query.lte('created_at', new Date(`${filter.to}T23:59:59.999`).toISOString());
@@ -2647,6 +2648,10 @@ export async function fetchMessages(conversationId: string, meId: string, meName
     topicId: r.topic_id ?? undefined,
     topicTitle: r.conversation_topics?.title ?? undefined,
     important: !!r.important,
+    attachmentName: r.attachment_name ?? undefined,
+    attachmentPath: r.attachment_path ?? undefined,
+    attachmentSize: r.attachment_size ?? undefined,
+    attachmentType: r.attachment_type ?? undefined,
   }));
 }
 
@@ -2678,7 +2683,7 @@ export async function createTopicInDb(conversationId: string, title: string): Pr
   return error ? { success: false, error: error.message } : { success: true, id: data as string };
 }
 
-export async function sendMessageInDb(conversationId: string, body: string, opts: { topicId?: string; important?: boolean } = {}): Promise<{ success: boolean; error?: string }> {
+export async function sendMessageInDb(conversationId: string, body: string, opts: { topicId?: string; important?: boolean; attachment?: { name: string; path: string; size: number; type: string } } = {}): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) {
     const allMsgs = getStore<Record<string, ChatMessage[]>>('messages_by_conv', {});
     const list = allMsgs[conversationId] || [];
@@ -2695,9 +2700,9 @@ export async function sendMessageInDb(conversationId: string, body: string, opts
     setStore('messages_by_conv', allMsgs);
     return { success: true };
   }
-  const { error } = await supabase.rpc('send_message', {
-    p_conversation_id: conversationId, p_body: body,
-    p_topic_id: opts.topicId ?? null, p_important: !!opts.important,
+  const { error } = await supabase.rpc('send_message_v2', {
+    p_conversation_id: conversationId, p_body: body, p_important: !!opts.important,
+    p_attachment: opts.attachment ? { name: opts.attachment.name, path: opts.attachment.path, size: opts.attachment.size, type: opts.attachment.type } : null,
   });
   return error ? { success: false, error: error.message } : { success: true };
 }
@@ -2962,4 +2967,37 @@ export async function setConversationTopicInDb(conversationId: string, topic: st
   if (!isSupabaseConfigured) return { success: true };
   const { error } = await supabase.rpc('set_conversation_topic', { p_conversation_id: conversationId, p_topic: clean || null });
   return error ? { success: false, error: error.message } : { success: true };
+}
+
+/** Documentos com o mesmo nome já enviados nesta conversa (comparação sem diferença de maiúsculas). */
+export async function findDuplicateAttachments(conversationId: string, fileName: string): Promise<Array<{ createdAt: string; senderId?: string }>> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.from('messages')
+    .select('attachment_name, created_at, sender_id')
+    .eq('conversation_id', conversationId)
+    .not('attachment_name', 'is', null)
+    .ilike('attachment_name', fileName.replace(/[%_\\]/g, ' '));
+  if (error || !data) return [];
+  return (data as any[])
+    .filter(r => String(r.attachment_name).toLowerCase() === fileName.toLowerCase())
+    .map(r => ({ createdAt: r.created_at, senderId: r.sender_id ?? undefined }));
+}
+
+/** Envia um documento para o bucket privado da conversa. Devolve o caminho a guardar na mensagem. */
+export async function uploadMessageAttachment(conversationId: string, file: File): Promise<{ success: boolean; path?: string; error?: string }> {
+  if (file.size <= 0 || file.size > 10 * 1024 * 1024) return { success: false, error: 'O documento deve ter entre 1 byte e 10 MB.' };
+  const safe = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120) || 'documento';
+  const path = `${conversationId}/${Date.now()}-${safe}`;
+  if (!isSupabaseConfigured) return { success: true, path };
+  const { error } = await supabase.storage.from('message-files').upload(path, file, {
+    contentType: file.type || 'application/octet-stream', upsert: false,
+  });
+  return error ? { success: false, error: error.message } : { success: true, path };
+}
+
+/** Link temporário (5 minutos) para abrir um documento da conversa. */
+export async function getAttachmentUrl(path: string): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  const { data, error } = await supabase.storage.from('message-files').createSignedUrl(path, 300);
+  return error || !data ? null : data.signedUrl;
 }

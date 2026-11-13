@@ -678,5 +678,50 @@
     "id": "HS3",
     "title": "Quem não criou o grupo não acrescenta membros",
     "ok": true
+  },
+  {
+    "id": "REF1",
+    "title": "Nova referência segue o formato AVAL-0001, AVAL-0002, ... (não começa em 1000)",
+    "ok": true
+  },
+  {
+    "id": "REF2",
+    "title": "Referências novas não se repetem",
+    "ok": true
+  },
+  {
+    "id": "SUP1",
+    "title": "Supervisor inventado (sem prestador cadastrado) é recusado",
+    "ok": true
+  },
+  {
+    "id": "SUP2",
+    "title": "Supervisor escolhido entre os prestadores cadastrados fica guardado",
+    "ok": true
+  },
+  {
+    "id": "ATT1",
+    "title": "Documento enviado fica guardado na conversa com o nome original",
+    "ok": true
+  },
+  {
+    "id": "ATT2",
+    "title": "Documento de outra conversa não pode ser anexado aqui",
+    "ok": true
+  },
+  {
+    "id": "ATT3",
+    "title": "Quem não é membro não envia documentos à conversa",
+    "ok": true
+  },
+  {
+    "id": "ATT4",
+    "title": "Documento repetido (mesmo nome) é detetado na conversa",
+    "ok": true
+  },
+  {
+    "id": "RC1",
+    "title": "Lista de destinatários devolve prestadores com a ligação ao prestador",
+    "ok": true
   }
 ]

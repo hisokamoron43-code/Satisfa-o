@@ -241,6 +241,9 @@ export interface Team {
   name: string;
   code: string;
   department: string;
+  /** Supervisor: funcionário (prestador) cadastrado. */
+  supervisorProviderId?: string;
+  /** @deprecated Texto livre antigo; não usar. Mantido só para dados de demonstração. */
   supervisorName?: string;
   status: 'ACTIVE' | 'INACTIVE';
   createdAt: string;

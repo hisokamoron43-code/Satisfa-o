@@ -309,3 +309,56 @@ Ordem das migrações: 1000 → 1001 → 1003 → 1004 → 1005 → 1006 → 100
 | Alerta de "CSAT subiu" sem dados no período anterior | Corrigido | Só compara quando os dois períodos têm pelo menos 3 avaliações |
 
 Limitação: os gráficos foram verificados por renderização no servidor. A aparência final no navegador precisa de um teste manual.
+
+## Versão 15 — numeração das avaliações e responsividade do calendário
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Referência da avaliação começava em AVAL-1000 | Corrigido e verificado (REF1, REF2) | A sequência começava em 1000. Migração 1008: as novas referências são AVAL-0001, AVAL-0002, ... Um verificador nunca devolve uma referência já existente |
+| Avaliações antigas (AVAL-1000, 1001, 1002) | Mantidas | São imutáveis depois de homologadas. Renumerar exige uma exceção controlada ao gatilho de imutabilidade, que não foi feita |
+| Grelha mensal do calendário com texto sobreposto em telemóvel | Corrigido (código) | Em ecrãs pequenos: número do dia, indicador de hoje e contagem de tarefas. O detalhe abre ao tocar no dia. A partir do tamanho médio, volta a mostrar as tarefas e o botão "+ Agendar" |
+| Cabeçalho do cartão mensal e controlos do topo | Corrigido (código) | Quebram linha em vez de se sobreporem. O texto "(Clique em qualquer dia…)" fica só em ecrãs médios ou maiores |
+| Vistas de semana e de dia | Ajustadas (código) | Cartões empilhados em ecrãs pequenos |
+
+Ordem das migrações: 1000 → 1001 → 1003 → 1004 → 1005 → 1006 → 1007 → 1008.
+
+## Versão 16 — equipas no menu, supervisor cadastrado, pesquisa nas listas, anexos e prestadores nas mensagens
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Equipas separadas no menu lateral | Implementado | Nova entrada "Equipas" na barra lateral e página própria. Removida da aba de RH |
+| Supervisor de equipa tem de ser funcionário cadastrado | Verificado (SUP1, SUP2) | Campo de texto livre substituído por ligação a um prestador ativo (chave estrangeira). Um supervisor inventado é recusado pela base de dados |
+| Pesquisa por escrita nas listas | Implementado (verificado por renderização) | Componente `SearchableSelect`: filtra as opções enquanto se escreve. Usado no departamento, no supervisor, no nível base do perfil e no destinatário das mensagens |
+| Criar departamento novo | Implementado | No departamento de equipa, a opção "Criar departamento …" aceita um texto novo |
+| Limpeza da aba de RH | Implementado | Removidas as secções repetidas: equipas e funcionários (já em Equipas e Prestadores), calendário (já na aba Calendário) e configuração do formulário e tipos de serviço (já em Edição de Formulário) |
+| Anexar documentos nas mensagens | Verificado (ATT1–ATT3) | Botão 📎 na conversa. Bucket privado, limite de 10 MB, acesso só a membros da conversa |
+| Aviso de documento repetido pelo nome | Verificado (ATT4) | Aviso logo ao escolher o ficheiro e confirmação antes de enviar, com quem enviou e quando |
+| Enviar mensagens a prestadores | Verificado (RC1) | Os prestadores com conta aparecem na lista de destinatários com a etiqueta "Prestador" |
+
+Limitações conhecidas:
+- **Prestadores sem conta** não aparecem como destinatários. Para receber mensagens, o prestador precisa de um utilizador ligado ao seu cadastro.
+- **Nível base do perfil**: continua a ser uma lista fechada das cinco funções do sistema, porque as permissões dependem delas. O nome do perfil é livre. Criar um nível novo exige alteração no esquema de permissões.
+- **Repetidos**: a verificação é feita dentro de cada conversa, não em toda a empresa.
+- **Responsividade do RH**: a limpeza foi feita, mas a reformulação visual completa da aba de RH ainda não foi revista para todos os ecrãs.
+- Não foi testado no navegador.
+
+Ordem das migrações: 1000 → 1001 → 1003 → 1004 → 1005 → 1006 → 1007 → 1008 → 1009.
+
+## Versão 17 — visual das mensagens no estilo WhatsApp (com as cores da empresa)
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Lista de conversas parecida com a do WhatsApp | Implementado (verificado por compilação e build) | Cabeçalho "Conversas" com botões +, pesquisa arredondada, filtros Tudo / Não lidas / Grupos / Temas, avatar, nome, hora, última mensagem, ✓✓ nas minhas e contador de não lidas em verde |
+| Título: nome da pessoa (direta) ou nome do grupo | Verificado no código | O cabeçalho mostra o nome da pessoa ou do grupo. O tema deixou de aparecer no título e fica no painel "Filtros" |
+| Cabeçalho da conversa | Implementado | Seta de voltar, avatar, nome e linha com os membros (ex.: "Felisberto, Macedo, Eu") |
+| Bolhas: minhas à direita em verde, as dos outros à esquerda em branco | Implementado | Cantos com "cauda" como no WhatsApp; hora e ✓✓ no canto inferior direito |
+| Nome do remetente em cor própria nos grupos | Implementado | Cada pessoa tem uma cor estável. O nome só aparece na primeira mensagem de cada sequência |
+| Separadores por dia e fundo da conversa | Implementado | Pílulas com "Hoje", "Ontem" ou a data; fundo bege suave |
+| Caixa de envio | Implementado | ＋ para anexos, ★ para marcar como importante, campo arredondado e botão de envio verde |
+
+Limitações:
+- ✓✓ aparece sempre em cinzento-verde nas mensagens enviadas. Não mostra ainda o estado de lido (azul), porque isso exige guardar a leitura de cada membro.
+- Não há respostas citadas (o bloco "Eu" do WhatsApp por cima da mensagem). Seria uma funcionalidade nova.
+- Não foi testado no navegador. A aparência final no telemóvel precisa de confirmação.
+
+Ordem das migrações: 1000 → 1001 → 1003 → 1004 → 1005 → 1006 → 1007 → 1008 → 1009.

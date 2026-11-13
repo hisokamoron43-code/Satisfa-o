@@ -36,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
     { id: 'calendar', label: 'Calendário & Operações', icon: Calendar },
     { id: 'services', label: 'Serviços', icon: Briefcase },
     { id: 'providers', label: 'Prestadores', icon: UserCheck },
+    { id: 'teams', label: 'Equipas', icon: Users },
     { id: 'messages', label: 'Mensagens Internas', icon: MessageSquare },
     { id: 'evaluations', label: 'Avaliações', icon: Star, count: (evaluationQueueCounts.unassignedClient + evaluationQueueCounts.unassignedProvider) },
     { id: 'evaluation_analysis', label: 'Análise de Avaliação', icon: CheckCircle },

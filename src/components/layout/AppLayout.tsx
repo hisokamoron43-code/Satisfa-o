@@ -12,6 +12,7 @@ const CalendarPage = lazy(() => import('../../pages/CalendarPage').then((m) => (
 const ServicesPage = lazy(() => import('../../pages/ServicesPage').then((m) => ({ default: m.ServicesPage })));
 const ProvidersPage = lazy(() => import('../../pages/ProvidersPage').then((m) => ({ default: m.ProvidersPage })));
 const EvaluationsPage = lazy(() => import('../../pages/EvaluationsPage').then((m) => ({ default: m.EvaluationsPage })));
+import { TeamsPage } from '../../pages/TeamsPage';
 const HumanResourcesPage = lazy(() => import('../../pages/HumanResourcesPage').then((m) => ({ default: m.HumanResourcesPage })));
 const ReportsPage = lazy(() => import('../../pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
 const UsersPage = lazy(() => import('../../pages/UsersPage').then((m) => ({ default: m.UsersPage })));
@@ -44,6 +45,7 @@ export const AppLayout: React.FC = () => {
       case 'calendar': return <CalendarPage />;
       case 'services': return <ServicesPage />;
       case 'providers': return <ProvidersPage />;
+      case 'teams': return <TeamsPage />;
       case 'evaluations': return <EvaluationsPage />;
       case 'evaluation_analysis': 
       case 'evaluation-analysis': 

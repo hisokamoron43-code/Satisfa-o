@@ -180,6 +180,16 @@ export const APP_PAGES: AppPageConfig[] = [
     isSensitive: true,
     description: 'Definições do sistema, estado de conectividade da infraestrutura e parâmetros gerais.',
     displayOrder: 15
+  },
+  {
+    key: 'teams',
+    name: 'Equipas',
+    section: 'Operações',
+    route: 'teams',
+    requiredBaseRole: 'OPERATIONAL',
+    isSensitive: false,
+    description: 'Criação de equipas operacionais e escolha do supervisor entre os funcionários cadastrados.',
+    displayOrder: 5
   }
 ];
 

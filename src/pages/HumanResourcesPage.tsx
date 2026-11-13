@@ -60,6 +60,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 export const HumanResourcesPage: React.FC = () => {
   const { 
     clients,
@@ -94,7 +95,7 @@ export const HumanResourcesPage: React.FC = () => {
     associateEvaluationClient
   } = useApp();
 
-  const [activeTabSub, setActiveTabSub] = useState<'cases' | 'teams' | 'calendar' | 'evaluation_review' | 'permissions' | 'form_config'>('evaluation_review');
+  const [activeTabSub, setActiveTabSub] = useState<'cases' | 'evaluation_review' | 'permissions'>('evaluation_review');
   const [selectedKpiModal, setSelectedKpiModal] = useState<string | null>(null);
 
   // Perfis de Acesso & Permissões (RBAC) State
@@ -464,20 +465,6 @@ export const HumanResourcesPage: React.FC = () => {
             Ocorrências
           </button>
           <button
-            onClick={() => setActiveTabSub('teams')}
-            className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTabSub === 'teams' ? 'bg-brand text-slate-950 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Equipas</span>
-          </button>
-          <button
-            onClick={() => setActiveTabSub('calendar')}
-            className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTabSub === 'calendar' ? 'bg-brand text-slate-950 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>Calendário</span>
-          </button>
-          <button
             onClick={() => setActiveTabSub('evaluation_review')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTabSub === 'evaluation_review' ? 'bg-brand text-slate-950 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
           >
@@ -489,13 +476,6 @@ export const HumanResourcesPage: React.FC = () => {
             className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTabSub === 'permissions' ? 'bg-brand text-slate-950 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
           >
             Acessos
-          </button>
-          <button
-            onClick={() => setActiveTabSub('form_config')}
-            className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTabSub === 'form_config' ? 'bg-brand text-slate-950 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >
-            <Mic className="w-3.5 h-3.5" />
-            <span>Formulário</span>
           </button>
         </div>
       </div>
@@ -646,184 +626,6 @@ export const HumanResourcesPage: React.FC = () => {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SUB-ABA: GESTÃO DE EQUIPAS E FUNCIONÁRIOS */}
-      {activeTabSub === 'teams' && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-black text-slate-900">Gestão de Equipas e Pessoal Operacional</h3>
-              <p className="text-xs text-slate-500">Criação de equipas, atribuição de colaboradores e histórico de participações.</p>
-            </div>
-            <button
-              onClick={() => setIsTeamModalOpen(true)}
-              style={{ backgroundColor: '#8CBF26' }}
-              className="text-slate-950 font-extrabold px-4 py-2 rounded-xl shadow-md text-xs flex items-center gap-2 hover:opacity-95 transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Criar Nova Equipa</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {teams.map(team => (
-              <div key={team.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-brand-dark font-bold text-xs border border-emerald-200">
-                      {team.code}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs bg-slate-100 text-slate-700 font-bold px-2.5 py-1 rounded-full">
-                        {team.department}
-                      </span>
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm(`Apagar a equipa "${team.name}"? Os funcionários, avaliações e atividades ligados a ela ficam sem equipa; o histórico mantém-se.`)) return;
-                          const r = await deleteTeam(team.id);
-                          if (!r.success) window.alert(r.error || 'Não foi possível apagar a equipa.');
-                        }}
-                        className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition"
-                        title="Eliminar equipa"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  <h4 className="text-base font-black text-slate-900">{team.name}</h4>
-                  <p className="text-xs text-slate-500 mt-1">Supervisor: <strong className="text-slate-700">{team.supervisorName}</strong></p>
-                  <p className="text-xs text-slate-500 mt-0.5">Criada em: {team.createdAt}</p>
-                </div>
-                <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-600">{team.membersCount || 0} Colaboradores associados</span>
-                  <button className="text-brand-dark font-extrabold hover:underline">Gerir Membros</button>
-                </div>
-              </div>
-            ))}
-            {teams.length === 0 && (
-              <div className="col-span-2 p-12 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
-                Nenhuma equipa registada. Clique em "Criar Nova Equipa" para iniciar.
-              </div>
-            )}
-          </div>
-
-          {/* Quick Providers List */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-            <h4 className="text-sm font-black text-slate-900 mb-3">Colaboradores & Técnicos Cadastrados ({providers.length})</h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                  <tr>
-                    <th className="p-3">Código / Nome</th>
-                    <th className="p-3">E-mail Profissional</th>
-                    <th className="p-3">Especialidade</th>
-                    <th className="p-3">Estado Acesso Avaliações</th>
-                    <th className="p-3 text-right">Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {providers.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3">
-                        <span className="font-bold text-slate-900">{p.name}</span>
-                        <span className="text-[11px] text-slate-400 block">{p.internalCode}</span>
-                      </td>
-                      <td className="p-3 text-slate-700">{p.professionalEmail || 'N/D'}</td>
-                      <td className="p-3 text-slate-600 font-medium">Higiene & Segurança</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${p.evaluationAccessAuthorized ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                          {p.evaluationAccessAuthorized ? 'Autorizado' : 'Não Autorizado'}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">Ativo</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SUB-ABA: CALENDÁRIO OPERACIONAL */}
-      {activeTabSub === 'calendar' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-base font-black text-slate-900">Calendário e Cronograma de Actividades</h3>
-              <p className="text-xs text-slate-500">Planeamento diário, semanal e mensal com detecção automática de conflitos de horário.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold">
-                <button 
-                  onClick={() => setCalendarView('daily')} 
-                  className={`px-3 py-1.5 rounded-lg transition ${calendarView === 'daily' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'}`}
-                >
-                  Diário
-                </button>
-                <button 
-                  onClick={() => setCalendarView('weekly')} 
-                  className={`px-3 py-1.5 rounded-lg transition ${calendarView === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'}`}
-                >
-                  Semanal
-                </button>
-                <button 
-                  onClick={() => setCalendarView('monthly')} 
-                  className={`px-3 py-1.5 rounded-lg transition ${calendarView === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'}`}
-                >
-                  Mensal
-                </button>
-              </div>
-              <button
-                onClick={() => setIsActivityModalOpen(true)}
-                style={{ backgroundColor: '#8CBF26' }}
-                className="text-slate-950 font-extrabold px-4 py-2 rounded-xl shadow-md text-xs flex items-center gap-2 hover:opacity-95 transition"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Agendar Actividade</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
-              <span>Data Selecionada: {newActDate}</span>
-              <span>Total de Tarefas: {activities.length}</span>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {activities.map(act => (
-                <div key={act.id} className="p-4 hover:bg-slate-50 transition flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2 py-0.5 bg-emerald-50 text-brand-dark font-bold text-[10px] rounded border border-emerald-200">
-                        {act.startTime} - {act.endTime}
-                      </span>
-                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${act.status === 'CONFLICT' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {act.status === 'CONFLICT' ? '⚠ Conflito de Horário' : 'Agendado'}
-                      </span>
-                    </div>
-                    <h4 className="font-bold text-slate-900 text-sm">{act.title}</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">Cliente: <strong className="text-slate-700">{act.clientName}</strong> | Local: {act.location} | Equipa: {act.teamName}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => deleteActivity(act.id)}
-                      className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-bold transition"
-                    >
-                      Cancelar / Eliminar
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {activities.length === 0 && (
-                <div className="p-12 text-center text-slate-400 text-xs">Nenhuma actividade agendada para este período.</div>
-              )}
             </div>
           </div>
         </div>
@@ -1498,275 +1300,6 @@ export const HumanResourcesPage: React.FC = () => {
         </div>
       )}
 
-      {/* SUB-ABA 3: GESTÃO DO FORMULÁRIO DE SATISFAÇÃO & QUESTÕES (RH) */}
-      {activeTabSub === 'form_config' && (
-        <div className="space-y-6">
-          {/* Quick Bar / Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-xs text-slate-500 font-bold uppercase">Questões no Formulário</span>
-              <p className="text-2xl font-black text-slate-900 mt-1">{formQuestions.length}</p>
-              <span className="text-[11px] text-brand-dark font-bold mt-1 block">
-                {formQuestions.filter(q => q.active).length} ativas para clientes
-              </span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-xs text-slate-500 font-bold uppercase">Com Suporte a Áudio</span>
-              <p className="text-2xl font-black text-rose-600 mt-1">
-                {formQuestions.filter(q => q.type === 'AUDIO_AND_TEXT').length}
-              </p>
-              <span className="text-[11px] text-slate-400 mt-1 block">Gravação com microfone ativa</span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-xs text-slate-500 font-bold uppercase">Escala de Satisfação</span>
-              <p className="text-2xl font-black text-amber-600 mt-1">
-                {formQuestions.filter(q => q.type === 'RATING_5').length}
-              </p>
-              <span className="text-[11px] text-slate-400 mt-1 block">Métricas CSAT 1-5 estrelas</span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-xs text-slate-500 font-bold uppercase">Tipos de Serviço</span>
-              <p className="text-2xl font-black text-slate-900 mt-1">{services.length}</p>
-              <span className="text-[11px] text-slate-400 mt-1 block">Disponíveis no questionário</span>
-            </div>
-          </div>
-
-          {/* Ações da Gestão */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-              <div>
-                <h3 className="text-base font-black text-slate-900">Perguntas do Formulário de Satisfação AETERNU</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Configure quais as perguntas que serão apresentadas aos clientes, incluindo as questões abertas para gravação de voz.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setIsClientFormOpen(true)}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition"
-                >
-                  <Eye className="w-4 h-4 text-brand" />
-                  <span>Testar / Pré-visualizar Formulário</span>
-                </button>
-                <button
-                  onClick={() => handleOpenQuestionModal()}
-                  style={{ backgroundColor: '#8CBF26' }}
-                  className="text-slate-950 font-extrabold px-4 py-2 rounded-xl shadow-md text-xs flex items-center gap-2 hover:opacity-95 transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Nova Questão</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Lista de Questões */}
-            <div className="space-y-3">
-              {formQuestions.map((question, index) => (
-                <div 
-                  key={question.id}
-                  className={`p-4 rounded-2xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                    question.active 
-                      ? 'bg-slate-50/70 border-slate-200 hover:border-slate-300' 
-                      : 'bg-slate-100/50 border-slate-200 opacity-60'
-                  }`}
-                >
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-slate-900 text-white font-black text-xs flex items-center justify-center">
-                        {index + 1}
-                      </span>
-                      {getTypeBadge(question.type)}
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
-                        {question.category}
-                      </span>
-                      {question.required && (
-                        <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
-                          Obrigatória
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-900">{question.text}</h4>
-                    {question.description && (
-                      <p className="text-xs text-slate-500">{question.description}</p>
-                    )}
-                  </div>
-
-                  {/* Ações na Questão */}
-                  <div className="flex items-center gap-2 self-end md:self-auto">
-                    <button
-                      onClick={() => toggleFormQuestionActive(question.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
-                        question.active 
-                          ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' 
-                          : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                      }`}
-                      title={question.active ? 'Desativar questão' : 'Ativar questão'}
-                    >
-                      {question.active ? <ToggleRight className="w-4 h-4 text-emerald-600" /> : <ToggleLeft className="w-4 h-4 text-slate-500" />}
-                      <span>{question.active ? 'Ativa' : 'Inativa'}</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleOpenQuestionModal(question)}
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                      title="Editar questão"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={() => deleteFormQuestion(question.id)}
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-400 transition"
-                      title="Eliminar questão"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* GESTÃO DOS TIPOS DE SERVIÇOS NO FORMULÁRIO */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-              <div>
-                <h3 className="text-base font-black text-slate-900">Tipos de Serviços Prestados no Formulário</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Gerencie os serviços que os clientes podem selecionar como prestados pela equipa técnica da AETERNU.
-                </p>
-              </div>
-              <button
-                onClick={() => setIsServiceModalOpen(true)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-2 transition"
-              >
-                <Plus className="w-4 h-4 text-brand-dark" />
-                <span>Adicionar Tipo de Serviço</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {services.map(service => (
-                <div 
-                  key={service.id}
-                  className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex items-start justify-between gap-3 hover:border-slate-300 transition"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-brand"></span>
-                      <h4 className="text-xs font-black text-slate-900">{service.name}</h4>
-                    </div>
-                    <p className="text-[10px] text-slate-500">{service.code} — {service.description || 'Intervenção AETERNU'}</p>
-                    <span className="inline-block mt-1 px-2 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-700">
-                      Indicador: {service.evaluationIndicator}
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={() => toggleServiceStatus(service.id)}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
-                      service.status === 'ACTIVE' 
-                        ? 'bg-emerald-100 text-emerald-800' 
-                        : 'bg-slate-200 text-slate-500'
-                    }`}
-                  >
-                    {service.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
-                  </button>
-                </div>
-              ))}
-
-              {services.length === 0 && (
-                <div className="col-span-3 p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
-                  Nenhum serviço registado no catálogo. Clique em "Adicionar Tipo de Serviço" para disponibilizar opções no formulário de satisfação.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Nova / Editar Questão (editor único, com todos os tipos de questão) */}
-      <QuestionEditor
-        isOpen={isQuestionModalOpen}
-        question={editingQuestionId ? formQuestions.find(q => q.id === editingQuestionId) ?? null : null}
-        categories={formCategories}
-        services={services}
-        onClose={() => setIsQuestionModalOpen(false)}
-        onSave={async (payload, questionId) =>
-          questionId ? updateFormQuestion(questionId, payload) : addFormQuestion(payload)
-        }
-      />
-
-      {/* MODAL: Novo Serviço Rápido para Formulário */}
-      {isServiceModalOpen && (
-        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-black text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
-              <h3 className="text-base font-black text-slate-950">Adicionar Tipo de Serviço</h3>
-              <button onClick={() => setIsServiceModalOpen(false)} className="p-1 text-slate-700 hover:text-black rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveNewService} className="space-y-4">
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Nome do Serviço *</label>
-                <input
-                  type="text"
-                  required
-                  value={newServiceName}
-                  onChange={(e) => setNewServiceName(e.target.value)}
-                  placeholder="Ex: Desinfeção Hospitalar Especializada"
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Código Interno</label>
-                <input
-                  type="text"
-                  value={newServiceCode}
-                  onChange={(e) => setNewServiceCode(e.target.value)}
-                  placeholder="Ex: SRV-DES-01 (opcional)"
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Descrição</label>
-                <textarea
-                  rows={2}
-                  value={newServiceDesc}
-                  onChange={(e) => setNewServiceDesc(e.target.value)}
-                  placeholder="Descrição das normas e procedimentos..."
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-black/15 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsServiceModalOpen(false)}
-                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-xl border border-black transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{ backgroundColor: '#8CBF26' }}
-                  className="px-5 py-2 text-black font-black border border-black rounded-xl shadow-sm hover:opacity-95 transition"
-                >
-                  Adicionar ao Formulário
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* MODAL: Nova Ocorrência de RH */}
       {isModalOpen && (
         <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1859,82 +1392,6 @@ export const HumanResourcesPage: React.FC = () => {
                   className="px-5 py-2 text-black font-black border border-black rounded-xl shadow-sm hover:opacity-95 transition"
                 >
                   Registar Ocorrência
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Criar Nova Equipa */}
-      {isTeamModalOpen && (
-        <div className="modal-overlay fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-black text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-black/15 mb-4">
-              <h3 className="text-base font-black text-slate-950">Criar Nova Equipa Operacional</h3>
-              <button onClick={() => setIsTeamModalOpen(false)} className="p-1 text-slate-700 hover:text-black rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleSaveTeam} className="space-y-4">
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Nome da Equipa *</label>
-                <input
-                  type="text"
-                  required
-                  value={newTeamName}
-                  onChange={(e) => setNewTeamName(e.target.value)}
-                  placeholder="Ex: Equipa Delta - Desinfestação"
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Código da Equipa</label>
-                <input
-                  type="text"
-                  value={newTeamCode}
-                  onChange={(e) => setNewTeamCode(e.target.value)}
-                  placeholder="Ex: EQ-DELTA (opcional)"
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Departamento</label>
-                <select
-                  value={newTeamDept}
-                  onChange={(e) => setNewTeamDept(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                >
-                  <option value="Higiene & Limpeza">Higiene & Limpeza Industrial</option>
-                  <option value="Segurança Ambiental">Segurança Ambiental & Desinfestação</option>
-                  <option value="HST">Higiene, Segurança & Trabalho (HST)</option>
-                  <option value="Manutenção">Manutenção Geral</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-black text-slate-950 uppercase mb-1">Supervisor Responsável</label>
-                <input
-                  type="text"
-                  value={newTeamSupervisor}
-                  onChange={(e) => setNewTeamSupervisor(e.target.value)}
-                  placeholder="Ex: Carlos Neto"
-                  className="w-full px-3 py-2 bg-white border border-black rounded-xl text-slate-950 font-medium focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-              </div>
-              <div className="pt-3 border-t border-black/15 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsTeamModalOpen(false)}
-                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-xl border border-black transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{ backgroundColor: '#8CBF26' }}
-                  className="px-5 py-2 text-black font-black border border-black rounded-xl shadow-sm hover:opacity-95 transition"
-                >
-                  Guardar Equipa
                 </button>
               </div>
             </form>
@@ -2403,17 +1860,18 @@ export const HumanResourcesPage: React.FC = () => {
 
                 <div>
                   <label className="block font-bold text-slate-700 uppercase mb-1">Nível Base (Role) *</label>
-                  <select
+                  <SearchableSelect
+                    ariaLabel="Nível base"
                     value={profBaseRole}
-                    onChange={(e) => setProfBaseRole(e.target.value as UserRole)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand"
-                  >
-                    <option value="OPERATIONAL">Operacional</option>
-                    <option value="HR">Recursos Humanos</option>
-                    <option value="ADMIN">Administrador</option>
-                    <option value="DIRECTOR">Diretor</option>
-                    <option value="PROVIDER">Prestador / Técnico</option>
-                  </select>
+                    onChange={(v) => setProfBaseRole(v as UserRole)}
+                    options={[
+                      { value: 'OPERATIONAL', label: 'Operacional' },
+                      { value: 'HR', label: 'Recursos Humanos' },
+                      { value: 'ADMIN', label: 'Administrador' },
+                      { value: 'DIRECTOR', label: 'Diretor' },
+                      { value: 'PROVIDER', label: 'Prestador / Técnico' },
+                    ]}
+                  />
                 </div>
 
                 <div className="flex items-center pt-6">
