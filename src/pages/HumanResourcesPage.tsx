@@ -291,7 +291,7 @@ export const HumanResourcesPage: React.FC = () => {
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [questionText, setQuestionText] = useState('');
   const [questionDescription, setQuestionDescription] = useState('');
-  const [questionCategory, setQuestionCategory] = useState<QuestionCategory>('QUALIDADE');
+  const [questionCategory, setQuestionCategory] = useState<QuestionCategory>('');
   const [questionType, setQuestionType] = useState<QuestionType>('RATING_5');
   const [questionRequired, setQuestionRequired] = useState(true);
   const [questionOrder, setQuestionOrder] = useState(1);
@@ -397,7 +397,7 @@ export const HumanResourcesPage: React.FC = () => {
       setEditingQuestionId(null);
       setQuestionText('');
       setQuestionDescription('');
-      setQuestionCategory('QUALIDADE');
+      setQuestionCategory(formCategories[0]?.code ?? '');
       setQuestionType('RATING_5');
       setQuestionRequired(true);
       setQuestionOrder(formQuestions.length + 1);

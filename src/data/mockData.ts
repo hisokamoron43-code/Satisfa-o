@@ -94,68 +94,8 @@ export const MOCK_SERVICES: ServiceItem[] = [];
 // Sem dados de demonstração: as providers vêm sempre da base de dados.
 export const MOCK_PROVIDERS: Provider[] = [];
 
-export const INITIAL_FORM_QUESTIONS: FormQuestion[] = [
-  {
-    id: 'qst-001',
-    text: 'Qual o grau de satisfação com a eficácia do serviço técnico executado?',
-    description: 'Avalie a qualidade do acabamento, o rigor técnico e a resolução do problema identificado.',
-    category: 'QUALIDADE',
-    type: 'RATING_5',
-    required: true,
-    active: true,
-    order: 1
-  },
-  {
-    id: 'qst-002',
-    text: 'O técnico compareceu pontualmente e cumpriu o tempo de intervenção previsto?',
-    description: 'Respeito pelo horário de agendamento e duração da intervenção nas instalações.',
-    category: 'PONTUALIDADE',
-    type: 'RATING_5',
-    required: true,
-    active: true,
-    order: 2
-  },
-  {
-    id: 'qst-003',
-    text: 'A equipa técnica utilizou EPIs adequados e respeitou as normas de segurança (HST)?',
-    description: 'Uso de máscara, luvas, vestuário de proteção e respeito pelas zonas sinalizadas.',
-    category: 'SEGURANCA',
-    type: 'RATING_5',
-    required: true,
-    active: true,
-    order: 3
-  },
-  {
-    id: 'qst-004',
-    text: 'Como classifica a postura profissional, cordialidade e esclarecimento prestado pelos técnicos?',
-    description: 'Apresentação, educação, identificação da credencial e clareza nas orientações.',
-    category: 'ATENDIMENTO',
-    type: 'RATING_5',
-    required: true,
-    active: true,
-    order: 4
-  },
-  {
-    id: 'qst-005',
-    text: 'Numa escala de 0 a 10, qual a probabilidade de recomendar a AETERNU a parceiros de negócio?',
-    description: 'Indicador oficial Net Promoter Score (NPS) da AETERNU LDA.',
-    category: 'GERAL',
-    type: 'NPS_10',
-    required: true,
-    active: true,
-    order: 5
-  },
-  {
-    id: 'qst-006',
-    text: 'Comentários adicionais, observações técnicas ou sugestões de melhoria:',
-    description: 'Pode escrever a sua mensagem ou gravar um depoimento em áudio.',
-    category: 'GERAL',
-    type: 'AUDIO_AND_TEXT',
-    required: false,
-    active: true,
-    order: 6
-  }
-];
+// Sem perguntas pré-definidas: as perguntas vêm sempre do Supabase (criadas pelo RH/Admin).
+export const INITIAL_FORM_QUESTIONS: FormQuestion[] = [];
 
 export const MOCK_FORM_QUESTIONS: FormQuestion[] = INITIAL_FORM_QUESTIONS;
 

@@ -1278,9 +1278,7 @@ function questionExtraColumns(q: Partial<FormQuestion>): Record<string, unknown>
 }
 
 export async function fetchFormQuestionsFromDb(): Promise<FormQuestion[] | null> {
-  if (!isSupabaseConfigured) {
-    return getStore('form_questions', MOCK_FORM_QUESTIONS);
-  }
+  if (!isSupabaseConfigured) return [];
   try {
     // 1. Tentar ler directamente de form_questions (para staff)
     const { data, error } = await supabase
@@ -1292,19 +1290,21 @@ export async function fetchFormQuestionsFromDb(): Promise<FormQuestion[] | null>
       return data.map((item: any) => mapQuestionRow(item));
     }
 
-    // 2. Fallback para vista pública segura v_public_form_questions
+    // 2. Fallback para vista pública segura v_public_form_questions (formulário anónimo)
     const { data: vData, error: vErr } = await supabase
       .from('v_public_form_questions')
       .select('*')
       .order('display_order', { ascending: true });
 
-    if (!vErr && vData && vData.length > 0) {
+    if (!vErr && vData) {
       return vData.map((item: any) => mapQuestionRow(item, true));
     }
 
-    return getStore('form_questions', MOCK_FORM_QUESTIONS);
+    // Leitura direta correu bem mas a tabela está vazia
+    if (!error && data) return [];
+    return null;
   } catch {
-    return getStore('form_questions', MOCK_FORM_QUESTIONS);
+    return null;
   }
 }
 
@@ -1407,53 +1407,8 @@ export async function deleteFormQuestionInDb(id: string): Promise<{ success: boo
 /**
  * FORM CATEGORIES Service
  */
-export const DEFAULT_FORM_CATEGORIES: FormCategoryItem[] = [
-  {
-    id: 'QUALIDADE',
-    name: 'Qualidade Técnica & Rigor',
-    code: 'QUALIDADE',
-    description: 'Critérios de execução técnica, acabamento, rigor e conformidade com os padrões AETERNU.',
-    color: '#8CBF26',
-    badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-    active: true
-  },
-  {
-    id: 'PONTUALIDADE',
-    name: 'Pontualidade & Prazos',
-    code: 'PONTUALIDADE',
-    description: 'Cumprimento dos prazos estabelecidos, horários de chegada e tempo de resposta.',
-    color: '#00A3E0',
-    badgeBg: 'bg-sky-100 text-sky-800 border-sky-300',
-    active: true
-  },
-  {
-    id: 'SEGURANCA',
-    name: 'Segurança & Proteção',
-    code: 'SEGURANCA',
-    description: 'Medidas de proteção individual/coletiva, segurança da informação e integridade das instalações.',
-    color: '#E05A47',
-    badgeBg: 'bg-amber-100 text-amber-800 border-amber-300',
-    active: true
-  },
-  {
-    id: 'ATENDIMENTO',
-    name: 'Atendimento & Cordialidade',
-    code: 'ATENDIMENTO',
-    description: 'Postura profissional, comunicação, empatia e facilidade de contacto dos técnicos.',
-    color: '#9B51E0',
-    badgeBg: 'bg-purple-100 text-purple-800 border-purple-300',
-    active: true
-  },
-  {
-    id: 'GERAL',
-    name: 'Satisfação Geral & Recomendação',
-    code: 'GERAL',
-    description: 'Percepção global do cliente, pontuação NPS e intenção de recomendação da empresa.',
-    color: '#2D6A28',
-    badgeBg: 'bg-slate-100 text-slate-800 border-slate-300',
-    active: true
-  }
-];
+// Sem categorias pré-definidas: as categorias vêm sempre do Supabase (criadas pelo RH/Admin).
+export const DEFAULT_FORM_CATEGORIES: FormCategoryItem[] = [];
 
 /** Ligações serviço <-> categoria: código da categoria -> ids dos serviços. */
 export async function fetchCategoryServiceLinks(): Promise<Record<string, string[]>> {
@@ -1495,42 +1450,34 @@ export async function saveCategoryServiceLinks(categoryCode: string, serviceIds:
   }
 }
 
-export async function fetchFormCategoriesFromDb(): Promise<FormCategoryItem[]> {
-  if (!isSupabaseConfigured) {
-    return getStore('form_categories', DEFAULT_FORM_CATEGORIES);
-  }
+export async function fetchFormCategoriesFromDb(): Promise<FormCategoryItem[] | null> {
+  if (!isSupabaseConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('form_categories')
       .select('*')
       .order('display_order', { ascending: true });
 
-    if (!error && data && data.length > 0) {
-      const dbCats: FormCategoryItem[] = data.map((item: any) => ({
-        id: item.id || item.code,
-        name: item.name,
-        code: item.code || item.id,
-        description: item.description || '',
-        color: item.color || '#8CBF26',
-        badgeBg: item.badge_bg || 'bg-slate-100 text-slate-800 border-slate-300',
-        active: item.active ?? true,
-        display_order: item.display_order ?? 1
-      }));
+    if (error || !data) return null;
 
-      // Serviços a que cada categoria se aplica (sem ligações = todos os serviços)
-      const links = await fetchCategoryServiceLinks();
-      dbCats.forEach(c => { const ids = links[c.code] ?? links[c.id]; if (ids && ids.length > 0) c.serviceIds = ids; });
+    const dbCats: FormCategoryItem[] = data.map((item: any) => ({
+      id: item.id || item.code,
+      name: item.name,
+      code: item.code || item.id,
+      description: item.description || '',
+      color: item.color || '#8CBF26',
+      badgeBg: item.badge_bg || 'bg-slate-100 text-slate-800 border-slate-300',
+      active: item.active ?? true,
+      display_order: item.display_order ?? 1
+    }));
 
-      // Ensure system categories are represented if missing
-      const mergedMap = new Map<string, FormCategoryItem>();
-      DEFAULT_FORM_CATEGORIES.forEach(c => mergedMap.set(c.code, c));
-      dbCats.forEach(c => mergedMap.set(c.code, c));
-      return Array.from(mergedMap.values()).sort((a, b) => (a.display_order ?? 1) - (b.display_order ?? 1));
-    }
+    // Serviços a que cada categoria se aplica (sem ligações = todos os serviços)
+    const links = await fetchCategoryServiceLinks();
+    dbCats.forEach(c => { const ids = links[c.code] ?? links[c.id]; if (ids && ids.length > 0) c.serviceIds = ids; });
 
-    return DEFAULT_FORM_CATEGORIES;
+    return dbCats.sort((a, b) => (a.display_order ?? 1) - (b.display_order ?? 1));
   } catch {
-    return DEFAULT_FORM_CATEGORIES;
+    return null;
   }
 }
 

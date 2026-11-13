@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FormCategoryItem, FormQuestion } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { DEFAULT_FORM_CATEGORIES, saveCategoryServiceLinks } from '../../services/supabaseService';
+import { saveCategoryServiceLinks } from '../../services/supabaseService';
 import { 
   Layers, 
   Plus, 
@@ -59,9 +59,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   } = useApp();
 
   const questions = propQuestions || contextQuestions || [];
-  const categoriesList = (contextCategories && contextCategories.length > 0) 
-    ? contextCategories 
-    : DEFAULT_FORM_CATEGORIES;
+  const categoriesList = contextCategories ?? [];
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -205,16 +203,8 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       return;
     }
 
-    const isStandard = DEFAULT_FORM_CATEGORIES.some(d => d.code === cat.code || d.id === cat.id);
-
-    if (isStandard) {
-      if (!confirm(`A categoria "${cat.name}" é uma dimensão padrão do sistema AETERNU.\n\nDeseja realmente removê-la?`)) {
-        return;
-      }
-    } else {
-      if (!confirm(`Tem a certeza que deseja eliminar permanentemente a categoria "${cat.name}"?`)) {
-        return;
-      }
+    if (!confirm(`Tem a certeza que deseja eliminar permanentemente a categoria "${cat.name}"?`)) {
+      return;
     }
 
     const res = await contextDeleteCategory(cat.id || cat.code);
@@ -279,7 +269,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {categoriesList.map(cat => {
           const qCount = questions.filter(q => q.category === cat.id || q.category === cat.code).length;
-          const isStandard = DEFAULT_FORM_CATEGORIES.some(d => d.code === cat.code || d.id === cat.id);
+          const isStandard = false; // não há categorias pré-definidas
 
           return (
             <div 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { FormQuestion, QuestionCategory, QuestionType, FormCategoryItem } from '../types';
-import { testSupabaseConnection, ConnectionTestResult, fetchFormCategoriesFromDb } from '../services/supabaseService';
+import { testSupabaseConnection, ConnectionTestResult } from '../services/supabaseService';
 import { CategoryManager } from '../components/forms/CategoryManager';
 import { QuestionEditor } from '../components/forms/QuestionEditor';
 import { 
@@ -35,48 +35,10 @@ import {
   ArrowDown
 } from 'lucide-react';
 
-// Category Definitions & Descriptions
-const CATEGORIES_CONFIG: { id: QuestionCategory; name: string; description: string; color: string; badgeBg: string }[] = [
-  {
-    id: 'QUALIDADE',
-    name: 'Qualidade Técnica & Rigor',
-    description: 'Critérios de execução técnica, acabamento, rigor e conformidade com os padrões AETERNU.',
-    color: '#8CBF26',
-    badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-  },
-  {
-    id: 'PONTUALIDADE',
-    name: 'Pontualidade & Prazos',
-    description: 'Cumprimento dos prazos estabelecidos, horários de chegada e tempo de resposta.',
-    color: '#00A3E0',
-    badgeBg: 'bg-sky-100 text-sky-800 border-sky-300',
-  },
-  {
-    id: 'SEGURANCA',
-    name: 'Segurança & Proteção',
-    description: 'Medidas de proteção individual/coletiva, segurança da informação e integridade das instalações.',
-    color: '#E05A47',
-    badgeBg: 'bg-amber-100 text-amber-800 border-amber-300',
-  },
-  {
-    id: 'ATENDIMENTO',
-    name: 'Atendimento & Cordialidade',
-    description: 'Postura profissional, comunicação, empatia e facilidade de contacto dos técnicos.',
-    color: '#9B51E0',
-    badgeBg: 'bg-purple-100 text-purple-800 border-purple-300',
-  },
-  {
-    id: 'GERAL',
-    name: 'Satisfação Geral & Recomendação',
-    description: 'Percepção global do cliente, pontuação NPS e intenção de recomendação da empresa.',
-    color: '#2D6A28',
-    badgeBg: 'bg-slate-100 text-slate-800 border-slate-300',
-  },
-];
-
 export const FormEditorPage: React.FC = () => {
   const { 
     formQuestions, 
+    formCategories,
     services, 
     evaluations,
     addFormQuestion, 
@@ -90,11 +52,20 @@ export const FormEditorPage: React.FC = () => {
 
   // Active Sub-Tab View ('questions' | 'categories')
   const [activeView, setActiveView] = useState<'questions' | 'categories'>('questions');
-  const [categoriesList, setCategoriesList] = useState<FormCategoryItem[]>([]);
-
-  useEffect(() => {
-    fetchFormCategoriesFromDb().then(cats => setCategoriesList(cats));
-  }, []);
+  // Categorias vêm do Supabase (contexto); não há categorias pré-definidas.
+  const categoriesList: FormCategoryItem[] = formCategories;
+  const CATEGORIES_CONFIG = useMemo(
+    () => categoriesList
+      .filter(c => c.active !== false)
+      .map(c => ({
+        id: c.code || c.id,
+        name: c.name,
+        description: c.description || '',
+        color: c.color || '#8CBF26',
+        badgeBg: c.badgeBg || 'bg-slate-100 text-slate-800 border-slate-300',
+      })),
+    [categoriesList]
+  );
 
   // Connection status testing state
   const [dbStatus, setDbStatus] = useState<ConnectionTestResult | null>(null);
@@ -108,13 +79,7 @@ export const FormEditorPage: React.FC = () => {
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('ALL');
 
   // Accordion expanded categories state (all expanded by default)
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
-    QUALIDADE: true,
-    PONTUALIDADE: true,
-    SEGURANCA: true,
-    ATENDIMENTO: true,
-    GERAL: true,
-  });
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   // Modal / Slide-over state for Create & Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -123,7 +88,7 @@ export const FormEditorPage: React.FC = () => {
   // Form field states for Modal
   const [formText, setFormText] = useState<string>('');
   const [formDescription, setFormDescription] = useState<string>('');
-  const [formCategory, setFormCategory] = useState<QuestionCategory>('QUALIDADE');
+  const [formCategory, setFormCategory] = useState<QuestionCategory>('');
   const [formServiceId, setFormServiceId] = useState<string>(''); // empty string = Geral/All
   const [formType, setFormType] = useState<QuestionType>('RATING_5');
   const [formRequired, setFormRequired] = useState<boolean>(true);
@@ -221,7 +186,7 @@ export const FormEditorPage: React.FC = () => {
     setEditingQuestion(null);
     setFormText('');
     setFormDescription('');
-    setFormCategory(defaultCategory || 'QUALIDADE');
+    setFormCategory(defaultCategory || CATEGORIES_CONFIG[0]?.id || '');
     setFormServiceId('');
     setFormType('RATING_5');
     setFormRequired(true);
@@ -550,7 +515,7 @@ export const FormEditorPage: React.FC = () => {
           <Layers className="w-4 h-4 text-brand" />
           <span>Gestão de Categorias</span>
           <span className="px-2 py-0.5 rounded-full bg-brand/20 text-brand text-[10px] font-black">
-            {categoriesList.length || 5}
+            {categoriesList.length}
           </span>
         </button>
       </div>
@@ -560,12 +525,6 @@ export const FormEditorPage: React.FC = () => {
           questions={formQuestions}
           categories={categoriesList}
           canEdit={canEditForm}
-          onCategoryAdded={(newCat) => {
-            setCategoriesList(prev => [...prev, newCat]);
-          }}
-          onCategoryDeleted={(catId) => {
-            setCategoriesList(prev => prev.filter(c => c.id !== catId));
-          }}
         />
       ) : (
         <>

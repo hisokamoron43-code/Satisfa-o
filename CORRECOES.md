@@ -378,3 +378,19 @@ Publicação no Render (causa provável do problema):
 
 No Supabase:
 - Verifique se o projeto não está em pausa. Projetos do plano gratuito pausam após inatividade e deixam pedidos sem resposta.
+
+---
+
+## Versão 21 — Perguntas e categorias pré-definidas removidas
+
+**Pedido:** apagar todas as perguntas e todas as categorias que vêm com o sistema, para criar novas; tudo guardado no Supabase.
+
+**Código**
+- `src/data/mockData.ts`: `INITIAL_FORM_QUESTIONS` (6 perguntas) passou a lista vazia.
+- `src/services/supabaseService.ts`: `DEFAULT_FORM_CATEGORIES` (5 categorias) passou a lista vazia; `fetchFormCategoriesFromDb` deixou de misturar categorias padrão com as da base de dados e devolve `null` em erro; `fetchFormQuestionsFromDb` aceita lista vazia como resultado válido (já não recorre a dados de exemplo).
+- `src/context/AppContext.tsx`: o estado inicial das categorias é vazio e as listas vazias vindas do Supabase passam a ser aplicadas (antes eram ignoradas, o que ressuscitava os dados antigos).
+- `src/pages/FormEditorPage.tsx`: removida a lista fixa `CATEGORIES_CONFIG`; usa as categorias do Supabase. Sem categorias, o ecrã fica vazio em vez de mostrar as 5 antigas.
+- `QuestionEditor`, `CategoryManager`, `HumanResourcesPage`: removidos os valores por defeito `'QUALIDADE'` e o aviso de "dimensão padrão".
+
+**Base de dados**
+- Nova migração `supabase/migrations/1010_limpar_perguntas_e_categorias.sql`: apaga `form_questions`, `service_categories` e `form_categories` e desliga os critérios do RH das categorias (`category_code = NULL`). Não apaga avaliações, clientes, serviços nem os pesos do RH.

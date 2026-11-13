@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FormQuestion, QuestionCategory, FormCategoryItem, ServiceItem } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { DEFAULT_FORM_CATEGORIES } from '../../services/supabaseService';
 import { QuestionTypeConfig, DEFAULT_TYPE_CONFIG, toQuestionFields, type TypeConfigValue } from './QuestionTypeConfig';
 import { 
   Plus, 
@@ -36,10 +35,10 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
   isOpen,
   onClose,
   onSave,
-  defaultCategory = 'QUALIDADE'
+  defaultCategory = ''
 }) => {
   const { formCategories: contextCategories, services: contextServices } = useApp();
-  const categories = (propCategories && propCategories.length > 0) ? propCategories : (contextCategories && contextCategories.length > 0 ? contextCategories : DEFAULT_FORM_CATEGORIES);
+  const categories = (propCategories && propCategories.length > 0) ? propCategories : (contextCategories ?? []);
   const services = (propServices && propServices.length > 0) ? propServices : contextServices;
   const [text, setText] = useState<string>('');
   const [description, setDescription] = useState<string>('');

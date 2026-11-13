@@ -5,7 +5,7 @@ import {
   EvaluationCriterion, EvaluationHistoricalSnapshot, AuditorReview, WorkerNotification, Team, Activity, FormCategoryItem, EvaluationQueueCounts
 } from '../types';
 import { 
-  MOCK_USERS, MOCK_CLIENTS, MOCK_SERVICES, MOCK_PROVIDERS, MOCK_EVALUATIONS, MOCK_HR_CASES, MOCK_PERMISSION_AUDITS, MOCK_AUDIT_LOGS, INITIAL_FORM_QUESTIONS 
+  MOCK_USERS, MOCK_CLIENTS, MOCK_SERVICES, MOCK_PROVIDERS, MOCK_EVALUATIONS, MOCK_HR_CASES, MOCK_PERMISSION_AUDITS, MOCK_AUDIT_LOGS 
 } from '../data/mockData';
 import {
   DEFAULT_EVALUATION_CRITERIA,
@@ -43,7 +43,6 @@ import {
   insertFormCategoryInDb,
   updateFormCategoryInDb,
   deleteFormCategoryInDb,
-  DEFAULT_FORM_CATEGORIES,
   fetchTeamsFromDb,
   insertTeamInDb,
   deleteTeamInDb,
@@ -255,7 +254,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activities, setActivities] = useState<Activity[]>([]);
 
   // Categorias do Formulário AETERNU: Editáveis e dinâmicas (Fonte oficial: Supabase form_categories)
-  const [formCategories, setFormCategories] = useState<FormCategoryItem[]>(DEFAULT_FORM_CATEGORIES);
+  const [formCategories, setFormCategories] = useState<FormCategoryItem[]>([]);
 
   const [isClientFormOpen, setIsClientFormOpen] = useState<boolean>(false);
   const [selectedEvaluationForAnalysis, setSelectedEvaluationForAnalysis] = useState<Evaluation | null>(null);
@@ -311,14 +310,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (dbHRCases !== null) setHrCases(dbHRCases);
         if (dbLogs !== null) setAuditLogs(dbLogs);
         if (dbProfiles !== null && dbProfiles.length > 0) setSystemUsers(dbProfiles);
-        if (dbQuestions !== null && dbQuestions.length > 0) setFormQuestions(dbQuestions);
+        if (dbQuestions !== null) setFormQuestions(dbQuestions);
         if (dbTeams !== null) setTeams(dbTeams);
         if (dbActivities !== null) setActivities(dbActivities);
         if (dbNotifs !== null) setWorkerNotifications(dbNotifs);
         if (dbPermAudits !== null) setPermissionAudits(dbPermAudits);
         if (dbCriteria !== null && dbCriteria.length > 0) setCriteria(dbCriteria);
         if (dbConfig !== null && dbConfig.passingThreshold !== undefined) setPassingThreshold(dbConfig.passingThreshold);
-        if (dbCategories !== null && dbCategories.length > 0) setFormCategories(dbCategories);
+        if (dbCategories !== null) setFormCategories(dbCategories);
       }
     } catch {
       // Non-blocking sync failure
@@ -949,7 +948,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshFormCategories = async (): Promise<void> => {
     try {
       const dbCats = await fetchFormCategoriesFromDb();
-      if (dbCats && dbCats.length > 0) {
+      if (dbCats !== null) {
         setFormCategories(dbCats);
       }
     } catch {
