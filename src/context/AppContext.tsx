@@ -327,6 +327,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Vigia: se a verificação inicial não terminar em 25 segundos, mostra o ecrã de login em vez de um carregamento infinito
+  useEffect(() => {
+    const watchdog = setTimeout(() => setIsAuthChecking(false), 25000);
+    return () => clearTimeout(watchdog);
+  }, []);
+
   // Check auth session on startup
   useEffect(() => {
     let isMounted = true;
@@ -342,7 +348,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setCurrentUser(null);
           }
           // Load public catalogs from Supabase (clients, services, providers) for all users
-          await refreshFromSupabase();
+          // Catálogos carregam em segundo plano: não bloqueiam a entrada no sistema
+          refreshFromSupabase().catch(() => { /* falhas de catálogo são tratadas em cada página */ });
         }
       } catch {
         if (isMounted) setCurrentUser(null);

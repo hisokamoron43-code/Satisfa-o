@@ -362,3 +362,19 @@ Limitações:
 - Não foi testado no navegador. A aparência final no telemóvel precisa de confirmação.
 
 Ordem das migrações: 1000 → 1001 → 1003 → 1004 → 1005 → 1006 → 1007 → 1008 → 1009.
+
+## Versão 20 — entrada no sistema não fica mais a processar para sempre
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Login e arranque ficavam "a processar" sem resposta | Corrigido (código) e testado (2 testes de limite de tempo) | Cada pedido de autenticação (entrar, verificar sessão, carregar perfil, carregar permissões) tem um limite de tempo e, se falhar, mostra "Tempo esgotado… tente novamente" |
+| Catálogos bloqueavam a entrada | Corrigido | Clientes, serviços, prestadores e equipas carregam em segundo plano |
+| Carregamento inicial sem fim | Corrigido | Vigia de 25 segundos: se a verificação inicial não terminar, mostra o ecrã de login |
+
+Publicação no Render (causa provável do problema):
+- Publicar como **Static Site**, e não como Web Service. O `render.yaml` já define isto: `npm install && npm run build` e pasta `dist`.
+- O `server.ts` e o `npm run dev` são de desenvolvimento. Não devem correr em produção.
+- As variáveis `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` são gravadas durante o build. Depois de as definir ou alterar, faça **Clear build cache & deploy**.
+
+No Supabase:
+- Verifique se o projeto não está em pausa. Projetos do plano gratuito pausam após inatividade e deixam pedidos sem resposta.

@@ -7,6 +7,7 @@ import type { ClientGoal, GoalMetric, GoalStatus } from '../types';
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { withTimeout } from './withTimeout';
 import { 
   Client, 
   ServiceItem, 
@@ -219,10 +220,10 @@ export async function signInWithSupabase(
       return { success: false, error: 'Credenciais inválidas. Verifique os seus dados.' };
     }
     const cleanEmail = String(resolvedEmail);
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await withTimeout(supabase.auth.signInWithPassword({
       email: cleanEmail,
       password: password,
-    });
+    }), 20000, 'iniciar sessão');
 
     if (error) {
       let friendly = error.message;
@@ -268,7 +269,7 @@ export async function signOutFromSupabase(): Promise<void> {
 export async function getCurrentSupabaseUser(): Promise<UserProfile | null> {
   if (!isSupabaseConfigured) return null;
   try {
-    const { data: { session }, error } = await supabase.auth.getSession();
+    const { data: { session }, error } = await withTimeout(supabase.auth.getSession(), 15000, 'verificar a sessão');
     if (error || !session?.user) return null;
     return await getOrCreateUserProfile(session.user);
   } catch {
@@ -281,11 +282,11 @@ export async function getCurrentSupabaseUser(): Promise<UserProfile | null> {
  * Não cria perfis: uma conta sem perfil ativo não tem acesso ao sistema.
  */
 export async function getOrCreateUserProfile(authUser: any): Promise<UserProfile> {
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = await withTimeout(supabase
     .from('profiles')
     .select('id, name, email, role, department, avatar_url, active, must_change_password')
     .eq('id', authUser.id)
-    .maybeSingle();
+    .maybeSingle(), 15000, 'carregar o perfil');
 
   if (error || !profile) {
     throw new Error('Conta sem perfil de acesso. Contacte o Administrador.');
@@ -294,7 +295,7 @@ export async function getOrCreateUserProfile(authUser: any): Promise<UserProfile
     throw new Error('Conta desativada. Contacte o Administrador.');
   }
 
-  const { data: access, error: accessError } = await supabase.rpc('get_my_access');
+  const { data: access, error: accessError } = await withTimeout(supabase.rpc('get_my_access'), 15000, 'carregar as permissões');
   const pages: string[] = !accessError && access && Array.isArray(access.pages) ? access.pages : [];
 
   return {

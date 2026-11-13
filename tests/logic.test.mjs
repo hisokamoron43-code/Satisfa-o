@@ -417,3 +417,16 @@ test('indicadores: sem período anterior com dados não há alerta de subida fal
   const k = companyKpis(data, { from: new Date('2026-11-01T00:00:00'), to: new Date('2026-11-12T23:59:59') }, NOW);
   assert.ok(!k.alerts.some(a => /CSAT subiu/.test(a.text)));
 });
+
+// ---------- Limite de tempo nos pedidos de autenticação ----------
+import { withTimeout } from '../src/services/withTimeout.ts';
+
+test('pedidos: devolvem o resultado quando respondem a tempo', async () => {
+  const v = await withTimeout(Promise.resolve(42), 1000, 'testar');
+  assert.equal(v, 42);
+});
+
+test('pedidos: sem resposta, falham com mensagem clara em vez de ficarem pendentes', async () => {
+  const never = new Promise(() => {});
+  await assert.rejects(withTimeout(never, 20, 'iniciar sessão'), /Tempo esgotado ao iniciar sessão/);
+});
