@@ -322,3 +322,98 @@ test('importação: modelo CSV e tamanho do lote', () => {
   assert.equal(back.rows[0].data.contractedServices.length, 2);
   assert.equal(CLIENT_IMPORT_BATCH_SIZE, 40);
 });
+
+// ---------- Indicadores da empresa ----------
+import { companyKpis, presetRange, previousRange, toTime } from '../src/services/companyKpis.ts';
+
+const NOW = new Date('2026-11-12T12:00:00');
+const ev = (o) => ({ id: o.id, reference: o.id, clientName: 'Cliente A', providerName: 'Tec A', teamName: 'Equipa 1', satisfactionRating: 5, npsScore: 10, evaluationDate: '2026-11-10', serviceDate: '2026-11-09', status: 'REVIEWED', requiresFollowUp: false, correctiveActionStatus: 'NOT_NEEDED', ...o });
+
+test('indicadores: CSAT, NPS, variação face ao período anterior e homologação', () => {
+  const data = {
+    evaluations: [
+      ev({ id: 'a', satisfactionRating: 5, npsScore: 10, finalizedAt: '2026-11-11', finalClassification: 'POSITIVE' }),
+      ev({ id: 'b', satisfactionRating: 2, npsScore: 3, finalizedAt: '2026-11-15', finalClassification: 'NEGATIVE' }),
+      ev({ id: 'c', satisfactionRating: 4, npsScore: 9, evaluationDate: '2026-10-20', finalizedAt: '2026-10-21' }),
+    ],
+    clients: [], teams: [], providers: [], activities: [], hrCases: [], goals: [],
+  };
+  // Período explícito: 1 a 12 de novembro. A avaliação de 20 de outubro fica no período anterior.
+  const range = { from: new Date('2026-11-01T00:00:00'), to: new Date('2026-11-12T23:59:59') };
+  const k = companyKpis(data, range, NOW);
+  assert.equal(k.evaluations.total, 2);
+  assert.equal(k.evaluations.csat, 50);            // avaliações 5 e 2
+  assert.equal(k.evaluations.previousTotal, 1);
+  assert.equal(k.evaluations.previousCsat, 100);   // avaliação 4 do período anterior
+  assert.equal(k.evaluations.homologated, 2);
+  assert.equal(k.evaluations.avgHomologationDays, 3);     // 1 dia e 5 dias
+  assert.equal(k.evaluations.onTimeHomologationPct, 50);  // só uma dentro de 3 dias
+  assert.equal(k.evaluations.positiveRate, 50);
+});
+
+test('indicadores: contratos expirados e a expirar em 30/60/90 dias', () => {
+  const day = (n) => new Date(NOW.getTime() + n * 86400000).toISOString().slice(0, 10);
+  const c = (id, end, status = 'ACTIVE') => ({ id, companyName: id, internalCode: id, contactPerson: '', email: '', phone: '', contractedServices: [], status, createdAt: '2026-01-01', contractEnd: end });
+  const k = companyKpis({ evaluations: [], teams: [], providers: [], activities: [], hrCases: [], goals: [], clients: [
+    c('exp', day(-3)), c('d20', day(20)), c('d45', day(45)), c('d80', day(80)), c('longo', day(400)), c('inativo', day(-3), 'INACTIVE'), c('sem'),
+  ] }, presetRange('30D', NOW), NOW);
+  assert.equal(k.clients.expired, 1);
+  assert.equal(k.clients.expiringIn30, 1);
+  assert.equal(k.clients.expiringIn60, 1);
+  assert.equal(k.clients.expiringIn90, 1);
+  assert.equal(k.clients.withoutContract, 1);
+  assert.equal(k.clients.inactive, 1);
+  assert.ok(k.alerts.some(a => a.level === 'critical' && /expirado/.test(a.text)));
+});
+
+test('indicadores: alerta de CSAT em queda e de avaliações por homologar há mais de 7 dias', () => {
+  const data = {
+    evaluations: [
+      ev({ id: '1', satisfactionRating: 2, evaluationDate: '2026-11-10' }),
+      ev({ id: '2', satisfactionRating: 2, evaluationDate: '2026-11-09' }),
+      ev({ id: '3', satisfactionRating: 2, evaluationDate: '2026-11-08' }),
+      ev({ id: '4', satisfactionRating: 5, evaluationDate: '2026-10-20' }),
+      ev({ id: '5', satisfactionRating: 5, evaluationDate: '2026-10-21' }),
+      ev({ id: '6', satisfactionRating: 5, evaluationDate: '2026-10-22' }),
+      ev({ id: '7', evaluationDate: '2026-11-01' }),
+    ],
+    clients: [], teams: [], providers: [], activities: [], hrCases: [], goals: [],
+  };
+  const k = companyKpis(data, { from: new Date('2026-11-01T00:00:00'), to: new Date('2026-11-12T23:59:59') }, NOW);
+  assert.ok(k.alerts.some(a => a.level === 'critical' && /CSAT desceu/.test(a.text)));
+  assert.ok(k.alerts.some(a => /por homologar há mais de 7 dias/.test(a.text)));
+});
+
+test('indicadores: equipas e funcionários agregam as avaliações do período', () => {
+  const data = {
+    evaluations: [
+      ev({ id: '1', teamName: 'Equipa Alfa', providerName: 'Tec X', satisfactionRating: 5 }),
+      ev({ id: '2', teamName: 'Equipa Alfa', providerName: 'Tec X', satisfactionRating: 4 }),
+      ev({ id: '3', teamName: 'Equipa Beta', providerName: 'Tec Y', satisfactionRating: 1 }),
+    ],
+    clients: [], providers: [], activities: [], hrCases: [], goals: [],
+    teams: [{ id: 't1', name: 'Equipa Alfa', code: 'A', department: 'Operações', status: 'ACTIVE', membersCount: 0, createdAt: '2026-01-01' }],
+  };
+  const k = companyKpis(data, presetRange('30D', NOW), NOW);
+  const alfa = k.teams.find(t => t.name === 'Equipa Alfa');
+  assert.equal(alfa.evaluations, 2);
+  assert.equal(alfa.csat, 100);
+  assert.equal(k.providers.ranking[0].name, 'Tec X');
+  assert.equal(k.trend.length, 12);
+});
+
+test('indicadores: intervalos de período são consistentes', () => {
+  const r = presetRange('30D', NOW);
+  const p = previousRange(r);
+  assert.ok(p.to.getTime() < r.from.getTime());
+  assert.equal(toTime('2026-11-12'), new Date('2026-11-12T00:00:00').getTime());
+});
+
+test('indicadores: sem período anterior com dados não há alerta de subida falsa', () => {
+  const data = {
+    evaluations: [ev({ id: '1', satisfactionRating: 5, evaluationDate: '2026-11-10' }), ev({ id: '2', satisfactionRating: 5, evaluationDate: '2026-11-09' }), ev({ id: '3', satisfactionRating: 4, evaluationDate: '2026-11-08' })],
+    clients: [], teams: [], providers: [], activities: [], hrCases: [], goals: [],
+  };
+  const k = companyKpis(data, { from: new Date('2026-11-01T00:00:00'), to: new Date('2026-11-12T23:59:59') }, NOW);
+  assert.ok(!k.alerts.some(a => /CSAT subiu/.test(a.text)));
+});

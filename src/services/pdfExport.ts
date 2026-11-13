@@ -6,6 +6,7 @@ import type { Client, ClientGoal, Evaluation, Provider } from '../types';
 import { fmtDate, scopeData, SECTION_LABELS, type ReportData, type ReportOptions } from './reportBuilder';
 import { csatPercent, npsValue } from './goalProgress';
 import type { UserOptions } from 'jspdf-autotable';
+import type { CompanyKpis } from './companyKpis.ts';
 
 const COMPANY = 'AETERNU LDA · SICSC';
 const STATUS_CLIENT: Record<Client['status'], string> = { ACTIVE: 'Ativo', INACTIVE: 'Inativo' };
@@ -215,5 +216,82 @@ export async function buildReportPdf(data: ReportData, o: ReportOptions) {
 
 export async function exportReportPdf(data: ReportData, o: ReportOptions) {
   const { doc, filename } = await buildReportPdf(data, o);
+  doc.save(filename);
+}
+
+/** Relatório da empresa (visão geral): indicadores, alertas, equipas, funcionários, contratos e desenvolvimento. */
+export async function buildCompanyPdf(k: CompanyKpis, generatedBy: string, now = new Date()) {
+  const { doc, table, lastY } = await createDoc();
+  const pageH = doc.internal.pageSize.getHeight();
+  heading(doc, 'Visão geral da empresa', `Período: ${k.period.from} a ${k.period.to} · Gerado por ${generatedBy} em ${stamp(now)}`);
+  let y = 28;
+  const sect = (title: string) => {
+    if (y > pageH - 40) { doc.addPage(); y = 16; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(title, 10, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+    y += 3;
+  };
+  const place = (head: string[], body: Array<Array<string | number>>) => {
+    table({ startY: y, head: [head], body, showHead: 'everyPage' });
+    y = lastY() + 8;
+  };
+  const dash = (v: unknown) => (v === null || v === undefined ? '—' : String(v));
+
+  sect('Indicadores principais');
+  place(['Indicador', 'Período', 'Período anterior'], [
+    ['CSAT (%)', dash(k.evaluations.csat), dash(k.evaluations.previousCsat)],
+    ['NPS', dash(k.evaluations.nps), dash(k.evaluations.previousNps)],
+    ['Avaliações', dash(k.evaluations.total), dash(k.evaluations.previousTotal)],
+    ['Taxa de positivas (%)', dash(k.evaluations.positiveRate), '—'],
+    ['Clientes ativos', dash(k.clients.active), '—'],
+    ['Contratos a expirar em 30 dias', dash(k.clients.expiringIn30), '—'],
+    ['Contratos expirados ainda ativos', dash(k.clients.expired), '—'],
+    ['Ações corretivas abertas', dash(k.evaluations.openFollowUps), '—'],
+    ['Atividades concluídas (%)', dash(k.activities.completionRatePct), '—'],
+    ['Ocorrências de RH abertas', dash(k.hr.open + k.hr.inAnalysis), '—'],
+    ['Metas de clientes cumpridas', `${k.goals.met}/${k.goals.total}`, '—'],
+  ]);
+
+  sect('Alertas');
+  if (k.alerts.length === 0) place(['Estado'], [['Sem alertas no período']]);
+  else place(['Nível', 'Alerta'], k.alerts.map(a => [a.level === 'critical' ? 'Crítico' : a.level === 'warning' ? 'Atenção' : 'Informação', a.text]));
+
+  sect('Desenvolvimento');
+  place(['Indicador', 'Valor'], [
+    ['Tempo médio de homologação (dias)', dash(k.evaluations.avgHomologationDays)],
+    ['Homologadas em até 3 dias (%)', dash(k.evaluations.onTimeHomologationPct)],
+    ['Avaliações por homologar há mais de 7 dias', dash(k.evaluations.pendingOver7Days)],
+    ['Tempo médio de resolução de RH (dias)', dash(k.hr.avgResolutionDays)],
+    ['Ações corretivas concluídas', dash(k.evaluations.closedFollowUps)],
+  ]);
+
+  sect('Clientes e contratos');
+  place(['Indicador', 'Valor'], [
+    ['Total de clientes', dash(k.clients.total)],
+    ['Inativos', dash(k.clients.inactive)],
+    ['Novos no período', dash(k.clients.newInPeriod)],
+    ['Expiram em 31–60 dias', dash(k.clients.expiringIn60)],
+    ['Expiram em 61–90 dias', dash(k.clients.expiringIn90)],
+    ['Sem data de fim de contrato', dash(k.clients.withoutContract)],
+  ]);
+
+  sect('Equipas');
+  if (k.teams.length === 0) place(['Equipa'], [['Sem atividade no período']]);
+  else place(['Equipa', 'Avaliações', 'CSAT (%)', 'NPS', 'Atividades'], k.teams.map(t => [t.name, t.evaluations, t.csat, t.nps, t.activities]));
+
+  sect('Funcionários (ranking por CSAT)');
+  if (k.providers.ranking.length === 0) place(['Funcionário'], [['Sem avaliações no período']]);
+  else place(['Funcionário', 'Avaliações', 'CSAT (%)'], k.providers.ranking.map(p => [p.name, p.evaluations, p.csat]));
+
+  footer(doc);
+  return { doc, filename: `visao-geral-empresa-${fileDate(now)}.pdf` };
+}
+
+export async function exportCompanyPdf(k: CompanyKpis, generatedBy: string, now = new Date()) {
+  const { doc, filename } = await buildCompanyPdf(k, generatedBy, now);
   doc.save(filename);
 }

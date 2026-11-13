@@ -5,7 +5,8 @@ import {
   ReportOptions, ReportScope, ReportSection, SECTION_LABELS, buildReportText, splitForMessages,
 } from '../services/reportBuilder';
 import { csatPercent, npsValue } from '../services/goalProgress';
-import { exportClientsPdf, exportEvaluationsPdf, exportReportPdf } from '../services/pdfExport';
+import { exportClientsPdf, exportCompanyPdf, exportEvaluationsPdf, exportReportPdf } from '../services/pdfExport';
+import { CompanyOverview } from '../components/analytics/CompanyOverview';
 import {
   MessageRecipient, fetchClientGoals, fetchMessageRecipients, createConversationInDb, sendMessageInDb,
 } from '../services/supabaseService';
@@ -17,9 +18,11 @@ const SCOPE_LABEL: Record<ReportScope, string> = {
 };
 
 export const ReportsPage: React.FC = () => {
-  const { evaluations, services, clients, providers, activities, hrCases, currentUser } = useApp();
+  const { evaluations, services, clients, providers, activities, hrCases, teams, currentUser } = useApp();
+  const [view, setView] = useState<'OVERVIEW' | 'REPORTS'>('OVERVIEW');
   const [selectedKpi, setSelectedKpi] = useState<KpiType | null>(null);
   const [goals, setGoals] = useState<ClientGoal[]>([]);
+  const companyData = useMemo(() => ({ evaluations, clients, teams, providers, activities, hrCases, goals }), [evaluations, clients, teams, providers, activities, hrCases, goals]);
   const [scope, setScope] = useState<ReportScope>('GLOBAL');
   const [serviceId, setServiceId] = useState('');
   const [providerId, setProviderId] = useState('');
@@ -85,6 +88,20 @@ export const ReportsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+        {([['OVERVIEW', 'Visão geral da empresa'], ['REPORTS', 'Relatórios e exportações']] as const).map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`px-4 py-2 rounded-xl text-xs font-bold border cursor-pointer ${view === v ? 'bg-brand-dark text-white border-brand-dark' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'OVERVIEW' && (
+        <CompanyOverview data={companyData} onExportPdf={(k) => exportCompanyPdf(k, currentUser?.name || 'Sistema')} />
+      )}
+
+      {view === 'REPORTS' && (<>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight">Relatórios</h2>
@@ -196,6 +213,7 @@ export const ReportsPage: React.FC = () => {
       {shareOpen && text && (
         <ShareModal text={text} onClose={() => setShareOpen(false)} onDone={(n) => { setShareOpen(false); setNotice(`Relatório enviado em ${n} mensagem(ns).`); }} />
       )}
+      </>)}
     </div>
   );
 };

@@ -276,3 +276,36 @@ Notas:
 | Pesquisa de conversas | Implementado | Campo "Pesquisar conversas" pelo nome ou pela última mensagem |
 
 Nota: os filtros de datas ficam no painel "Filtros" de cada conversa, ao lado dos temas. Não existia um ecrã de configurações de mensagens separado.
+
+## Versão 13 — mensagens no formato do exemplo, temas como conversas e histórico por membro
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Lista de conversas no formato do exemplo 1 | Implementado | Barra de pesquisa, chips "Todos / Sem tema / temas", "+ Criar tema" tracejado, avatares, etiqueta Direta/Grupo/Tema, hora, última mensagem com "Você:" e contador de não lidas |
+| Criar tema | Verificado (CT1) | "+ Criar tema" abre a criação de um grupo com esse tema e os membros escolhidos. Também é possível definir o tema de uma conversa no painel "Tema & Filtros" |
+| Conversa no formato do exemplo 2 | Implementado | Cabeçalho com voltar, avatar, membros e botões; bolhas com nome do remetente, hora, separadores por dia e ★ Importante |
+| Utilizador logado em verde da empresa; os outros a cinzento | Implementado | Verde `brand-dark` (#2D6A28) para as minhas mensagens; cinzento para as dos outros |
+| Adicionar membros | Verificado (HS3) | Botão "Membros" para o criador do grupo ou administrador. Escolhe os colegas a acrescentar |
+| Decidir se os novos membros veem o histórico | Verificado (HS1, HS2) | Opção "Só mensagens a partir de agora" (por defeito) ou "Incluir o histórico anterior". A regra fica na base de dados, não só no ecrã |
+| Filtros por data, texto e importantes | Mantido (TM7) | Painel "Tema & Filtros" |
+
+Notas de modelo:
+- O tema passou a ser uma propriedade da conversa (uma etiqueta), como no exemplo. Antes era marcado em cada mensagem. A tabela e as funções antigas continuam na base de dados, mas deixaram de aparecer no ecrã.
+- Membros sem histórico: a base de dados só entrega as mensagens enviadas a partir da data de entrada, mesmo que alguém consulte diretamente a tabela.
+
+Ordem das migrações: 1000 → 1001 → 1003 → 1004 → 1005 → 1006 → 1007.
+
+## Versão 14 — visão geral da empresa nos relatórios
+
+| Item | Estado | Como foi tratado |
+|---|---|---|
+| Visão geral ligada à aba de Relatórios | Verificado (renderização) | Seletor "Visão geral da empresa" / "Relatórios e exportações". A visão geral é a vista inicial |
+| Indicadores da empresa (CSAT, NPS, contratos, equipas, funcionários, atividades, RH, metas) | Verificado (testes lógicos) | Cálculo em `companyKpis.ts`, com comparação com o período anterior |
+| Período: 30 dias, 90 dias, 12 meses ou personalizado | Implementado | Seletor no topo da visão geral |
+| Alertas acionáveis | Verificado | Contratos expirados e a expirar, avaliações por homologar há mais de 7 dias, ações corretivas, CSAT em queda, conflitos de calendário, ocorrências de RH e metas vencidas |
+| KPIs de desenvolvimento | Verificado | Tempo de homologação, % homologadas em até 3 dias, resolução de RH, metas cumpridas, contratos por faixa de validade |
+| Gráficos (tendência de 12 meses, volume, CSAT por equipa) | Renderização verificada | Gráficos com a biblioteca recharts |
+| PDF "Relatório da empresa" | Verificado (PDF gerado, 2 páginas) | Botão no topo da visão geral. Inclui indicadores, alertas, desenvolvimento, clientes, equipas e funcionários |
+| Alerta de "CSAT subiu" sem dados no período anterior | Corrigido | Só compara quando os dois períodos têm pelo menos 3 avaliações |
+
+Limitação: os gráficos foram verificados por renderização no servidor. A aparência final no navegador precisa de um teste manual.

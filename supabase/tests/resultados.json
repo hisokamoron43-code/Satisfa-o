@@ -653,5 +653,30 @@
     "id": "TM7",
     "title": "Filtro de datas devolve as mensagens do intervalo e exclui as fora dele",
     "ok": true
+  },
+  {
+    "id": "CT1",
+    "title": "Tema criado com a conversa fica guardado como etiqueta",
+    "ok": true
+  },
+  {
+    "id": "CT2",
+    "title": "Membro altera o tema; quem não é membro não consegue",
+    "ok": true
+  },
+  {
+    "id": "HS1",
+    "title": "Membro sem histórico só vê mensagens enviadas depois de entrar",
+    "ok": true
+  },
+  {
+    "id": "HS2",
+    "title": "Membro com histórico partilhado vê também as mensagens anteriores",
+    "ok": true
+  },
+  {
+    "id": "HS3",
+    "title": "Quem não criou o grupo não acrescenta membros",
+    "ok": true
   }
 ]

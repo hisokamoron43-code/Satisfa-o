@@ -2507,6 +2507,10 @@ export interface ConversationMember { id: string; name: string; }
 export interface ConversationSummary {
   id: string; kind: 'DIRECT' | 'GROUP'; title: string; createdBy?: string;
   members: ConversationMember[]; updatedAt: string; unread: number; lastBody?: string;
+  /** Tema (assunto) da conversa, mostrado como etiqueta e usado nos filtros da lista. */
+  topic?: string;
+  lastAt?: string;
+  lastSenderId?: string;
 }
 export interface ChatMessage {
   id: string; senderId?: string; senderName: string; body: string; createdAt: string;
@@ -2573,7 +2577,7 @@ export async function fetchConversations(meId: string, meName: string): Promise<
   }
   const { data: mine, error } = await supabase
     .from('conversation_members')
-    .select('conversation_id, last_read_at, conversations(id, kind, title, created_by, updated_at)')
+    .select('conversation_id, last_read_at, conversations(id, kind, title, created_by, updated_at, topic)')
     .eq('profile_id', meId);
   if (error || !mine || mine.length === 0) return [];
 
@@ -2589,7 +2593,7 @@ export async function fetchConversations(meId: string, meName: string): Promise<
     const convMembers: ConversationMember[] = ((members as any[]) ?? [])
       .filter(x => x.conversation_id === conv.id)
       .map(x => ({ id: x.profile_id, name: names.get(x.profile_id) ?? 'Utilizador' }));
-    const { data: last } = await supabase.from('messages').select('body').eq('conversation_id', conv.id)
+    const { data: last } = await supabase.from('messages').select('body, sender_id, created_at').eq('conversation_id', conv.id)
       .order('created_at', { ascending: false }).limit(1);
     let unreadQuery = supabase.from('messages').select('id', { count: 'exact', head: true })
       .eq('conversation_id', conv.id).neq('sender_id', meId);
@@ -2598,6 +2602,7 @@ export async function fetchConversations(meId: string, meName: string): Promise<
     const other = convMembers.find(x => x.id !== meId);
     out.push({
       id: conv.id, kind: conv.kind, createdBy: conv.created_by ?? undefined,
+      topic: conv.topic ?? undefined, lastAt: last?.[0]?.created_at, lastSenderId: last?.[0]?.sender_id ?? undefined,
       title: conv.kind === 'GROUP' ? (conv.title || 'Grupo') : (other?.name ?? 'Conversa'),
       members: convMembers, updatedAt: conv.updated_at, unread: count ?? 0,
       lastBody: (last as any[])?.[0]?.body,
@@ -2697,20 +2702,20 @@ export async function sendMessageInDb(conversationId: string, body: string, opts
   return error ? { success: false, error: error.message } : { success: true };
 }
 
-export async function createConversationInDb(kind: 'DIRECT' | 'GROUP', title: string, memberIds: string[]): Promise<{ success: boolean; id?: string; error?: string }> {
+export async function createConversationInDb(kind: 'DIRECT' | 'GROUP', title: string, memberIds: string[], topic?: string): Promise<{ success: boolean; id?: string; error?: string }> {
   if (!isSupabaseConfigured) {
     const convId = `conv-${Date.now()}`;
     return { success: true, id: convId };
   }
-  const { data, error } = await supabase.rpc('create_conversation', { p_kind: kind, p_title: title || null, p_member_ids: memberIds });
+  const { data, error } = await supabase.rpc('create_conversation_full', { p_kind: kind, p_title: title || null, p_member_ids: memberIds, p_topic: topic?.trim() || null });
   return error ? { success: false, error: error.message } : { success: true, id: data as string };
 }
 
-export async function addGroupMembersInDb(conversationId: string, memberIds: string[]): Promise<{ success: boolean; added?: number; error?: string }> {
+export async function addGroupMembersInDb(conversationId: string, memberIds: string[], shareHistory = true): Promise<{ success: boolean; added?: number; error?: string }> {
   if (!isSupabaseConfigured) {
     return { success: true, added: memberIds.length };
   }
-  const { data, error } = await supabase.rpc('add_group_members', { p_conversation_id: conversationId, p_member_ids: memberIds });
+  const { data, error } = await supabase.rpc('add_group_members_v2', { p_conversation_id: conversationId, p_member_ids: memberIds, p_share_history: shareHistory });
   return error ? { success: false, error: error.message } : { success: true, added: data as number };
 }
 
@@ -2949,4 +2954,12 @@ export async function insertClientsChunkInDb(
     }
   }
   return results;
+}
+
+/** Define ou limpa o tema de uma conversa (qualquer membro). */
+export async function setConversationTopicInDb(conversationId: string, topic: string): Promise<{ success: boolean; error?: string }> {
+  const clean = topic.trim();
+  if (!isSupabaseConfigured) return { success: true };
+  const { error } = await supabase.rpc('set_conversation_topic', { p_conversation_id: conversationId, p_topic: clean || null });
+  return error ? { success: false, error: error.message } : { success: true };
 }

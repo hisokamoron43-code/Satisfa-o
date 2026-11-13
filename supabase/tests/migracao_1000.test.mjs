@@ -5,7 +5,7 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // As migrações 1000 e 1001 executam-se SEMPRE juntas e por esta ordem (a 1000 recria funções que a 1001 altera).
-const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql', '1006_temas_conversas.sql']
+const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql', '1006_temas_conversas.sql', '1007_temas_historico_membros.sql']
   .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8')).join('\n;\n');
 
 const R = [];
@@ -604,6 +604,29 @@ const today = new Date().toISOString().slice(0, 10);
 const inRange = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND created_at >= now() - interval '1 day' AND created_at < now() + interval '1 day'`, [gConv])).rows[0].n;
 const outRange = (await db.query(`SELECT count(*)::int n FROM public.messages WHERE conversation_id=$1 AND created_at >= now() + interval '1 day'`, [gConv])).rows[0].n;
 rec('TM7', 'Filtro de datas devolve as mensagens do intervalo e exclui as fora dele', inRange >= 2 && outRange === 0, `dentro=${inRange} fora=${outRange} (${today})`);
+
+// ---------- 26. Temas como conversas e histórico por membro (migração 1007) ----------
+const tc = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation_full('GROUP','Equipa Tema',$1::uuid[],'Auditoria Luanda') AS r`, [[A.hr]])).rows[0].r));
+const tcTopic = tc.ok ? (await db.query(`SELECT topic FROM public.conversations WHERE id=$1`, [tc.r])).rows[0].topic : null;
+rec('CT1', 'Tema criado com a conversa fica guardado como etiqueta', tc.ok && tcTopic === 'Auditoria Luanda', tc.ok ? `tema=${tcTopic}` : `ERRO: ${tc.err}`);
+const setOk = await tryq(() => as('authenticated', A.hr, async () => db.query(`SELECT public.set_conversation_topic($1::uuid,'Relatório')`, [tc.r])));
+const setNo = await tryq(() => as('authenticated', A.admin, async () => db.query(`SELECT public.set_conversation_topic($1::uuid,'Intruso')`, [tc.r])));
+rec('CT2', 'Membro altera o tema; quem não é membro não consegue', setOk.ok && !setNo.ok, `membro=${setOk.ok} externo=${!setNo.ok}`);
+
+const hg = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.create_conversation_full('GROUP','Histórico Teste',$1::uuid[],NULL) AS r`, [[B.ops]])).rows[0].r));
+await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.send_message($1::uuid,'MENSAGEM_ANTIGA')`, [hg.r])));
+await tryq(() => new Promise(r => setTimeout(r, 1100)));
+const addNoHist = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.add_group_members_v2($1::uuid,$2::uuid[],false) AS r`, [hg.r, [A.prov]])).rows[0].r));
+await tryq(() => as('authenticated', A.op, async () => db.query(`SELECT public.send_message($1::uuid,'MENSAGEM_NOVA')`, [hg.r])));
+const seenNoHist = await tryq(() => as('authenticated', A.prov, async () => (await db.query(`SELECT body FROM public.messages WHERE conversation_id=$1 ORDER BY created_at`, [hg.r])).rows.map(r => r.body)));
+rec('HS1', 'Membro sem histórico só vê mensagens enviadas depois de entrar', addNoHist.ok && seenNoHist.ok && seenNoHist.r.join() === 'MENSAGEM_NOVA',
+  seenNoHist.ok ? `vê=${seenNoHist.r.join('|')}` : `ERRO: ${seenNoHist.err}`);
+const addWithHist = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.add_group_members_v2($1::uuid,$2::uuid[],true) AS r`, [hg.r, [A.admin]])).rows[0].r));
+const seenWithHist = await tryq(() => as('authenticated', A.admin, async () => (await db.query(`SELECT body FROM public.messages WHERE conversation_id=$1 ORDER BY created_at`, [hg.r])).rows.map(r => r.body)));
+rec('HS2', 'Membro com histórico partilhado vê também as mensagens anteriores', addWithHist.ok && seenWithHist.ok && seenWithHist.r.includes('MENSAGEM_ANTIGA') && seenWithHist.r.includes('MENSAGEM_NOVA'),
+  seenWithHist.ok ? `vê=${seenWithHist.r.join('|')}` : `ERRO: ${seenWithHist.err}`);
+const addByOther = await tryq(() => as('authenticated', B.ops, async () => db.query(`SELECT public.add_group_members_v2($1::uuid,$2::uuid[],true)`, [hg.r, [A.hr]])));
+rec('HS3', 'Quem não criou o grupo não acrescenta membros', !addByOther.ok, addByOther.ok ? 'ACEITE (falha)' : `Recusado: ${addByOther.err}`);
 
 // ---------- Resumo ----------
 const falhas = R.filter(r => !r.ok);
