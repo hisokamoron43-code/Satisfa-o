@@ -430,3 +430,83 @@ test('pedidos: sem resposta, falham com mensagem clara em vez de ficarem pendent
   const never = new Promise(() => {});
   await assert.rejects(withTimeout(never, 20, 'iniciar sessão'), /Tempo esgotado ao iniciar sessão/);
 });
+
+// ───────── Correspondência de empresas pelo nome escrito pelo cliente ─────────
+import { procurarEmpresa, normalizarEmpresa } from '../src/services/clientMatching.ts';
+import { prestadorRecebeNota, avaliacoesDoPrestador, destinatariosDaNota } from '../src/services/grupoAvaliacao.ts';
+import { traduzirErro } from '../src/services/mensagensErro.ts';
+
+const EMPRESAS = [
+  { id: '1', companyName: 'Sonangol E.P.', internalCode: 'CLI-A1', status: 'ACTIVE' },
+  { id: '2', companyName: 'Unitel S.A.', internalCode: 'CLI-B2', status: 'ACTIVE' },
+  { id: '3', companyName: 'Banco de Fomento Angola', internalCode: 'CLI-C3', status: 'ACTIVE' },
+  { id: '4', companyName: 'Banco BAI', internalCode: 'CLI-D4', status: 'ACTIVE' },
+  { id: '5', companyName: 'Mota-Engil Angola, Lda', internalCode: 'CLI-E5', status: 'ACTIVE' },
+  { id: '6', companyName: 'Empresa Antiga SA', internalCode: 'CLI-F6', status: 'INACTIVE' },
+];
+
+test('empresa: ignora maiúsculas, acentos e formas jurídicas', () => {
+  assert.equal(normalizarEmpresa('  SONÂNGOL, E.P. '), 'sonangol ep');
+  const r = procurarEmpresa('SONANGOL EP', EMPRESAS);
+  assert.equal(r.status, 'EXACT');
+  assert.equal(r.best.client.id, '1');
+});
+
+test('empresa: abreviação e erro de escrita associam automaticamente', () => {
+  assert.equal(procurarEmpresa('sonangol', EMPRESAS).best.client.id, '1');
+  assert.equal(procurarEmpresa('sonangol', EMPRESAS).status, 'AUTO');
+  assert.equal(procurarEmpresa('unitell', EMPRESAS).best.client.id, '2');
+  assert.equal(procurarEmpresa('Banco Fomento', EMPRESAS).best.client.id, '3');
+  assert.equal(procurarEmpresa('mota engil', EMPRESAS).best.client.id, '5');
+});
+
+test('empresa: nome ambíguo só sugere, nunca associa sozinho', () => {
+  const r = procurarEmpresa('Banco', EMPRESAS);
+  assert.equal(r.status, 'SUGGEST');
+  assert.ok(r.candidates.length >= 2);
+});
+
+test('empresa: sem parecença, empresas inativas e código interno', () => {
+  assert.equal(procurarEmpresa('Empresa XPTO', EMPRESAS).status, 'NONE');
+  assert.equal(procurarEmpresa('empresa antiga', EMPRESAS).status, 'NONE'); // inativa
+  assert.equal(procurarEmpresa('CLI-C3', EMPRESAS).best.client.id, '3');
+  assert.equal(procurarEmpresa('', EMPRESAS).status, 'NONE');
+});
+
+// ───────── Nota para o grupo ─────────
+const EQUIPAS = [{ id: 't1', supervisorProviderId: 'sup' }, { id: 't2', supervisorProviderId: undefined }];
+const PREST = [
+  { id: 'a', name: 'Ana', teamId: 't1', status: 'ACTIVE' },
+  { id: 'b', name: 'Bruno', teamId: 't1', status: 'ACTIVE' },
+  { id: 'sup', name: 'Chefe', teamId: undefined, status: 'ACTIVE' },
+  { id: 'c', name: 'Carla', teamId: 't2', status: 'ACTIVE' },
+  { id: 'd', name: 'Duarte', teamId: 't1', status: 'INACTIVE' },
+];
+
+test('nota do grupo: membros da equipa e supervisor recebem, outras equipas não', () => {
+  const ev = { providerId: 'a', teamId: 't1' };
+  const ids = destinatariosDaNota(ev, PREST, EQUIPAS).map(p => p.id).sort();
+  assert.deepEqual(ids, ['a', 'b', 'sup']); // Carla (outra equipa) e Duarte (inativo) ficam de fora
+  assert.equal(prestadorRecebeNota(ev, PREST[3], EQUIPAS), false);
+});
+
+test('nota do grupo: sem equipa só conta para o prestador atribuído', () => {
+  const ev = { providerId: 'c', teamId: undefined };
+  assert.deepEqual(destinatariosDaNota(ev, PREST, EQUIPAS).map(p => p.id), ['c']);
+  assert.equal(avaliacoesDoPrestador([ev, { providerId: 'x', teamId: 't1' }], PREST[0], EQUIPAS).length, 1);
+});
+
+// ───────── Mensagens de erro em português ─────────
+test('erros: códigos e textos técnicos passam a português claro', () => {
+  assert.match(traduzirErro({ code: '23505', message: 'duplicate key', details: 'Key (company_name)=(ACME) already exists.' }), /nome da empresa/);
+  assert.match(traduzirErro({ code: '23503', message: 'update or delete on table "clients" violates foreign key', details: 'Key (id)=(1) is still referenced from table "evaluations".' }), /ainda está associado/);
+  assert.match(traduzirErro({ code: '23502', message: 'null value in column "email" violates not-null constraint' }), /e-mail/);
+  assert.match(traduzirErro({ message: 'Invalid login credentials' }), /Credenciais inválidas/);
+  assert.match(traduzirErro(new TypeError('Failed to fetch')), /Sem ligação ao servidor/);
+  assert.match(traduzirErro({ message: 'new row violates row-level security policy for table "clients"' }), /permissão/);
+});
+
+test('erros: mensagens já em português mantêm-se e o padrão é usado sem informação', () => {
+  assert.equal(traduzirErro({ message: 'Avaliação não encontrada.' }), 'Avaliação não encontrada.');
+  assert.equal(traduzirErro(null, 'Falha ao guardar.'), 'Falha ao guardar.');
+});

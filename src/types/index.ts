@@ -241,8 +241,12 @@ export interface Team {
   name: string;
   code: string;
   department: string;
-  /** Supervisor: funcionário (prestador) cadastrado. */
+  /** Supervisor que é prestador cadastrado. */
   supervisorProviderId?: string;
+  /** Supervisor que é membro cadastrado (funcionário). Só um dos dois campos é preenchido. */
+  supervisorEmployeeId?: string;
+  /** Nome do supervisor quando é membro cadastrado (guardado na equipa para quem não lê a tabela de funcionários). */
+  supervisorEmployeeName?: string;
   /** @deprecated Texto livre antigo; não usar. Mantido só para dados de demonstração. */
   supervisorName?: string;
   status: 'ACTIVE' | 'INACTIVE';

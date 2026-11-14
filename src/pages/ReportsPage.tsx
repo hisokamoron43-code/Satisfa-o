@@ -44,7 +44,7 @@ export const ReportsPage: React.FC = () => {
       scope, serviceId: serviceId || undefined, providerId: providerId || undefined, clientId: clientId || undefined,
       from: from || undefined, to: to || undefined, sections, generatedBy: currentUser?.name || 'Sistema',
     };
-    return buildReportText(o, { evaluations, clients, goals, services, providers, activities, hrCases });
+    return buildReportText(o, { evaluations, clients, goals, services, providers, activities, hrCases, teams });
   }, [scope, serviceId, providerId, clientId, from, to, sections, scopeReady, evaluations, clients, goals, services, providers, activities, hrCases, currentUser]);
 
   const toggleSection = (s: ReportSection) =>

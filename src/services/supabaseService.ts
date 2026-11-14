@@ -1,3 +1,4 @@
+import { traduzirErro } from './mensagensErro';
 import { identifierToAuthEmail } from '../lib/authIdentifier';
 import type { ClientGoal, GoalMetric, GoalStatus } from '../types';
 /**
@@ -178,7 +179,7 @@ export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
       return {
         connected: false,
         latencyMs,
-        message: `Falha na consulta: ${error.message} (Código: ${error.code || status})`,
+        message: `Falha na consulta: ${traduzirErro(error)} (Código: ${error.code || status})`,
         timestamp: new Date().toLocaleTimeString('pt-PT')
       };
     }
@@ -193,7 +194,7 @@ export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
   } catch (err: any) {
     return {
       connected: false,
-      message: `Erro de rede ou configuração: ${err?.message || 'Incapaz de alcançar o servidor'}`,
+      message: `Erro de rede ou configuração: ${traduzirErro(err, 'Incapaz de alcançar o servidor')}`,
       timestamp: new Date().toLocaleTimeString('pt-PT')
     };
   }
@@ -226,7 +227,7 @@ export async function signInWithSupabase(
     }), 20000, 'iniciar sessão');
 
     if (error) {
-      let friendly = error.message;
+      let friendly = traduzirErro(error, 'Não foi possível iniciar sessão.');
       if (error.message.includes('Invalid login credentials')) {
         friendly = 'Credenciais inválidas. Verifique o e-mail e a palavra-passe criados no Supabase.';
       } else if (error.message.includes('Email not confirmed')) {
@@ -246,7 +247,7 @@ export async function signInWithSupabase(
     return { success: true, user: profile };
   } catch (err: any) {
     await signOutFromSupabase();
-    return { success: false, error: err?.message || 'Erro inesperado durante a autenticação.' };
+    return { success: false, error: traduzirErro(err, 'Erro inesperado durante a autenticação.') };
   }
 }
 
@@ -411,7 +412,7 @@ export async function insertClientInDb(client: Omit<Client, 'id' | 'createdAt'>)
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return {
       success: true,
       id: data.id,
@@ -428,7 +429,7 @@ export async function insertClientInDb(client: Omit<Client, 'id' | 'createdAt'>)
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de rede ou falha na inserção do cliente.' };
+    return { success: false, error: traduzirErro(err, 'Erro de rede ou falha na inserção do cliente.') };
   }
 }
 
@@ -456,10 +457,10 @@ export async function updateClientInDb(id: string, updated: Partial<Client>): Pr
     if (updated.status) payload.status = updated.status;
 
     const { error } = await supabase.from('clients').update(payload).eq('id', id);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de rede ao atualizar cliente.' };
+    return { success: false, error: traduzirErro(err, 'Erro de rede ao atualizar cliente.') };
   }
 }
 
@@ -534,7 +535,7 @@ export async function insertServiceInDb(srv: Omit<ServiceItem, 'id'>): Promise<{
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return {
       success: true,
       id: data.id,
@@ -548,7 +549,7 @@ export async function insertServiceInDb(srv: Omit<ServiceItem, 'id'>): Promise<{
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de rede ao inserir serviço.' };
+    return { success: false, error: traduzirErro(err, 'Erro de rede ao inserir serviço.') };
   }
 }
 
@@ -567,10 +568,10 @@ export async function updateServiceInDb(id: string, updated: Partial<ServiceItem
     if (updated.evaluationIndicator !== undefined) payload.evaluation_indicator = updated.evaluationIndicator;
 
     const { error } = await supabase.from('services').update(payload).eq('id', id);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atualizar serviço.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar serviço.') };
   }
 }
 
@@ -582,10 +583,10 @@ export async function deleteOrDeactivateServiceInDb(id: string): Promise<{ succe
   }
   try {
     const { error } = await supabase.from('services').update({ status: 'INACTIVE' }).eq('id', id);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao desativar serviço.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao desativar serviço.') };
   }
 }
 
@@ -677,7 +678,7 @@ export async function insertProviderInDb(prov: Omit<Provider, 'id' | 'createdAt'
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return {
       success: true,
       id: data.id,
@@ -695,7 +696,7 @@ export async function insertProviderInDb(prov: Omit<Provider, 'id' | 'createdAt'
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de rede ao inserir prestador.' };
+    return { success: false, error: traduzirErro(err, 'Erro de rede ao inserir prestador.') };
   }
 }
 
@@ -728,11 +729,11 @@ export async function updateProviderInDb(
       .eq('id', id);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atualizar prestador.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar prestador.') };
   }
 }
 
@@ -749,11 +750,11 @@ export async function deleteOrDeactivateProviderInDb(id: string): Promise<{ succ
       .eq('id', id);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao desativar prestador.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao desativar prestador.') };
   }
 }
 
@@ -849,12 +850,12 @@ export async function finalizeEvaluationViaRpc(
     });
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     return { success: true, data };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Falha de comunicação com o servidor Supabase.' };
+    return { success: false, error: traduzirErro(err, 'Falha de comunicação com o servidor Supabase.') };
   }
 }
 
@@ -964,10 +965,10 @@ export async function updateEvaluationStatusInDb(
       })
       .eq('id', id);
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atualizar estado da avaliação.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar estado da avaliação.') };
   }
 }
 
@@ -1011,7 +1012,7 @@ export async function updateEvaluationScoresInDb(
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atualizar pontuação da avaliação.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar pontuação da avaliação.') };
   }
 }
 
@@ -1043,7 +1044,7 @@ export async function assignEvaluationTeamInDb(
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atribuir equipa à avaliação.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atribuir equipa à avaliação.') };
   }
 }
 
@@ -1166,7 +1167,7 @@ export async function insertHRCaseInDb(hrCase: Omit<HRCase, 'id' | 'createdAt' |
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return {
       success: true,
       id: data.id,
@@ -1184,7 +1185,7 @@ export async function insertHRCaseInDb(hrCase: Omit<HRCase, 'id' | 'createdAt' |
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de rede ao criar ocorrência de RH.' };
+    return { success: false, error: traduzirErro(err, 'Erro de rede ao criar ocorrência de RH.') };
   }
 }
 
@@ -1205,10 +1206,10 @@ export async function updateHRCaseInDb(id: string, updated: Partial<HRCase>): Pr
     if (updated.resolutionDate !== undefined) payload.resolution_date = updated.resolutionDate;
 
     const { error } = await supabase.from('hr_cases').update(payload).eq('id', id);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atualizar ocorrência de RH.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar ocorrência de RH.') };
   }
 }
 
@@ -1342,12 +1343,12 @@ export async function insertFormQuestionInDb(question: Omit<FormQuestion, 'id'>)
       .single();
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     return { success: true, data: mapQuestionRow(data) };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1375,11 +1376,11 @@ export async function updateFormQuestionInDb(id: string, updated: Partial<FormQu
       .eq('id', id);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1396,11 +1397,11 @@ export async function deleteFormQuestionInDb(id: string): Promise<{ success: boo
       .eq('id', id);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1432,21 +1433,21 @@ export async function saveCategoryServiceLinks(categoryCode: string, serviceIds:
   try {
     const wanted = Array.from(new Set(serviceIds.filter(isValidUuid)));
     const { data: current, error: readErr } = await supabase.from('service_categories').select('service_id').eq('category_id', categoryCode);
-    if (readErr) return { success: false, error: readErr.message };
+    if (readErr) return { success: false, error: traduzirErro(readErr) };
     const have = new Set<string>((current ?? []).map((r: { service_id: string }) => r.service_id));
     const toAdd = wanted.filter(id => !have.has(id));
     const toRemove = [...have].filter(id => !wanted.includes(id));
     if (toAdd.length > 0) {
       const { error } = await supabase.from('service_categories').insert(toAdd.map(service_id => ({ service_id, category_id: categoryCode })));
-      if (error) return { success: false, error: error.message };
+      if (error) return { success: false, error: traduzirErro(error) };
     }
     if (toRemove.length > 0) {
       const { error } = await supabase.from('service_categories').delete().eq('category_id', categoryCode).in('service_id', toRemove);
-      if (error) return { success: false, error: error.message };
+      if (error) return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao gravar serviços da categoria.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao gravar serviços da categoria.') };
   }
 }
 
@@ -1516,7 +1517,7 @@ export async function insertFormCategoryInDb(category: Omit<FormCategoryItem, 'i
       .single();
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     return {
@@ -1533,7 +1534,7 @@ export async function insertFormCategoryInDb(category: Omit<FormCategoryItem, 'i
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1575,7 +1576,7 @@ export async function updateFormCategoryInDb(
       .maybeSingle();
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     // If category code changed, also update any questions pointing to the old code
@@ -1599,7 +1600,7 @@ export async function updateFormCategoryInDb(
 
     return { success: true, data: updatedCategory };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1616,11 +1617,11 @@ export async function deleteFormCategoryInDb(id: string): Promise<{ success: boo
       .or(`id.eq.${id},code.eq.${id}`);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1665,6 +1666,8 @@ export async function fetchTeamsFromDb(): Promise<Team[] | null> {
       code: t.code,
       department: t.department || 'Operações',
       supervisorProviderId: t.supervisor_provider_id ?? undefined,
+      supervisorEmployeeId: t.supervisor_employee_id ?? undefined,
+      supervisorEmployeeName: t.supervisor_employee_id ? (t.supervisor_name || undefined) : undefined,
       status: t.status || 'ACTIVE',
       membersCount: t.members_count || 0,
       createdAt: t.created_at ? t.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10)
@@ -1693,13 +1696,15 @@ export async function insertTeamInDb(team: Omit<Team, 'id' | 'createdAt'>): Prom
         code: team.code,
         department: team.department,
         supervisor_provider_id: team.supervisorProviderId || null,
+        supervisor_employee_id: team.supervisorEmployeeId || null,
+        supervisor_name: team.supervisorEmployeeId ? (team.supervisorEmployeeName || null) : null,
         status: team.status || 'ACTIVE',
         members_count: team.membersCount || 0
       })
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
 
     return {
       success: true,
@@ -1709,13 +1714,41 @@ export async function insertTeamInDb(team: Omit<Team, 'id' | 'createdAt'>): Prom
         code: data.code,
         department: data.department,
         supervisorProviderId: data.supervisor_provider_id ?? undefined,
+        supervisorEmployeeId: data.supervisor_employee_id ?? undefined,
+        supervisorEmployeeName: data.supervisor_employee_id ? (data.supervisor_name || undefined) : undefined,
         status: data.status,
         membersCount: data.members_count,
         createdAt: data.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10)
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
+  }
+}
+
+export interface SupervisorCandidate {
+  kind: 'EMPLOYEE' | 'PROVIDER';
+  id: string;
+  name: string;
+  code?: string;
+  category?: string;
+}
+
+/** Membros cadastrados e prestadores que podem ser supervisor de uma equipa. */
+export async function fetchSupervisorCandidates(): Promise<SupervisorCandidate[] | null> {
+  if (!isSupabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase.rpc('list_supervisor_candidates');
+    if (error || !Array.isArray(data)) return null;
+    return (data as any[]).map(r => ({
+      kind: r.kind === 'PROVIDER' ? 'PROVIDER' : 'EMPLOYEE',
+      id: String(r.id),
+      name: String(r.name || ''),
+      code: r.code || undefined,
+      category: r.category || undefined,
+    }));
+  } catch {
+    return null;
   }
 }
 
@@ -1731,10 +1764,10 @@ export async function deleteTeamInDb(id: string): Promise<{ success: boolean; er
       .delete()
       .eq('id', id);
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1809,7 +1842,7 @@ export async function insertActivityInDb(activity: Omit<Activity, 'id'>): Promis
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
 
     return {
       success: true,
@@ -1831,7 +1864,7 @@ export async function insertActivityInDb(activity: Omit<Activity, 'id'>): Promis
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1847,10 +1880,10 @@ export async function deleteActivityInDb(id: string): Promise<{ success: boolean
       .delete()
       .eq('id', id);
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1915,7 +1948,7 @@ export async function insertWorkerNotificationInDb(
       .select('*')
       .single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
 
     return {
       success: true,
@@ -1933,7 +1966,7 @@ export async function insertWorkerNotificationInDb(
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -1992,10 +2025,10 @@ export async function insertProviderPermissionAuditInDb(
         reason: audit.reason
       });
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message };
+    return { success: false, error: traduzirErro(err) };
   }
 }
 
@@ -2103,7 +2136,7 @@ export async function submitEvaluationViaRpc(
 
     if (error) {
       // Sem gravações paralelas: se o servidor recusar, o cliente é informado e nada fica "meio gravado".
-      return { success: false, error: error.message || 'Não foi possível registar a avaliação. Tente novamente.' };
+      return { success: false, error: traduzirErro(error, 'Não foi possível registar a avaliação. Tente novamente.') };
     }
     if (data && data.success === false) {
       return { success: false, error: data.error || 'Não foi possível registar a avaliação.' };
@@ -2111,7 +2144,7 @@ export async function submitEvaluationViaRpc(
 
     return { success: false, error: 'Falha ao processar submissão.' };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro inesperado na submissão.' };
+    return { success: false, error: traduzirErro(err, 'Erro inesperado na submissão.') };
   }
 }
 
@@ -2148,7 +2181,7 @@ export async function associateEvaluationClientViaRpc(
     });
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     if (data && data.success) {
@@ -2157,7 +2190,7 @@ export async function associateEvaluationClientViaRpc(
 
     return { success: false, error: data?.error || 'Falha ao associar cliente à avaliação.' };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de comunicação ao associar cliente.' };
+    return { success: false, error: traduzirErro(err, 'Erro de comunicação ao associar cliente.') };
   }
 }
 
@@ -2193,7 +2226,7 @@ export async function assignEvaluationProviderViaRpc(
     });
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     if (data && data.success) {
@@ -2202,7 +2235,7 @@ export async function assignEvaluationProviderViaRpc(
 
     return { success: false, error: data?.error || 'Falha ao atribuir funcionário à avaliação.' };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro de comunicação ao atribuir funcionário.' };
+    return { success: false, error: traduzirErro(err, 'Erro de comunicação ao atribuir funcionário.') };
   }
 }
 
@@ -2228,12 +2261,12 @@ export async function uploadEvaluationAudio(
       });
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     return { success: true, path: data.path };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro no envio do ficheiro de áudio.' };
+    return { success: false, error: traduzirErro(err, 'Erro no envio do ficheiro de áudio.') };
   }
 }
 
@@ -2344,7 +2377,7 @@ export async function saveEvaluationCriteriaToDb(
     }
 
     if (rpcError && rpcError.code !== '42883' && !rpcError.message.includes('not exist')) {
-      return { success: false, error: rpcError.message };
+      return { success: false, error: traduzirErro(rpcError) };
     }
 
     // 2. Fallback directo na tabela evaluation_criteria
@@ -2367,12 +2400,12 @@ export async function saveEvaluationCriteriaToDb(
       .upsert(records, { onConflict: 'id' });
 
     if (upsertErr) {
-      return { success: false, error: upsertErr.message };
+      return { success: false, error: traduzirErro(upsertErr) };
     }
 
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Falha ao gravar critérios no Supabase.' };
+    return { success: false, error: traduzirErro(err, 'Falha ao gravar critérios no Supabase.') };
   }
 }
 
@@ -2415,7 +2448,7 @@ export async function savePassingThresholdToDb(
     }
 
     if (rpcError && rpcError.code !== '42883' && !rpcError.message.includes('not exist')) {
-      return { success: false, error: rpcError.message };
+      return { success: false, error: traduzirErro(rpcError) };
     }
 
     // 2. Fallback na tabela criteria_configurations
@@ -2429,12 +2462,12 @@ export async function savePassingThresholdToDb(
       });
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Falha ao gravar limiar no Supabase.' };
+    return { success: false, error: traduzirErro(err, 'Falha ao gravar limiar no Supabase.') };
   }
 }
 
@@ -2624,7 +2657,7 @@ export async function createTopicInDb(conversationId: string, title: string): Pr
     return { success: true, id: created.id };
   }
   const { data, error } = await supabase.rpc('create_conversation_topic', { p_conversation_id: conversationId, p_title: clean });
-  return error ? { success: false, error: error.message } : { success: true, id: data as string };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true, id: data as string };
 }
 
 export async function sendMessageInDb(conversationId: string, body: string, opts: { topicId?: string; important?: boolean; attachment?: { name: string; path: string; size: number; type: string } } = {}): Promise<{ success: boolean; error?: string }> {
@@ -2648,7 +2681,7 @@ export async function sendMessageInDb(conversationId: string, body: string, opts
     p_conversation_id: conversationId, p_body: body, p_important: !!opts.important,
     p_attachment: opts.attachment ? { name: opts.attachment.name, path: opts.attachment.path, size: opts.attachment.size, type: opts.attachment.type } : null,
   });
-  return error ? { success: false, error: error.message } : { success: true };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
 }
 
 export async function createConversationInDb(kind: 'DIRECT' | 'GROUP', title: string, memberIds: string[], topic?: string): Promise<{ success: boolean; id?: string; error?: string }> {
@@ -2657,7 +2690,7 @@ export async function createConversationInDb(kind: 'DIRECT' | 'GROUP', title: st
     return { success: true, id: convId };
   }
   const { data, error } = await supabase.rpc('create_conversation_full', { p_kind: kind, p_title: title || null, p_member_ids: memberIds, p_topic: topic?.trim() || null });
-  return error ? { success: false, error: error.message } : { success: true, id: data as string };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true, id: data as string };
 }
 
 export async function addGroupMembersInDb(conversationId: string, memberIds: string[], shareHistory = true): Promise<{ success: boolean; added?: number; error?: string }> {
@@ -2665,7 +2698,7 @@ export async function addGroupMembersInDb(conversationId: string, memberIds: str
     return { success: true, added: memberIds.length };
   }
   const { data, error } = await supabase.rpc('add_group_members_v2', { p_conversation_id: conversationId, p_member_ids: memberIds, p_share_history: shareHistory });
-  return error ? { success: false, error: error.message } : { success: true, added: data as number };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true, added: data as number };
 }
 
 export async function markConversationReadInDb(conversationId: string): Promise<void> {
@@ -2693,7 +2726,7 @@ export async function saveLoginMethodsInDb(methods: LoginMethods): Promise<{ suc
     return { success: true };
   }
   const { error } = await supabase.rpc('update_login_settings', { p_settings: methods });
-  return error ? { success: false, error: error.message } : { success: true };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
 }
 
 // ============================================================================
@@ -2768,7 +2801,7 @@ export async function saveClientGoalInDb(
   const res = goal.id
     ? await supabase.from('client_goals').update(payload).eq('id', goal.id)
     : await supabase.from('client_goals').insert({ ...payload, created_by: createdBy });
-  return res.error ? { success: false, error: res.error.message } : { success: true };
+  return res.error ? { success: false, error: traduzirErro(res.error) } : { success: true };
 }
 
 export async function setClientGoalStatusInDb(id: string, status: GoalStatus): Promise<{ success: boolean; error?: string }> {
@@ -2779,7 +2812,7 @@ export async function setClientGoalStatusInDb(id: string, status: GoalStatus): P
   }
   const payload: Record<string, unknown> = { status, updated_at: new Date().toISOString(), achieved_at: status === 'CONCLUIDA' ? new Date().toISOString() : null };
   const { error } = await supabase.from('client_goals').update(payload).eq('id', id);
-  return error ? { success: false, error: error.message } : { success: true };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
 }
 
 export async function deleteClientGoalInDb(id: string): Promise<{ success: boolean; error?: string }> {
@@ -2789,7 +2822,7 @@ export async function deleteClientGoalInDb(id: string): Promise<{ success: boole
     return { success: true };
   }
   const { error } = await supabase.from('client_goals').delete().eq('id', id);
-  return error ? { success: false, error: error.message } : { success: true };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -2849,10 +2882,10 @@ export async function deleteClientInDb(id: string): Promise<{ success: boolean; 
   }
   try {
     const { error } = await supabase.from('clients').delete().eq('id', id);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao eliminar cliente.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao eliminar cliente.') };
   }
 }
 
@@ -2897,9 +2930,9 @@ export async function insertClientsChunkInDb(
   for (const r of rows) {
     try {
       const { data, error } = await supabase.from('clients').insert(clientToDbRow(r)).select('*').single();
-      results.push(error ? { ok: false, error: error.message } : { ok: true, client: dbRowToClient(data) });
+      results.push(error ? { ok: false, error: traduzirErro(error) } : { ok: true, client: dbRowToClient(data) });
     } catch (err: any) {
-      results.push({ ok: false, error: err?.message || 'Erro ao gravar cliente.' });
+      results.push({ ok: false, error: traduzirErro(err, 'Erro ao gravar cliente.') });
     }
   }
   return results;
@@ -2910,7 +2943,7 @@ export async function setConversationTopicInDb(conversationId: string, topic: st
   const clean = topic.trim();
   if (!isSupabaseConfigured) return { success: true };
   const { error } = await supabase.rpc('set_conversation_topic', { p_conversation_id: conversationId, p_topic: clean || null });
-  return error ? { success: false, error: error.message } : { success: true };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
 }
 
 /** Documentos com o mesmo nome já enviados nesta conversa (comparação sem diferença de maiúsculas). */
@@ -2936,7 +2969,7 @@ export async function uploadMessageAttachment(conversationId: string, file: File
   const { error } = await supabase.storage.from('message-files').upload(path, file, {
     contentType: file.type || 'application/octet-stream', upsert: false,
   });
-  return error ? { success: false, error: error.message } : { success: true, path };
+  return error ? { success: false, error: traduzirErro(error) } : { success: true, path };
 }
 
 /** Link temporário (5 minutos) para abrir um documento da conversa. */

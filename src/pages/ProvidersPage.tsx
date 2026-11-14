@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Provider } from '../types';
+import { avaliacoesDoPrestador } from '../services/grupoAvaliacao';
 import { UserCheck, Search, Plus, Edit3, Trash2, Power, CheckCircle2, XCircle, ShieldCheck, ShieldAlert, X, Mail, Briefcase, Star, Award, Shield } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 
@@ -263,7 +264,7 @@ export const ProvidersPage: React.FC = () => {
                   </td>
                   <td className="p-4">
                     {(() => {
-                      const provEvals = evaluations.filter(e => e.providerId === prov.id);
+                      const provEvals = avaliacoesDoPrestador(evaluations, prov, teams);
                       const homologated = provEvals.filter(e => !!e.finalizedAt);
                       const totalHomologated = homologated.length;
                       const avgTechScore = totalHomologated > 0

@@ -1,3 +1,4 @@
+import { traduzirErro } from '../services/mensagensErro';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseService';
 
@@ -45,10 +46,10 @@ export const SecureAudio: React.FC<{ stored: string; className?: string; autoPla
     }
     supabase.storage.from(AUDIO_BUCKET).createSignedUrl(path, 300).then(({ data, error: err }) => {
       if (!active) return;
-      if (err || !data?.signedUrl) setError(`Não foi possível carregar o áudio${err?.message ? ` (${err.message})` : ''}.`);
+      if (err || !data?.signedUrl) setError(`Não foi possível carregar o áudio${err?.message ? ` (${traduzirErro(err)})` : ''}.`);
       else setSrc(data.signedUrl);
     }, (err: unknown) => {
-      if (active) setError(`Não foi possível carregar o áudio${err instanceof Error ? ` (${err.message})` : ''}.`);
+      if (active) setError(`Não foi possível carregar o áudio${err instanceof Error ? ` (${traduzirErro(err)})` : ''}.`);
     });
     return () => { active = false; };
   }, [stored, attempt]);

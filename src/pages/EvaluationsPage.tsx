@@ -36,7 +36,8 @@ import {
   Users
 } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
-import { calculateStringSimilarity, getQueueStatus } from '../services/evaluationUtils';
+import { getQueueStatus } from '../services/evaluationUtils';
+import { procurarEmpresa, descreverCorrespondencia } from '../services/clientMatching';
 import { exportEvaluationsPdf } from '../services/pdfExport';
 
 export const EvaluationsPage: React.FC = () => {
@@ -220,23 +221,42 @@ export const EvaluationsPage: React.FC = () => {
     });
   }, [evaluations, statusQueueFilter, clientFilter, teamFilter, serviceFilter, ratingFilter, startDateFilter, endDateFilter, searchTerm, teams]);
 
-  // Cálculo de similaridade automática de clientes para o modal de associação
-  const suggestedClients = useMemo(() => {
-    if (!associatingEval) return [];
+  // Correspondência do nome escrito pelo cliente com as empresas da base de dados
+  const correspondenciaAtual = useMemo(() => {
+    if (!associatingEval) return null;
     const typedName = (associatingEval.clientNameInput || associatingEval.clientName || '').trim();
-    if (!typedName) return [];
-
-    return clients
-      .filter(c => c.status === 'ACTIVE')
-      .map(c => {
-        const simName = calculateStringSimilarity(typedName, c.companyName);
-        const simCode = calculateStringSimilarity(typedName, c.internalCode);
-        const maxSim = Math.max(simName, simCode);
-        return { client: c, similarity: maxSim };
-      })
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, 3);
+    return procurarEmpresa(typedName, clients, { limite: 3 });
   }, [associatingEval, clients]);
+
+  const suggestedClients = correspondenciaAtual?.candidates ?? [];
+
+  // Avaliações sem empresa cujo nome escrito corresponde com segurança a uma empresa cadastrada
+  const autoAssociaveis = useMemo(() => evaluations
+    .filter(ev => !ev.clientId)
+    .map(ev => ({ ev, m: procurarEmpresa((ev.clientNameInput || ev.clientName || '').trim(), clients) }))
+    .filter(x => (x.m.status === 'EXACT' || x.m.status === 'AUTO') && x.m.best), [evaluations, clients]);
+
+  const [autoAssociando, setAutoAssociando] = useState(false);
+  const [avisoAuto, setAvisoAuto] = useState<string | null>(null);
+
+  const handleAssociarAutomaticamente = async () => {
+    if (autoAssociaveis.length === 0 || autoAssociando) return;
+    setAutoAssociando(true);
+    setAvisoAuto(null);
+    let ok = 0;
+    const falhas: string[] = [];
+    for (const { ev, m } of autoAssociaveis) {
+      const res = await associateEvaluationClient(ev.id, m.best!.client.id);
+      if (res.success) ok++;
+      else falhas.push(`${ev.reference || ev.id.slice(0, 8)}: ${res.error || 'erro desconhecido'}`);
+    }
+    setAutoAssociando(false);
+    setAvisoAuto(
+      falhas.length === 0
+        ? `${ok} avaliação(ões) associada(s) automaticamente à empresa correta.`
+        : `${ok} associada(s). ${falhas.length} falharam — ${falhas.slice(0, 2).join(' · ')}${falhas.length > 2 ? '…' : ''}`
+    );
+  };
 
   // Handlers de Associação de Empresa
   const handleOpenAssociateModal = (ev: Evaluation) => {
@@ -246,17 +266,11 @@ export const EvaluationsPage: React.FC = () => {
     setAssociationError(null);
     setAssociationSuccess(null);
 
-    // Se houver uma sugestão muito forte (>= 75%), pré-selecionar
+    // Correspondência clara (nome igual ou muito provável): pré-seleciona a empresa
     const typedName = (ev.clientNameInput || ev.clientName || '').trim();
-    if (typedName) {
-      const topMatch = clients
-        .filter(c => c.status === 'ACTIVE')
-        .map(c => ({ id: c.id, sim: calculateStringSimilarity(typedName, c.companyName) }))
-        .sort((a, b) => b.sim - a.sim)[0];
-
-      if (topMatch && topMatch.sim >= 75) {
-        setSelectedClientId(topMatch.id);
-      }
+    const m = procurarEmpresa(typedName, clients);
+    if ((m.status === 'EXACT' || m.status === 'AUTO') && m.best) {
+      setSelectedClientId(m.best.client.id);
     }
   };
 
@@ -556,6 +570,17 @@ export const EvaluationsPage: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {autoAssociaveis.length > 0 && (
+            <button
+              onClick={handleAssociarAutomaticamente}
+              disabled={autoAssociando}
+              title="Associa cada avaliação sem empresa à empresa cadastrada cujo nome coincide com o que o cliente escreveu"
+              className="px-3 py-2 bg-brand-dark disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              {autoAssociando ? 'A associar…' : `Associar ${autoAssociaveis.length} empresa(s) automaticamente`}
+            </button>
+          )}
           <button
             onClick={() => exportEvaluationsPdf(filteredEvaluations, currentUser?.name || 'Sistema')}
             disabled={filteredEvaluations.length === 0}
@@ -602,6 +627,13 @@ export const EvaluationsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {avisoAuto && (
+        <div className="p-3 bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-xl text-xs flex items-center justify-between gap-2">
+          <span>{avisoAuto}</span>
+          <button onClick={() => setAvisoAuto(null)} className="font-bold cursor-pointer">×</button>
+        </div>
+      )}
 
       {/* FILA DE RECEÇÃO: 4 ESTADOS BEM VISÍVEIS (Pílulas / Contadores Interativos) */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -1323,7 +1355,7 @@ export const EvaluationsPage: React.FC = () => {
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-black text-slate-900 uppercase">
                   <Sparkles className="w-4 h-4 text-brand-dark" />
-                  <span>Sugestão Inteligente de Correspondência</span>
+                  <span>{correspondenciaAtual ? descreverCorrespondencia(correspondenciaAtual.status) : 'Sugestão de correspondência'}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-2">
                   {suggestedClients.map(({ client, similarity }) => (
@@ -1344,13 +1376,20 @@ export const EvaluationsPage: React.FC = () => {
                         </span>
                       </div>
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                        similarity >= 75 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                        similarity >= 88 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
                       }`}>
-                        {similarity}% similar
+                        {similarity}% parecido
                       </span>
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {correspondenciaAtual?.status === 'NONE' && (
+              <div className="p-3 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-xs">
+                O nome escrito pelo cliente («{(associatingEval?.clientNameInput || associatingEval?.clientName || '').trim() || '—'}») não corresponde a nenhuma empresa cadastrada.
+                Escolha a empresa na lista abaixo ou cadastre-a primeiro na página de Clientes.
               </div>
             )}
 

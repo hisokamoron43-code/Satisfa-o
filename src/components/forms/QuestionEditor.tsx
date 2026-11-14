@@ -1,3 +1,4 @@
+import { traduzirErro } from '../../services/mensagensErro';
 import React, { useState, useEffect } from 'react';
 import { FormQuestion, QuestionCategory, FormCategoryItem, ServiceItem } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -125,7 +126,7 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
         setFormError(res.error || 'Erro ao guardar a pergunta na base de dados.');
       }
     } catch (err: any) {
-      setFormError(err?.message || 'Erro inesperado ao processar o formulário.');
+      setFormError(traduzirErro(err, 'Erro inesperado ao processar o formulário.'));
     } finally {
       setIsSubmitting(false);
     }

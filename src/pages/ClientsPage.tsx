@@ -34,8 +34,9 @@ const emptyForm = (): ClientForm => ({
 function validateClient(f: ClientForm): string | null {
   if (f.companyName.trim().length < 2 || f.companyName.trim().length > 200) return 'O nome da empresa deve ter entre 2 e 200 caracteres.';
   if (f.nif && !NIF_RE.test(f.nif.trim())) return 'O NIF deve ter entre 9 e 14 dígitos.';
-  if (f.contactPerson.trim().length < 2 || f.contactPerson.trim().length > 100) return 'Indique a pessoa de contacto (2 a 100 caracteres).';
-  if (f.email && !EMAIL_RE.test(f.email.trim())) return 'O e-mail de contacto não é válido.';
+  if (!f.email.trim()) return 'Indique o e-mail do cliente. É o único dado obrigatório além do nome da empresa.';
+  if (!EMAIL_RE.test(f.email.trim())) return 'O e-mail do cliente não é válido (exemplo: nome@empresa.ao).';
+  if (f.contactPerson.trim() && (f.contactPerson.trim().length < 2 || f.contactPerson.trim().length > 100)) return 'A pessoa de contacto deve ter entre 2 e 100 caracteres (ou deixe em branco e complete depois).';
   if (f.phone && !PHONE_RE.test(f.phone.trim())) return 'O telefone não é válido (use dígitos, espaços, + e parênteses).';
   if (f.contractStart && f.contractEnd && f.contractEnd < f.contractStart) return 'A data de fim do contrato é anterior ao início.';
   if (f.notes.length > 2000) return 'As notas não podem ter mais de 2000 caracteres.';
@@ -272,6 +273,21 @@ export const ClientsPage: React.FC = () => {
                   <div><dt className="text-slate-500">Sector</dt><dd className="font-semibold text-slate-900">{selected.sector || '—'}</dd></div>
                   <div><dt className="text-slate-500">Contrato</dt><dd className="font-semibold text-slate-900">{fmt(selected.contractStart)} → {fmt(selected.contractEnd)}</dd></div>
                 </dl>
+                {(() => {
+                  const emFalta = [
+                    !selected.contactPerson && 'pessoa de contacto',
+                    !selected.phone && 'telefone',
+                    !selected.nif && 'NIF',
+                    !selected.address && 'morada',
+                    !selected.sector && 'sector',
+                    !selected.contractStart && 'início do contrato',
+                  ].filter(Boolean) as string[];
+                  return emFalta.length > 0 ? (
+                    <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <strong>Dados em falta:</strong> {emFalta.join(', ')}. Clique em «Editar» para completar.
+                    </p>
+                  ) : null;
+                })()}
                 <div>
                   <p className="text-[11px] font-bold text-slate-500 uppercase mb-1">Serviços contratados</p>
                   <div className="flex flex-wrap gap-1.5">
@@ -339,12 +355,15 @@ export const ClientsPage: React.FC = () => {
               <span className="text-sm font-black text-slate-900">{clientModal.mode === 'create' ? 'Novo cliente' : 'Editar cliente'}</span>
               <button onClick={() => setClientModal(null)} className="text-slate-400 cursor-pointer text-lg">×</button>
             </div>
+            <p className="mx-5 mt-4 text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              Só o <strong>nome da empresa</strong> e o <strong>e-mail</strong> são obrigatórios. Os restantes dados podem ser completados mais tarde, ao editar o cliente.
+            </p>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Nome da empresa *" wide><input value={form.companyName} onChange={e => setForm({ ...form, companyName: e.target.value })} maxLength={200} className="inp" /></Field>
               <Field label="NIF (9 a 14 dígitos)"><input value={form.nif} onChange={e => setForm({ ...form, nif: e.target.value })} maxLength={14} className="inp" /></Field>
               <Field label="Sector"><input value={form.sector} onChange={e => setForm({ ...form, sector: e.target.value })} maxLength={80} className="inp" /></Field>
-              <Field label="Pessoa de contacto *"><input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} maxLength={100} className="inp" /></Field>
-              <Field label="E-mail"><input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} maxLength={254} className="inp" /></Field>
+              <Field label="Pessoa de contacto"><input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} maxLength={100} className="inp" /></Field>
+              <Field label="E-mail *"><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} maxLength={254} className="inp" /></Field>
               <Field label="Telefone"><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} maxLength={20} className="inp" /></Field>
               <Field label="Cidade"><input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} maxLength={80} className="inp" /></Field>
               <Field label="Morada" wide><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} maxLength={200} className="inp" /></Field>

@@ -1,3 +1,4 @@
+import { traduzirErro } from '../services/mensagensErro';
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ServiceItem } from '../types';
@@ -90,7 +91,7 @@ export const ServicesPage: React.FC = () => {
       }
       setIsModalOpen(false);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Erro inesperado.');
+      setErrorMsg(traduzirErro(err, 'Erro inesperado.'));
     } finally {
       setIsSaving(false);
     }

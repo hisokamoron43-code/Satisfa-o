@@ -1,3 +1,4 @@
+import { traduzirErro } from '../services/mensagensErro';
 import { LoginSettingsCard } from '../components/LoginSettingsCard';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
@@ -39,7 +40,7 @@ export const SettingsPage: React.FC = () => {
     } catch (e: any) {
       setTestResult({
         connected: false,
-        message: e?.message || 'Erro inesperado ao testar conexão.',
+        message: traduzirErro(e, 'Erro inesperado ao testar conexão.'),
         timestamp: new Date().toLocaleTimeString('pt-PT')
       });
     } finally {

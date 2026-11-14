@@ -1,3 +1,4 @@
+import { traduzirErro } from '../services/mensagensErro';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Employee, 
@@ -258,7 +259,7 @@ export const EmployeeManagement: React.FC = () => {
         setTotalCount(res.totalCount);
       }
     } catch (err: any) {
-      setFetchError(err?.message || 'Erro ao comunicar com a base de dados.');
+      setFetchError(traduzirErro(err, 'Erro ao comunicar com a base de dados.'));
     } finally {
       setIsLoading(false);
     }
@@ -430,7 +431,7 @@ export const EmployeeManagement: React.FC = () => {
       }, 1500);
 
     } catch (err: any) {
-      setFormError(err?.message || 'Erro inesperado ao gravar na base de dados.');
+      setFormError(traduzirErro(err, 'Erro inesperado ao gravar na base de dados.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -481,7 +482,7 @@ export const EmployeeManagement: React.FC = () => {
         setDocExpiryDate('');
       }
     } catch (err: any) {
-      setDocUploadError(err?.message || 'Falha ao processar ficheiro.');
+      setDocUploadError(traduzirErro(err, 'Falha ao processar ficheiro.'));
     } finally {
       setIsDocUploading(false);
       // Limpar input
@@ -499,7 +500,7 @@ export const EmployeeManagement: React.FC = () => {
         alert(res.error || 'Não foi possível gerar ligação segura de acesso ao documento.');
       }
     } catch (err: any) {
-      alert('Erro ao aceder ao documento: ' + err?.message);
+      alert('Erro ao aceder ao documento: ' + traduzirErro(err));
     }
   };
 
@@ -517,7 +518,7 @@ export const EmployeeManagement: React.FC = () => {
         setEmployeeDocs(prev => prev.filter(d => d.id !== doc.id));
       }
     } catch (err: any) {
-      alert('Falha ao eliminar documento: ' + err?.message);
+      alert('Falha ao eliminar documento: ' + traduzirErro(err));
     }
   };
 

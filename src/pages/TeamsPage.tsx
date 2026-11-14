@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import { fetchSupervisorCandidates, SupervisorCandidate } from '../services/supabaseService';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Plus, Trash2, UserCheck, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
@@ -27,12 +28,34 @@ export const TeamsPage: React.FC = () => {
     () => [...new Set([...DEFAULT_DEPARTMENTS, ...teams.map(t => t.department).filter(Boolean)])].sort((a, b) => a.localeCompare(b)),
     [teams],
   );
-  // Supervisores são sempre funcionários (prestadores) cadastrados e ativos
-  const supervisorOptions = useMemo(
-    () => providers.filter(p => p.status === 'ACTIVE').map(p => ({ value: p.id, label: p.name, hint: p.internalCode })),
-    [providers],
-  );
-  const supervisorName = (id?: string) => providers.find(p => p.id === id)?.name;
+  // O supervisor pode ser um membro cadastrado (funcionário) ou um prestador, ambos ativos.
+  const [candidatos, setCandidatos] = useState<SupervisorCandidate[] | null>(null);
+  useEffect(() => {
+    let ativo = true;
+    fetchSupervisorCandidates().then(r => { if (ativo) setCandidatos(r); });
+    return () => { ativo = false; };
+  }, []);
+
+  const supervisorOptions = useMemo(() => {
+    // Se a função da base de dados ainda não existe (migração 1012 por executar), usa só os prestadores.
+    const base: SupervisorCandidate[] = candidatos && candidatos.length > 0
+      ? candidatos
+      : providers.filter(p => p.status === 'ACTIVE').map(p => ({ kind: 'PROVIDER' as const, id: p.id, name: p.name, code: p.internalCode }));
+    return base.map(c => ({
+      value: `${c.kind}:${c.id}`,
+      label: c.name,
+      hint: `${c.kind === 'PROVIDER' ? 'Prestador' : 'Membro'}${c.code ? ` · ${c.code}` : ''}`,
+    }));
+  }, [candidatos, providers]);
+
+  const nomeSupervisor = (t: { supervisorProviderId?: string; supervisorEmployeeId?: string; supervisorEmployeeName?: string }) => {
+    if (t.supervisorProviderId) {
+      const p = providers.find(x => x.id === t.supervisorProviderId)?.name;
+      return p ? `${p} (prestador)` : undefined;
+    }
+    if (t.supervisorEmployeeId) return t.supervisorEmployeeName ? `${t.supervisorEmployeeName} (membro)` : 'Membro cadastrado';
+    return undefined;
+  };
 
   const reset = () => { setName(''); setCode(''); setDepartment('Operações'); setSupervisorId(''); setError(null); };
 
@@ -44,7 +67,11 @@ export const TeamsPage: React.FC = () => {
       name: name.trim(),
       code: code.trim(),
       department: department.trim() || 'Operações',
-      supervisorProviderId: supervisorId || undefined,
+      supervisorProviderId: supervisorId.startsWith('PROVIDER:') ? supervisorId.slice('PROVIDER:'.length) : undefined,
+      supervisorEmployeeId: supervisorId.startsWith('EMPLOYEE:') ? supervisorId.slice('EMPLOYEE:'.length) : undefined,
+      supervisorEmployeeName: supervisorId.startsWith('EMPLOYEE:')
+        ? supervisorOptions.find(o => o.value === supervisorId)?.label
+        : undefined,
       status: 'ACTIVE',
       membersCount: 0,
     });
@@ -66,7 +93,7 @@ export const TeamsPage: React.FC = () => {
         <div>
           <span className="text-[11px] font-bold text-brand-dark uppercase tracking-wider">Operações</span>
           <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Equipas</h1>
-          <p className="text-xs text-slate-500 mt-1">Crie equipas e escolha o supervisor entre os funcionários cadastrados.</p>
+          <p className="text-xs text-slate-500 mt-1">Crie equipas e escolha o supervisor entre os membros cadastrados ou os prestadores. A nota de cada avaliação aplica-se a toda a equipa, incluindo o supervisor.</p>
         </div>
         {canManage && !showForm && (
           <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-sm font-bold">
@@ -98,9 +125,9 @@ export const TeamsPage: React.FC = () => {
                 allowCreate createLabel="Criar departamento" ariaLabel="Departamento" />
             </div>
             <div className="space-y-1.5">
-              <span className="text-xs font-bold text-slate-700">Supervisor (funcionário cadastrado)</span>
+              <span className="text-xs font-bold text-slate-700">Supervisor (membro ou prestador)</span>
               <SearchableSelect options={supervisorOptions} value={supervisorId} onChange={setSupervisorId}
-                placeholder={supervisorOptions.length ? 'Sem supervisor' : 'Cadastre primeiro um funcionário'} ariaLabel="Supervisor" />
+                placeholder={supervisorOptions.length ? 'Sem supervisor' : 'Cadastre primeiro um membro ou prestador'} ariaLabel="Supervisor" />
             </div>
           </div>
           {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
@@ -119,7 +146,7 @@ export const TeamsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {teams.map(team => {
             const members = providers.filter(p => p.teamId === team.id);
-            const sup = supervisorName(team.supervisorProviderId);
+            const sup = nomeSupervisor(team);
             return (
               <article key={team.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">

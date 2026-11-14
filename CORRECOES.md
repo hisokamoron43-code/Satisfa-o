@@ -418,3 +418,6 @@ No Supabase:
 ## Versão 23 — Contacto de Suporte Técnico com confirmação
 
 - Novo `src/components/common/SupportContactDialog.tsx`: o botão "Suporte Técnico HST" do ecrã de login abre um quadro informativo (o número 927 924 699 pertence à AETERNU, disponível para dúvidas e esclarecimentos) e pergunta "Pretende ligar para este contacto?". Só com "Sim, ligar" abre a aplicação de chamadas (`tel:+244927924699`); "Cancelar", Esc ou clique fora fecham sem ligar.
+
+## Notificações, empresas, clientes, nota do grupo e supervisor
+Ver `docs/ALTERACOES_NOTIFICACOES_EMPRESAS_GRUPO.md`. Migração nova: `1012_nota_grupo_supervisor_membro.sql`.

@@ -1,4 +1,5 @@
-import type { Activity, Client, ClientGoal, Evaluation, HRCase, Provider, ServiceItem } from '../types';
+import type { Activity, Client, ClientGoal, Evaluation, HRCase, Provider, ServiceItem, Team } from '../types';
+import { avaliacoesDoPrestador, prestadorRecebeNota } from './grupoAvaliacao';
 import { csatPercent, evaluationsForClient, goalProgress, npsValue } from './goalProgress';
 
 export type ReportScope = 'GLOBAL' | 'SERVICE' | 'EMPLOYEE' | 'CLIENT';
@@ -33,6 +34,8 @@ export interface ReportData {
   providers: Provider[];
   activities: Activity[];
   hrCases: HRCase[];
+  /** Equipas: permitem aplicar a nota das avaliações ao grupo inteiro. */
+  teams?: Team[];
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -62,7 +65,9 @@ export function scopeData(data: ReportData, o: ReportOptions) {
     providers = providers.filter(p => !!svc && p.services.includes(svc.name));
   }
   if (o.scope === 'EMPLOYEE' && o.providerId) {
-    evals = evals.filter(e => e.providerId === o.providerId);
+    const alvo = data.providers.find(p => p.id === o.providerId);
+    // A nota conta para o grupo: inclui as avaliações da equipa do funcionário e do supervisor
+    evals = evals.filter(e => alvo ? prestadorRecebeNota(e, alvo, data.teams ?? []) : e.providerId === o.providerId);
     activities = activities.filter(a => a.assignedProviderIds.includes(o.providerId!));
     providers = providers.filter(p => p.id === o.providerId);
   }
@@ -80,7 +85,7 @@ export function scopeData(data: ReportData, o: ReportOptions) {
   const hrCases = o.scope === 'GLOBAL' ? data.hrCases : data.hrCases.filter(h => evalIds.has(h.evaluationId));
   const clientIds = new Set(clients.map(c => c.id));
   const goals = data.goals.filter(g => clientIds.has(g.clientId));
-  return { evals, clients, activities, providers, hrCases, goals };
+  return { evals, clients, activities, providers, hrCases, goals, teams: data.teams ?? [] };
 }
 
 function scopeTitle(o: ReportOptions, data: ReportData): string {
@@ -163,7 +168,7 @@ export function buildReportText(o: ReportOptions, data: ReportData): string {
     line('[EQUIPA E SERVIÇOS]');
     if (s.providers.length === 0) line('Sem funcionários no âmbito.');
     for (const p of s.providers) {
-      const pe = s.evals.filter(e => e.providerId === p.id);
+      const pe = avaliacoesDoPrestador(s.evals, p, s.teams);
       const pa = s.activities.filter(a => a.assignedProviderIds.includes(p.id));
       line(`- ${p.name}${p.department ? ` (${p.department})` : ''}`);
       line(`    Serviços: ${p.services.length ? p.services.join(', ') : 'não atribuídos'}`);

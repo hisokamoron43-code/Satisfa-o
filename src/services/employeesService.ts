@@ -1,3 +1,4 @@
+import { traduzirErro } from './mensagensErro';
 /**
  * @file employeesService.ts
  * @description Camada de Serviços para Funcionários, Dossiê Documental e Perfis de Acesso.
@@ -484,7 +485,7 @@ export async function fetchEmployees(params: FetchEmployeesParams = {}): Promise
 
     return { employees, totalCount: count || 0 };
   } catch (err: any) {
-    return { employees: [], totalCount: 0, error: err?.message || 'Erro de rede ao carregar colaboradores.' };
+    return { employees: [], totalCount: 0, error: traduzirErro(err, 'Erro de rede ao carregar colaboradores.') };
   }
 }
 
@@ -509,7 +510,7 @@ export async function fetchEmployeeById(id: string): Promise<{
       .maybeSingle();
 
     if (empErr || !empData) {
-      return { employee: null, documents: [], error: empErr?.message || 'Colaborador não encontrado.' };
+      return { employee: null, documents: [], error: traduzirErro(empErr, 'Colaborador não encontrado.') };
     }
 
     const { data: docsData } = await supabase
@@ -557,7 +558,7 @@ export async function fetchEmployeeById(id: string): Promise<{
 
     return { employee, documents };
   } catch (err: any) {
-    return { employee: null, documents: [], error: err?.message || 'Erro ao carregar detalhes do colaborador.' };
+    return { employee: null, documents: [], error: traduzirErro(err, 'Erro ao carregar detalhes do colaborador.') };
   }
 }
 
@@ -622,7 +623,7 @@ export async function createAccessProfile(profile: {
       .single();
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
 
     return {
@@ -640,7 +641,7 @@ export async function createAccessProfile(profile: {
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao criar perfil de acesso.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao criar perfil de acesso.') };
   }
 }
 
@@ -665,11 +666,11 @@ export async function updateAccessProfile(
       .eq('id', id);
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: traduzirErro(error) };
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao atualizar perfil de acesso.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar perfil de acesso.') };
   }
 }
 
@@ -710,12 +711,12 @@ export async function deleteAccessProfile(id: string): Promise<{ success: boolea
       .eq('id', id);
 
     if (delErr) {
-      return { success: false, error: delErr.message };
+      return { success: false, error: traduzirErro(delErr) };
     }
 
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao eliminar perfil de acesso.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao eliminar perfil de acesso.') };
   }
 }
 
@@ -830,13 +831,13 @@ async function describeAdminFunctionError(error: any): Promise<string> {
     if (ctx.status === 401) {
       return serverMsg || 'Sessão inválida ou expirada. Termine a sessão e entre novamente.';
     }
-    if (serverMsg) return serverMsg;
+    if (serverMsg) return traduzirErro(serverMsg);
     return `A função administrativa respondeu com o erro ${ctx.status}.`;
   }
   if (error?.name === 'FunctionsFetchError') {
     return 'Não foi possível contactar a função administrativa. Confirme que admin-employees está publicada e que o segredo ALLOWED_ORIGINS inclui o endereço deste site.';
   }
-  return error?.message || 'Falha ao executar operação administrativa.';
+  return traduzirErro(error, 'Falha ao executar operação administrativa.');
 }
 
 export async function checkEmployeeDuplicates(params: {
@@ -1084,7 +1085,7 @@ export async function validateFileMagicBytes(file: File): Promise<{ valid: boole
       error: 'Assinatura binária do ficheiro inválida ou não reconhecida. Ficheiros executáveis (.exe, scripts) ou ficheiros com extensões adulteradas são terminantemente rejeitados.' 
     };
   } catch (err: any) {
-    return { valid: false, error: `Falha ao inspecionar a assinatura do ficheiro: ${err?.message || 'Erro de leitura'}` };
+    return { valid: false, error: `Falha ao inspecionar a assinatura do ficheiro: ${traduzirErro(err, 'Erro de leitura')}` };
   }
 }
 
@@ -1161,7 +1162,7 @@ export async function uploadEmployeeDocument(
       });
 
     if (uploadError) {
-      return { success: false, error: `Falha no armazenamento: ${uploadError.message}` };
+      return { success: false, error: `Falha no armazenamento: ${traduzirErro(uploadError)}` };
     }
 
     // Registo de metadados na base de dados
@@ -1184,7 +1185,7 @@ export async function uploadEmployeeDocument(
     if (dbError) {
       // Compensação: remove o ficheiro se falhar a persistência na BD
       await supabase.storage.from('employee-documents').remove([storagePath]);
-      return { success: false, error: `Erro ao registar metadados do documento: ${dbError.message}` };
+      return { success: false, error: `Erro ao registar metadados do documento: ${traduzirErro(dbError)}` };
     }
 
     return {
@@ -1204,7 +1205,7 @@ export async function uploadEmployeeDocument(
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro no upload do documento.' };
+    return { success: false, error: traduzirErro(err, 'Erro no upload do documento.') };
   }
 }
 
@@ -1224,12 +1225,12 @@ export async function getEmployeeDocumentSignedUrl(
       .createSignedUrl(storagePath, expiresInSeconds);
 
     if (error || !data?.signedUrl) {
-      return { signedUrl: null, error: error?.message || 'Erro ao gerar URL assinada.' };
+      return { signedUrl: null, error: traduzirErro(error, 'Erro ao gerar URL assinada.') };
     }
 
     return { signedUrl: data.signedUrl };
   } catch (err: any) {
-    return { signedUrl: null, error: err?.message || 'Falha ao obter URL assinada.' };
+    return { signedUrl: null, error: traduzirErro(err, 'Falha ao obter URL assinada.') };
   }
 }
 
@@ -1260,11 +1261,11 @@ export async function deleteEmployeeDocument(
       .eq('id', documentId);
 
     if (dbErr) {
-      return { success: false, error: dbErr.message };
+      return { success: false, error: traduzirErro(dbErr) };
     }
 
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Erro ao eliminar documento.' };
+    return { success: false, error: traduzirErro(err, 'Erro ao eliminar documento.') };
   }
 }

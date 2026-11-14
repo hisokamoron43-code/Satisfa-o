@@ -1,3 +1,4 @@
+import { traduzirErro } from '../../services/mensagensErro';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { fetchTeamProvidersForPublic, isValidUuid, uploadEvaluationAudio } from '../../services/supabaseService';
@@ -659,7 +660,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         setSubmitError(result.error || 'Falha ao registar a avaliação no Supabase. Os seus dados foram preservados. Tente novamente.');
       }
     } catch (err: any) {
-      setSubmitError(err?.message || 'Erro inesperado na comunicação com o Supabase.');
+      setSubmitError(traduzirErro(err, 'Erro inesperado na comunicação com o Supabase.'));
     } finally {
       setIsSubmitting(false);
     }

@@ -1,3 +1,4 @@
+import { traduzirErro } from '../services/mensagensErro';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -31,6 +32,7 @@ import { QuestionEditor } from '../components/forms/QuestionEditor';
 import { WeightBalancerPanel } from '../components/evaluation/WeightBalancerPanel';
 import { EvaluationReviewWorkspace, automaticConformity, missingQualitativeMessage, qualitativeContent } from '../components/evaluation/EvaluationReviewWorkspace';
 import { calculateFinalScore } from '../services/finalScore';
+import { destinatariosDaNota } from '../services/grupoAvaliacao';
 import { 
   Users, 
   Shield, 
@@ -1008,25 +1010,41 @@ export const HumanResourcesPage: React.FC = () => {
                           )}
 
                           <button
-                            onClick={() => {
-                              const notif: WorkerNotification = {
-                                id: `notif-${Date.now()}`,
-                                evaluationId: ev.id,
-                                evaluationReference: ev.reference,
-                                providerId: ev.providerId || 'p1',
-                                providerName: ev.providerName || 'Equipa Operacional',
-                                finalScore: ev.technicalScore ?? 84,
-                                resultStatus: isPositive ? 'POSITIVE' : 'NEGATIVE',
-                                notifiedAt: new Date().toISOString(),
-                                notifiedBy: 'Recursos Humanos AETERNU',
-                                sharedFeedback: ev.comment || 'Classificação de serviço homologada.'
-                              };
-                              sendWorkerNotification(notif);
-                              alert(`Resultado (${ev.technicalScore ?? 84}%) comunicado novamente ao prestador ${ev.providerName}!`);
+                            onClick={async () => {
+                              if (ev.technicalScore === undefined || ev.technicalScore === null) {
+                                alert('Esta avaliação ainda não tem pontuação final. Homologue-a antes de notificar o grupo.');
+                                return;
+                              }
+                              // A nota é do grupo inteiro: prestador atribuído, membros da equipa e supervisor
+                              const grupo = destinatariosDaNota(ev, providers, teams);
+                              if (grupo.length === 0) {
+                                alert('Não há nenhum prestador ou equipa associados a esta avaliação. Atribua primeiro a equipa ou o funcionário.');
+                                return;
+                              }
+                              let enviados = 0;
+                              const falhas: string[] = [];
+                              for (const membro of grupo) {
+                                const res = await sendWorkerNotification({
+                                  evaluationId: ev.id,
+                                  evaluationReference: ev.reference,
+                                  providerId: membro.id,
+                                  providerName: membro.name,
+                                  finalScore: ev.technicalScore,
+                                  resultStatus: isPositive ? 'POSITIVE' : 'NEGATIVE',
+                                  notifiedBy: 'Recursos Humanos AETERNU',
+                                  sharedFeedback: ev.comment || 'Classificação de serviço homologada.',
+                                } as any);
+                                if (res.success) enviados++; else falhas.push(`${membro.name}: ${res.error || 'erro desconhecido'}`);
+                              }
+                              alert(
+                                falhas.length === 0
+                                  ? `Resultado (${ev.technicalScore}%) comunicado a ${enviados} pessoa(s) do grupo${ev.teamName ? ` — equipa ${ev.teamName}` : ''}.`
+                                  : `Comunicado a ${enviados} pessoa(s). Falhou para: ${falhas.join('; ')}`
+                              );
                             }}
                             className="px-3 py-1 bg-brand hover:bg-brand/90 text-black font-black border border-black rounded-lg text-[10px] flex items-center gap-1 shadow-2xs transition"
                           >
-                            <Send className="w-3 h-3" /> Notificar Trabalhador
+                            <Send className="w-3 h-3" /> Notificar grupo
                           </button>
                         </div>
                       </div>
@@ -1613,7 +1631,7 @@ export const HumanResourcesPage: React.FC = () => {
                       setReviewError(res.error || 'Erro ao homologar avaliação.');
                     }
                   } catch (err: any) {
-                    setReviewError(err?.message || 'Falha inesperada ao gravar homologação.');
+                    setReviewError(traduzirErro(err, 'Falha inesperada ao gravar homologação.'));
                   } finally {
                     setReviewSubmitting(false);
                   }
