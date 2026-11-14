@@ -93,6 +93,12 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
       return;
     }
 
+    const effectiveCategory = (category || categories[0]?.code || '').trim();
+    if (!effectiveCategory) {
+      setFormError('Crie primeiro uma categoria: cada pergunta tem de pertencer a uma categoria.');
+      return;
+    }
+
     const { fields, errors } = toQuestionFields(typeConfig);
     if (errors.length > 0) {
       setFormError(errors.join(' '));
@@ -104,7 +110,7 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
       const payload: Omit<FormQuestion, 'id'> = {
         text: text.trim(),
         description: description.trim() || undefined,
-        category: category,
+        category: effectiveCategory,
         ...fields,
         required: required,
         active: active,
@@ -199,12 +205,12 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
                 Categoria da Pergunta <span className="text-red-500">*</span>
               </label>
               <select
-                value={category}
+                value={category || categories[0]?.code || ''}
                 onChange={(e) => setCategory(e.target.value as QuestionCategory)}
                 className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-brand outline-none"
               >
                 {categories.map(cat => (
-                  <option key={cat.id} value={cat.id || cat.code}>
+                  <option key={cat.id} value={cat.code || cat.id}>
                     {cat.name} ({cat.code || cat.id})
                   </option>
                 ))}

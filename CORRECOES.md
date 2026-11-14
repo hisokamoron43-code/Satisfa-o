@@ -394,3 +394,23 @@ No Supabase:
 
 **Base de dados**
 - Nova migração `supabase/migrations/1010_limpar_perguntas_e_categorias.sql`: apaga `form_questions`, `service_categories` e `form_categories` e desliga os critérios do RH das categorias (`category_code = NULL`). Não apaga avaliações, clientes, serviços nem os pesos do RH.
+
+## Versão 22 — Categorias, pesos do RH, perguntas, formulário e avaliação sincronizados
+
+**Problema:** os pesos do RH (Qualidade 40 / Pontualidade 20 / Segurança 25 / Atendimento 15) existiam à parte das categorias do formulário. Uma categoria nova não tinha peso (as respostas não contavam para a nota), um peso podia apontar para uma categoria inexistente, e as perguntas guardavam por vezes o id da categoria em vez do código.
+
+**Regra única:** a categoria do formulário é a fonte. `categoria → 1 peso do RH → perguntas da categoria`.
+
+**Base de dados — `supabase/migrations/1011_categorias_pesos_perguntas_sincronizados.sql`**
+- Remove os critérios do RH que não pertencem a nenhuma categoria (os 4 pré-definidos).
+- Cada categoria ganha automaticamente 1 critério (trigger; peso 0, ou 100 se for a primeira). Nome, descrição, estado e ordem acompanham a categoria.
+- Chaves estrangeiras: apagar a categoria apaga o critério; mudar o código atualiza critério e perguntas; uma pergunta só grava com categoria existente; categoria com perguntas não se apaga.
+- `save_evaluation_criteria` passa a só ajustar peso, pontuação máxima e estado (já não cria, renomeia nem apaga critérios) e mantém a regra de soma = 100%.
+- O formulário público só mostra perguntas ativas de categorias ativas.
+
+**Aplicação**
+- RH: o editor de pesos mostra uma linha por categoria (sem "Adicionar", "Restaurar padrão", apagar nem nome livre) e um painel de verificação (categoria sem perguntas com peso, categoria com perguntas sem peso, perguntas órfãs).
+- `evaluationUtils.ts`: sem critérios por defeito; novos `buildCategoryCriteria` e `analyzeFormSync`.
+- `AppContext`: critérios iniciam vazios, aplicam listas vazias do servidor e são recarregados após criar, editar ou apagar categorias.
+- `QuestionEditor`: a pergunta guarda o código da categoria (antes podia guardar o id) e exige categoria.
+- `ClientSatisfactionForm`: perguntas de categorias desativadas não aparecem.

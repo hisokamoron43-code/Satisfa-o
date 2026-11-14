@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   HRCase, 
@@ -23,7 +23,8 @@ import {
 } from '../services/employeesService';
 import {
   validateCriteriaConfiguration,
-  DEFAULT_EVALUATION_CRITERIA
+  buildCategoryCriteria,
+  analyzeFormSync
 } from '../services/evaluationUtils';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 import { QuestionEditor } from '../components/forms/QuestionEditor';
@@ -246,13 +247,15 @@ export const HumanResourcesPage: React.FC = () => {
   const [calendarView, setCalendarView] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   // Gestão de Critérios (Rascunho de Edição com Validação em Tempo Real)
-  const [draftCriteria, setDraftCriteria] = useState<EvaluationCriterion[]>(criteria);
+  const categoryCriteria = useMemo(() => buildCategoryCriteria(formCategories, criteria), [formCategories, criteria]);
+  const syncIssues = useMemo(() => analyzeFormSync(formCategories, formQuestions, categoryCriteria), [formCategories, formQuestions, categoryCriteria]);
+  const [draftCriteria, setDraftCriteria] = useState<EvaluationCriterion[]>(categoryCriteria);
   const [lastEditedCriterionId, setLastEditedCriterionId] = useState<string | undefined>(undefined);
   const [criteriaMsg, setCriteriaMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    setDraftCriteria(criteria);
-  }, [criteria]);
+    setDraftCriteria(categoryCriteria);
+  }, [categoryCriteria]);
 
   // Cálculo da soma dos pesos em tempo real
   const currentTotalWeight = Math.round(
@@ -724,10 +727,10 @@ export const HumanResourcesPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-black">
               <div>
                 <h4 className="text-base font-black text-slate-950">
-                  Configuração de Critérios & Ponderações Operacionais
+                  Pesos das Categorias (Ponderação da Nota)
                 </h4>
                 <p className="text-xs text-slate-700 font-medium">
-                  A soma dos pesos de todos os critérios activos DEVE totalizar exactamente 100.0%.
+                  Cada categoria do formulário tem o seu peso. A soma das categorias activas DEVE totalizar exactamente 100.0%.
                 </p>
               </div>
 
@@ -760,59 +763,45 @@ export const HumanResourcesPage: React.FC = () => {
               </div>
             )}
 
-            {/* Lista Editável de Critérios */}
+            {/* Verificação de sincronização categorias ↔ perguntas ↔ pesos */}
+            {syncIssues.length > 0 ? (
+              <div className="space-y-1.5">
+                {syncIssues.map((issue, i) => (
+                  <div key={i} className={`p-3 rounded-xl border text-xs font-bold ${
+                    issue.level === 'error' ? 'bg-red-50 border-red-500 text-red-950' : 'bg-amber-50 border-amber-500 text-amber-950'
+                  }`}>
+                    {issue.level === 'error' ? '✕ ' : '⚠ '}{issue.text}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl border border-emerald-500 bg-emerald-50 text-emerald-950 text-xs font-bold">
+                ✓ Categorias, perguntas e pesos estão sincronizados.
+              </div>
+            )}
+
+            {/* Lista de pesos: uma linha por categoria do formulário (fonte única) */}
             <div className="space-y-3">
               {draftCriteria.map((crit, idx) => (
                 <div key={crit.id} className="p-4 bg-white border border-black rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center gap-2">
-                      <input 
-                        type="text" 
-                        value={crit.categoryName}
-                        onChange={(e) => {
-                          const updated = [...draftCriteria];
-                          updated[idx] = { ...updated[idx], categoryName: e.target.value };
-                          setDraftCriteria(updated);
-                        }}
-                        className="font-black text-xs text-slate-950 bg-white border border-black rounded-lg px-2 py-1 max-w-xs focus:ring-1 focus:ring-brand"
-                        placeholder="Nome do Critério"
-                      />
+                      <span className="font-black text-sm text-slate-950">{crit.categoryName}</span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-black border border-black ${crit.active ? 'bg-emerald-100 text-emerald-950' : 'bg-slate-100 text-slate-600'}`}>
                         {crit.active ? 'Activo' : 'Inactivo'}
                       </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black border border-black/30 bg-slate-50 text-slate-700">
+                        {formQuestions.filter(q => q.active && (q.category || '').toUpperCase() === (crit.categoryCode || '').toUpperCase()).length} pergunta(s) ativa(s)
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-[11px] font-bold text-slate-700">Categoria do formulário:</label>
-                      <select
-                        value={crit.categoryCode || ''}
-                        onChange={(e) => {
-                          const updated = [...draftCriteria];
-                          updated[idx] = { ...updated[idx], categoryCode: e.target.value };
-                          setDraftCriteria(updated);
-                        }}
-                        className="bg-white border border-black rounded-lg px-2 py-0.5 text-[11px] font-bold"
-                      >
-                        <option value="">(por nome do critério)</option>
-                        {formCategories.map((cat) => <option key={cat.id} value={cat.code}>{cat.name}</option>)}
-                      </select>
-                    </div>
-                    <input 
-                      type="text" 
-                      value={crit.description || ''}
-                      onChange={(e) => {
-                        const updated = [...draftCriteria];
-                        updated[idx] = { ...updated[idx], description: e.target.value };
-                        setDraftCriteria(updated);
-                      }}
-                      className="w-full text-[11px] text-slate-700 bg-white border border-black/40 rounded px-2 py-0.5 font-medium"
-                      placeholder="Descrição operacional do critério..."
-                    />
+                    {crit.description && <p className="text-[11px] text-slate-600 font-medium">{crit.description}</p>}
+                    <p className="text-[10px] text-slate-500 font-medium">Nome, descrição e estado vêm da categoria no Editor de Formulário.</p>
                   </div>
 
                   <div className="flex items-center gap-3 self-end md:self-auto">
                     <div className="flex items-center gap-1.5">
                       <label className="text-[11px] font-bold text-slate-700">Peso (%):</label>
-                      <input 
+                      <input
                         type="number"
                         min="0"
                         max="100"
@@ -831,7 +820,7 @@ export const HumanResourcesPage: React.FC = () => {
 
                     <div className="flex items-center gap-1.5">
                       <label className="text-[11px] font-bold text-slate-700">Máx:</label>
-                      <input 
+                      <input
                         type="number"
                         min="1"
                         max="100"
@@ -844,94 +833,35 @@ export const HumanResourcesPage: React.FC = () => {
                         className="w-14 bg-white border border-black rounded-lg px-2 py-1 text-center font-black text-slate-950 text-xs"
                       />
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = [...draftCriteria];
-                        updated[idx] = { ...updated[idx], active: !updated[idx].active };
-                        setLastEditedCriterionId(undefined);
-                        setDraftCriteria(updated);
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border border-black transition ${crit.active ? 'bg-amber-100 text-amber-950' : 'bg-emerald-100 text-emerald-950'}`}
-                    >
-                      {crit.active ? 'Desactivar' : 'Activar'}
-                    </button>
-
-                    {draftCriteria.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLastEditedCriterionId(undefined);
-                          setDraftCriteria(draftCriteria.filter((_, i) => i !== idx));
-                        }}
-                        className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition"
-                        title="Remover critério"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
                   </div>
                 </div>
               ))}
+              {draftCriteria.length === 0 && (
+                <div className="p-6 text-center text-xs font-bold text-slate-600 border border-dashed border-black/40 rounded-xl">
+                  Sem categorias não há pesos para definir. Crie as categorias no Editor de Formulário.
+                </div>
+              )}
             </div>
 
-            {/* Ações do Editor de Critérios */}
-            <div className="pt-3 border-t border-black flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newId = `crit-${Date.now()}`;
-                    setLastEditedCriterionId(newId);
-                    setDraftCriteria([
-                      ...draftCriteria,
-                      {
-                        id: newId,
-                        categoryCode: '',
-                        categoryName: 'Novo Critério Operacional',
-                        description: 'Descrição das exigências e métricas',
-                        weightPercentage: 0,
-                        maxScore: 5,
-                        minScore: 0,
-                        active: true,
-                        order: draftCriteria.length + 1
-                      }
-                    ]);
-                  }}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-950 font-bold border border-black rounded-xl text-xs flex items-center gap-1.5 shadow-2xs"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Adicionar Critério
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraftCriteria(DEFAULT_EVALUATION_CRITERIA.map(c => ({ ...c })));
-                    setCriteriaMsg({ type: 'success', text: 'Critérios restaurados para o padrão oficial AETERNU (40/20/25/15).' });
-                  }}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold border border-black rounded-xl text-xs flex items-center gap-1.5"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" /> Restaurar Padrão AETERNU
-                </button>
-              </div>
-
+            {/* Gravar */}
+            <div className="pt-3 border-t border-black flex flex-wrap items-center justify-end gap-3">
               <button
                 type="button"
-                disabled={!isWeightSumValid}
+                disabled={!isWeightSumValid || draftCriteria.length === 0}
                 onClick={async () => {
                   const res = await updateCriteria(draftCriteria);
                   if (res.success) {
-                    setCriteriaMsg({ type: 'success', text: 'Critérios de avaliação gravados com sucesso! Soma validada em 100.0%.' });
+                    setCriteriaMsg({ type: 'success', text: 'Pesos das categorias gravados com sucesso! Soma validada em 100.0%.' });
                   } else {
-                    setCriteriaMsg({ type: 'error', text: res.errors?.join(' ') || 'Erro ao gravar critérios.' });
+                    setCriteriaMsg({ type: 'error', text: res.errors?.join(' ') || 'Erro ao gravar pesos.' });
                   }
                 }}
-                style={{ backgroundColor: isWeightSumValid ? '#8CBF26' : undefined }}
+                style={{ backgroundColor: isWeightSumValid && draftCriteria.length > 0 ? '#8CBF26' : undefined }}
                 className={`px-5 py-2 font-black border border-black rounded-xl text-xs shadow-md transition flex items-center gap-1.5 ${
-                  isWeightSumValid ? 'text-black hover:opacity-95' : 'bg-slate-200 text-slate-500 cursor-not-allowed opacity-60'
+                  isWeightSumValid && draftCriteria.length > 0 ? 'text-black hover:opacity-95' : 'bg-slate-200 text-slate-500 cursor-not-allowed opacity-60'
                 }`}
               >
-                <Check className="w-4 h-4" /> Gravar Alterações de Critérios
+                <Check className="w-4 h-4" /> Gravar Pesos das Categorias
               </button>
             </div>
           </div>

@@ -2280,16 +2280,12 @@ export async function logAuditActionViaRpc(
 /**
  * EVALUATION CRITERIA & CONFIGURATION Service (Migration 004 Integration)
  */
-export const DEFAULT_CRITERIA: EvaluationCriterion[] = [
-  { id: 'crit-1', categoryName: 'Qualidade Técnica & Rigor', description: 'Acabamento e eficácia', weightPercentage: 30, maxScore: 5, minScore: 0, active: true, order: 1 },
-  { id: 'crit-2', categoryName: 'Pontualidade & Prazos', description: 'Cumprimento de horários e prazos', weightPercentage: 20, maxScore: 5, minScore: 0, active: true, order: 2 },
-  { id: 'crit-3', categoryName: 'Segurança & Proteção (HST)', description: 'Uso de EPIs e normas de segurança', weightPercentage: 25, maxScore: 5, minScore: 0, active: true, order: 3 },
-  { id: 'crit-4', categoryName: 'Atendimento & Cordialidade', description: 'Postura profissional e comunicação', weightPercentage: 25, maxScore: 5, minScore: 0, active: true, order: 4 }
-];
+// Sem critérios pré-definidos: vêm do Supabase, um por categoria do formulário.
+export const DEFAULT_CRITERIA: EvaluationCriterion[] = [];
 
 export async function fetchEvaluationCriteriaFromDb(): Promise<EvaluationCriterion[] | null> {
   if (!isSupabaseConfigured) {
-    return getStore('criteria', DEFAULT_CRITERIA);
+    return [];
   }
   try {
     const { data, error } = await supabase
@@ -2297,7 +2293,7 @@ export async function fetchEvaluationCriteriaFromDb(): Promise<EvaluationCriteri
       .select('*')
       .order('display_order', { ascending: true });
 
-    if (error || !data || data.length === 0) return DEFAULT_CRITERIA;
+    if (error || !data) return null;
 
     return data.map((item: any) => ({
       id: item.id,
@@ -2313,7 +2309,7 @@ export async function fetchEvaluationCriteriaFromDb(): Promise<EvaluationCriteri
       updatedBy: item.updated_by
     }));
   } catch {
-    return DEFAULT_CRITERIA;
+    return null;
   }
 }
 

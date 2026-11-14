@@ -8,7 +8,6 @@ import {
   MOCK_USERS, MOCK_CLIENTS, MOCK_SERVICES, MOCK_PROVIDERS, MOCK_EVALUATIONS, MOCK_HR_CASES, MOCK_PERMISSION_AUDITS, MOCK_AUDIT_LOGS 
 } from '../data/mockData';
 import {
-  DEFAULT_EVALUATION_CRITERIA,
   DEFAULT_PASSING_THRESHOLD,
   validateCriteriaConfiguration,
   getQueueStatus
@@ -239,7 +238,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [formQuestions, setFormQuestions] = useState<FormQuestion[]>([]);
 
   // Critérios de Avaliação Ponderada de RH (Fonte oficial: Supabase evaluation_criteria)
-  const [criteria, setCriteria] = useState<EvaluationCriterion[]>(DEFAULT_EVALUATION_CRITERIA);
+  const [criteria, setCriteria] = useState<EvaluationCriterion[]>([]);
 
   // Limiar de Aprovação de RH (Fonte oficial: Supabase criteria_configurations)
   const [passingThreshold, setPassingThreshold] = useState<number>(DEFAULT_PASSING_THRESHOLD);
@@ -315,7 +314,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (dbActivities !== null) setActivities(dbActivities);
         if (dbNotifs !== null) setWorkerNotifications(dbNotifs);
         if (dbPermAudits !== null) setPermissionAudits(dbPermAudits);
-        if (dbCriteria !== null && dbCriteria.length > 0) setCriteria(dbCriteria);
+        if (dbCriteria !== null) setCriteria(dbCriteria);
         if (dbConfig !== null && dbConfig.passingThreshold !== undefined) setPassingThreshold(dbConfig.passingThreshold);
         if (dbCategories !== null) setFormCategories(dbCategories);
       }
@@ -956,6 +955,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Os pesos do RH nascem das categorias: depois de qualquer alteração às categorias, voltar a ler do servidor
+  const reloadCriteria = async (): Promise<void> => {
+    try {
+      const dbCriteria = await fetchEvaluationCriteriaFromDb();
+      if (dbCriteria !== null) setCriteria(dbCriteria);
+    } catch {
+      // non-blocking
+    }
+  };
+
   const addFormCategory = async (category: Omit<FormCategoryItem, 'id'>): Promise<{ success: boolean; data?: FormCategoryItem; error?: string }> => {
     if (activeRole !== 'ADMIN' && activeRole !== 'HR' && activeRole !== 'DIRECTOR') {
       return { success: false, error: 'Acesso negado: apenas Administradores ou Recursos Humanos podem criar categorias.' };
@@ -967,6 +976,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return [...filtered, res.data!].sort((a, b) => (a.display_order ?? 1) - (b.display_order ?? 1));
       });
       logAction('CREATE', 'FormCategory', res.data.code, 'SUCCESS', `Criada nova categoria de formulário: ${res.data.name}`);
+      await reloadCriteria();
     }
     return res;
   };
@@ -986,6 +996,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setFormQuestions(prev => prev.map(q => q.category === id ? { ...q, category: updated.code! } : q));
       }
       logAction('UPDATE', 'FormCategory', id, 'SUCCESS', `Atualizada categoria de formulário: ${res.data.name}`);
+      await reloadCriteria();
     }
     return res;
   };
@@ -1002,6 +1013,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (res.success) {
       setFormCategories(prev => prev.filter(c => c.id !== id && c.code !== id));
       logAction('DELETE', 'FormCategory', id, 'SUCCESS', `Eliminada categoria de formulário ID ${id}`);
+      await reloadCriteria();
     }
     return res;
   };
@@ -1025,6 +1037,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     setCriteria(newCriteria);
+    await reloadCriteria();
     logAction('UPDATE', 'CriteriaConfiguration', undefined, 'SUCCESS', `Critérios de avaliação gravados e validados no Supabase: soma de pesos 100.0%.`);
     return { success: true };
   };

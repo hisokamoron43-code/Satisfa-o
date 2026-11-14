@@ -172,6 +172,8 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         if (!q.active) return false;
         // Categoria restrita a certos serviços: só aparece se algum deles estiver selecionado
         const cat = formCategories.find(c => c.code === q.category || c.id === q.category);
+        // Categoria desativada: as suas perguntas não aparecem
+        if (cat && cat.active === false) return false;
         if (cat?.serviceIds && cat.serviceIds.length > 0 && !cat.serviceIds.some(id => selectedServiceIds.includes(id))) return false;
         // General questions (no specific service_id) are always included for all services
         if (!q.service_id) return true;

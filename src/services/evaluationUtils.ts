@@ -22,56 +22,76 @@ export const getQueueStatus = (ev: Evaluation): 'UNASSIGNED_CLIENT' | 'UNASSIGNE
 
 export const DEFAULT_PASSING_THRESHOLD = 70; // 70% padrão de aprovação
 
-export const DEFAULT_EVALUATION_CRITERIA: EvaluationCriterion[] = [
-  {
-    id: 'crit-qualidade',
-    categoryName: 'Qualidade',
-    description: 'Conformidade técnica, acabamento e excelência da execução do serviço',
-    weightPercentage: 40,
-    maxScore: 5,
-    minScore: 0,
-    active: true,
-    order: 1,
-    updatedAt: new Date().toISOString(),
-    updatedBy: 'Sistema SICSC'
-  },
-  {
-    id: 'crit-pontualidade',
-    categoryName: 'Pontualidade',
-    description: 'Cumprimento dos horários de início, conclusão e tempos de resposta',
-    weightPercentage: 20,
-    maxScore: 5,
-    minScore: 0,
-    active: true,
-    order: 2,
-    updatedAt: new Date().toISOString(),
-    updatedBy: 'Sistema SICSC'
-  },
-  {
-    id: 'crit-seguranca',
-    categoryName: 'Segurança',
-    description: 'Uso obrigatório de EPIs, cumprimento das normas de HST e integridade',
-    weightPercentage: 25,
-    maxScore: 5,
-    minScore: 0,
-    active: true,
-    order: 3,
-    updatedAt: new Date().toISOString(),
-    updatedBy: 'Sistema SICSC'
-  },
-  {
-    id: 'crit-atendimento',
-    categoryName: 'Atendimento',
-    description: 'Postura profissional, comunicação clara e cordialidade com o cliente',
-    weightPercentage: 15,
-    maxScore: 5,
-    minScore: 0,
-    active: true,
-    order: 4,
-    updatedAt: new Date().toISOString(),
-    updatedBy: 'Sistema SICSC'
+// Sem critérios pré-definidos: cada critério (peso) nasce de uma categoria do formulário.
+export const DEFAULT_EVALUATION_CRITERIA: EvaluationCriterion[] = [];
+
+const catKey = (v?: string | null) => (v ?? '').trim().toUpperCase();
+
+/**
+ * Uma linha de peso por categoria do formulário (fonte única).
+ * Usa o critério gravado quando existe; caso contrário cria um provisório com peso 0
+ * (o servidor cria o definitivo ao gravar a categoria). Nome/descrição/estado vêm sempre da categoria.
+ */
+export function buildCategoryCriteria(
+  categories: Array<{ id: string; code: string; name: string; description?: string; active?: boolean; display_order?: number }>,
+  criteria: EvaluationCriterion[]
+): EvaluationCriterion[] {
+  const byCode = new Map<string, EvaluationCriterion>();
+  criteria.forEach(c => { if (c.categoryCode) byCode.set(catKey(c.categoryCode), c); });
+  return categories
+    .slice()
+    .sort((a, b) => (a.display_order ?? 1) - (b.display_order ?? 1))
+    .map((cat, i) => {
+      const saved = byCode.get(catKey(cat.code));
+      return {
+        id: saved?.id ?? `crit-${cat.code.toLowerCase()}`,
+        categoryCode: cat.code,
+        categoryName: cat.name,
+        description: cat.description || '',
+        weightPercentage: saved?.weightPercentage ?? 0,
+        maxScore: saved?.maxScore ?? 5,
+        minScore: saved?.minScore ?? 0,
+        active: cat.active !== false && (saved?.active ?? true),
+        order: cat.display_order ?? i + 1,
+        updatedAt: saved?.updatedAt,
+        updatedBy: saved?.updatedBy,
+      } as EvaluationCriterion;
+    });
+}
+
+export interface SyncIssue { level: 'error' | 'warning'; text: string }
+
+/** Verifica se categorias, perguntas e pesos do RH estão coerentes entre si. */
+export function analyzeFormSync(
+  categories: Array<{ code: string; name: string; active?: boolean }>,
+  questions: Array<{ category: string; active?: boolean; affectsScore?: boolean; type?: string }>,
+  criteria: EvaluationCriterion[]
+): SyncIssue[] {
+  const issues: SyncIssue[] = [];
+  if (categories.length === 0) {
+    issues.push({ level: 'error', text: 'Ainda não existem categorias. Crie as categorias no Editor de Formulário; os pesos do RH nascem delas.' });
+    return issues;
   }
-];
+  const codes = new Set(categories.map(c => catKey(c.code)));
+  const weightOf = new Map(criteria.map(c => [catKey(c.categoryCode), c] as const));
+  for (const cat of categories) {
+    if (cat.active === false) continue;
+    const activeQs = questions.filter(q => catKey(q.category) === catKey(cat.code) && q.active !== false);
+    const crit = weightOf.get(catKey(cat.code));
+    const w = crit && crit.active ? Number(crit.weightPercentage) || 0 : 0;
+    if (activeQs.length === 0 && w > 0) {
+      issues.push({ level: 'warning', text: `"${cat.name}" tem peso ${w}% mas nenhuma pergunta ativa: o peso é redistribuído pelas restantes categorias.` });
+    }
+    if (activeQs.length > 0 && w === 0) {
+      issues.push({ level: 'warning', text: `"${cat.name}" tem ${activeQs.length} pergunta(s) ativa(s) mas peso 0%: as respostas não contam para a nota.` });
+    }
+  }
+  const orphans = questions.filter(q => !codes.has(catKey(q.category)));
+  if (orphans.length > 0) {
+    issues.push({ level: 'error', text: `${orphans.length} pergunta(s) apontam para uma categoria que já não existe.` });
+  }
+  return issues;
+}
 
 export interface ValidationResult {
   isValid: boolean;
