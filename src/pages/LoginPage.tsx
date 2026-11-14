@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LoginMethods, fetchLoginMethods } from '../services/supabaseService';
 import { useApp } from '../context/AppContext';
+import { SupportContactDialog } from '../components/common/SupportContactDialog';
 import { IDLE_LOGOUT_FLAG } from '../components/security/IdleSessionGuard';
 import { 
   User, 
@@ -9,7 +10,6 @@ import {
   ShieldAlert, 
   Eye, 
   EyeOff, 
-  Headphones, 
   ShieldCheck, 
   FileText, 
   CheckCircle2,
@@ -332,10 +332,7 @@ export const LoginPage: React.FC = () => {
 
           {/* RODAPÉ DO CARD VERDE */}
           <div className="pt-6 mt-6 border-t border-white/10 flex items-center justify-between text-xs text-emerald-200/80">
-            <div className="flex items-center gap-1.5">
-              <Headphones className="w-3.5 h-3.5 text-brand" />
-              <span>Suporte Técnico HST</span>
-            </div>
+            <SupportContactDialog />
             <span className="font-semibold tracking-wider text-brand">AETERNU &bull; 2026</span>
           </div>
 

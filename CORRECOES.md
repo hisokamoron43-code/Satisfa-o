@@ -414,3 +414,7 @@ No Supabase:
 - `AppContext`: critérios iniciam vazios, aplicam listas vazias do servidor e são recarregados após criar, editar ou apagar categorias.
 - `QuestionEditor`: a pergunta guarda o código da categoria (antes podia guardar o id) e exige categoria.
 - `ClientSatisfactionForm`: perguntas de categorias desativadas não aparecem.
+
+## Versão 23 — Contacto de Suporte Técnico com confirmação
+
+- Novo `src/components/common/SupportContactDialog.tsx`: o botão "Suporte Técnico HST" do ecrã de login abre um quadro informativo (o número 927 924 699 pertence à AETERNU, disponível para dúvidas e esclarecimentos) e pergunta "Pretende ligar para este contacto?". Só com "Sim, ligar" abre a aplicação de chamadas (`tel:+244927924699`); "Cancelar", Esc ou clique fora fecham sem ligar.
