@@ -13,6 +13,7 @@ const ServicesPage = lazy(() => import('../../pages/ServicesPage').then((m) => (
 const ProvidersPage = lazy(() => import('../../pages/ProvidersPage').then((m) => ({ default: m.ProvidersPage })));
 const EvaluationsPage = lazy(() => import('../../pages/EvaluationsPage').then((m) => ({ default: m.EvaluationsPage })));
 import { TeamsPage } from '../../pages/TeamsPage';
+import { MyTeamPage } from '../../pages/MyTeamPage';
 const HumanResourcesPage = lazy(() => import('../../pages/HumanResourcesPage').then((m) => ({ default: m.HumanResourcesPage })));
 const ReportsPage = lazy(() => import('../../pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
 const UsersPage = lazy(() => import('../../pages/UsersPage').then((m) => ({ default: m.UsersPage })));
@@ -26,9 +27,17 @@ const MessagesPage = lazy(() => import('../../pages/MessagesPage').then((m) => (
 
 export const AppLayout: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { activeTab, currentUser } = useApp();
+  const { activeTab, currentUser, setActiveTab } = useApp();
   const pageKey = activeTab === 'employee_management' ? 'employees' : activeTab;
   const canView = currentUser?.role === 'ADMIN' || (currentUser?.allowedPages ?? []).includes(pageKey);
+
+  // Quem não tem acesso à página atual (ex.: prestador a entrar em #dashboard) é levado à primeira página permitida
+  useEffect(() => {
+    const permitidas = currentUser?.allowedPages ?? [];
+    if (currentUser && currentUser.role !== 'ADMIN' && permitidas.length > 0 && !permitidas.includes(pageKey)) {
+      setActiveTab(permitidas[0]);
+    }
+  }, [currentUser, pageKey]);
 
   const renderActivePage = () => {
     if (!canView) {
@@ -46,6 +55,7 @@ export const AppLayout: React.FC = () => {
       case 'services': return <ServicesPage />;
       case 'providers': return <ProvidersPage />;
       case 'teams': return <TeamsPage />;
+      case 'my_team': return <MyTeamPage />;
       case 'evaluations': return <EvaluationsPage />;
       case 'evaluation_analysis': 
       case 'evaluation-analysis': 

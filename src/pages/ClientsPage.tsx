@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Client, ClientGoal, GoalMetric } from '../types';
 import { evaluationsForClient, goalProgress, csatPercent, npsValue } from '../services/goalProgress';
+import { resumirNotas, resumoPorServico, formatarNota } from '../services/clienteNotas';
 import { fetchClientGoals, saveClientGoalInDb, setClientGoalStatusInDb, deleteClientGoalInDb } from '../services/supabaseService';
 import { exportClientsPdf } from '../services/pdfExport';
 import { ClientImportModal } from '../components/clients/ClientImportModal';
@@ -169,6 +170,8 @@ export const ClientsPage: React.FC = () => {
   };
 
   const selEvals = selected ? evaluationsForClient(evaluations, selected.id, selected.companyName) : [];
+  const notasCliente = useMemo(() => resumirNotas(selEvals), [selEvals]);
+  const notasPorServico = useMemo(() => resumoPorServico(selEvals, services), [selEvals, services]);
   const selGoals = selected ? goals.filter(g => g.clientId === selected.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)) : [];
 
   return (
@@ -234,7 +237,7 @@ export const ClientsPage: React.FC = () => {
                 {expired && <span className="text-rose-600 font-bold"> · contrato expirado</span>}
               </p>
               <p className="text-[11px] text-slate-600 mt-1">
-                {ev.length} avaliações · CSAT {csatPercent(ev).toFixed(0)}% · metas atingidas {met}/{cg.length}
+                {ev.length} avaliações · nota média {formatarNota(resumirNotas(ev).mediaNota)} · CSAT {csatPercent(ev).toFixed(0)}% · metas atingidas {met}/{cg.length}
               </p>
             </button>
           ))}
@@ -298,10 +301,75 @@ export const ClientsPage: React.FC = () => {
                 {selected.notes && <p className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-3 whitespace-pre-wrap">{selected.notes}</p>}
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 grid grid-cols-3 gap-3 text-center">
-                <div><p className="text-2xl font-black text-slate-900">{selEvals.length}</p><p className="text-[11px] text-slate-500">Avaliações</p></div>
-                <div><p className="text-2xl font-black text-slate-900">{csatPercent(selEvals).toFixed(1)}%</p><p className="text-[11px] text-slate-500">CSAT</p></div>
-                <div><p className="text-2xl font-black text-slate-900">{npsValue(selEvals)}</p><p className="text-[11px] text-slate-500">NPS</p></div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+                <div>
+                  <h4 className="text-sm font-black text-slate-900">Notas e histórico de avaliações</h4>
+                  <p className="text-[11px] text-slate-500">A nota de cada avaliação conta depois de homologada. A média geral é a média dessas notas.</p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{notasCliente.total}</p><p className="text-[11px] text-slate-500">Avaliações ({notasCliente.homologadas} homologadas)</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{formatarNota(notasCliente.mediaNota)}</p><p className="text-[11px] text-slate-500">Nota média geral</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900"><span className="text-emerald-700">{notasCliente.positivas}</span> / <span className="text-rose-700">{notasCliente.negativas}</span></p><p className="text-[11px] text-slate-500">Positivas / negativas</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{notasCliente.mediaSatisfacao === null ? '—' : `${notasCliente.mediaSatisfacao.toFixed(1)}/5`}</p><p className="text-[11px] text-slate-500">Satisfação média do cliente</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{csatPercent(selEvals).toFixed(1)}%</p><p className="text-[11px] text-slate-500">CSAT</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{npsValue(selEvals)}</p><p className="text-[11px] text-slate-500">NPS</p></div>
+                </div>
+
+                {selEvals.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase mb-1">Por tipo de serviço</p>
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-600">
+                          <tr>
+                            <th className="p-2 text-left">Serviço</th>
+                            <th className="p-2 text-right">Avaliações</th>
+                            <th className="p-2 text-right">Nota média</th>
+                            <th className="p-2 text-right">Positivas</th>
+                            <th className="p-2 text-right">Negativas</th>
+                            <th className="p-2 text-right">Satisfação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {notasPorServico.servicos.map(sv => (
+                            <tr key={sv.chave}>
+                              <td className="p-2 font-semibold text-slate-800">{sv.nome}</td>
+                              <td className="p-2 text-right">{sv.total}</td>
+                              <td className="p-2 text-right font-bold">{formatarNota(sv.mediaNota)}</td>
+                              <td className="p-2 text-right text-emerald-700">{sv.positivas}</td>
+                              <td className="p-2 text-right text-rose-700">{sv.negativas}</td>
+                              <td className="p-2 text-right">{sv.mediaSatisfacao === null ? '—' : `${sv.mediaSatisfacao.toFixed(1)}/5`}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {notasPorServico.temAvaliacoesComVariosServicos && (
+                      <p className="text-[11px] text-slate-500 mt-1">Uma avaliação que abrange vários serviços conta em cada um deles, com a sua nota global (a nota oficial é uma só por avaliação). Por isso a soma das linhas pode ser superior ao total.</p>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase mb-1">Histórico</p>
+                  {selEvals.length === 0 ? (
+                    <p className="text-xs text-slate-500">Ainda não há avaliações associadas a esta empresa.</p>
+                  ) : (
+                    <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                      {[...selEvals].sort((a, b) => String(b.serviceDate || b.evaluationDate).localeCompare(String(a.serviceDate || a.evaluationDate))).map(e => (
+                        <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs">
+                          <span className="font-mono text-slate-500">{e.reference}</span>
+                          <span className="text-slate-600">{(e.serviceDate || e.evaluationDate || '').slice(0, 10).split('-').reverse().join('/')}</span>
+                          <span className="font-semibold text-slate-800 mr-auto">{(e.serviceTypesProvided && e.serviceTypesProvided.length > 0 ? e.serviceTypesProvided.join(', ') : e.serviceName) || 'Serviço não indicado'}</span>
+                          {typeof e.technicalScore === 'number'
+                            ? <span className={`font-bold ${e.finalClassification === 'NEGATIVE' ? 'text-rose-700' : 'text-emerald-700'}`}>{e.technicalScore.toFixed(1)}% · {e.finalClassification === 'NEGATIVE' ? 'Negativa' : 'Positiva'}</span>
+                            : <span className="text-amber-700">Por homologar</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">

@@ -13,7 +13,7 @@ const DEFAULT_DEPARTMENTS = [
 ];
 
 export const TeamsPage: React.FC = () => {
-  const { teams, providers, addTeam, deleteTeam, currentUser } = useApp();
+  const { teams, providers, addTeam, deleteTeam, updateProvider, currentUser } = useApp();
   const canManage = currentUser?.role === 'ADMIN' || currentUser?.role === 'HR';
 
   const [showForm, setShowForm] = useState(false);
@@ -23,6 +23,17 @@ export const TeamsPage: React.FC = () => {
   const [supervisorId, setSupervisorId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Membros escolhidos ao criar a equipa e feedback da gestão de membros nas equipas existentes
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [manageBusy, setManageBusy] = useState<string | null>(null);
+  const [manageMsg, setManageMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const activeProviders = useMemo(
+    () => providers.filter(p => p.status === 'ACTIVE').sort((a, b) => a.name.localeCompare(b.name)),
+    [providers],
+  );
+  const teamName = (id?: string) => teams.find(t => t.id === id)?.name;
 
   const departments = useMemo(
     () => [...new Set([...DEFAULT_DEPARTMENTS, ...teams.map(t => t.department).filter(Boolean)])].sort((a, b) => a.localeCompare(b)),
@@ -57,7 +68,7 @@ export const TeamsPage: React.FC = () => {
     return undefined;
   };
 
-  const reset = () => { setName(''); setCode(''); setDepartment('Operações'); setSupervisorId(''); setError(null); };
+  const reset = () => { setName(''); setCode(''); setDepartment('Operações'); setSupervisorId(''); setError(null); setMemberIds([]); setMemberSearch(''); };
 
   const submit = async () => {
     setError(null);
@@ -75,10 +86,54 @@ export const TeamsPage: React.FC = () => {
       status: 'ACTIVE',
       membersCount: 0,
     });
+    if (!res.success || !res.data) { setBusy(false); setError(res.error || 'Não foi possível criar a equipa.'); return; }
+
+    // Associa os membros escolhidos (um prestador pertence a uma só equipa: quem estava noutra é movido)
+    const falhas: string[] = [];
+    for (const id of memberIds) {
+      const r = await updateProvider(id, { teamId: res.data.id });
+      if (!r.success) falhas.push(`${providers.find(p => p.id === id)?.name ?? id}: ${r.error || 'erro desconhecido'}`);
+    }
     setBusy(false);
-    if (!res.success) { setError(res.error || 'Não foi possível criar a equipa.'); return; }
+    if (falhas.length > 0) {
+      setManageMsg({ ok: false, text: `A equipa «${res.data.name}» foi criada, mas ${falhas.length} membro(s) não foram associados — ${falhas.join('; ')}. Adicione-os na equipa.` });
+    } else if (memberIds.length > 0) {
+      setManageMsg({ ok: true, text: `Equipa «${res.data.name}» criada com ${memberIds.length} membro(s).` });
+    }
     reset();
     setShowForm(false);
+  };
+
+  const toggleMember = (id: string) => setMemberIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  /** Adiciona, remove ou move um prestador: teamId vazio = sem equipa. */
+  const moveMember = async (providerId: string, targetTeamId: string, mensagemOk: string) => {
+    setManageBusy(providerId);
+    setManageMsg(null);
+    const r = await updateProvider(providerId, { teamId: targetTeamId });
+    setManageBusy(null);
+    setManageMsg(r.success ? { ok: true, text: mensagemOk } : { ok: false, text: r.error || 'Não foi possível atualizar a equipa do membro.' });
+  };
+
+  const addMember = (providerId: string, team: { id: string; name: string }) => {
+    const p = providers.find(x => x.id === providerId);
+    if (!p) return;
+    const atual = teamName(p.teamId);
+    if (p.teamId && p.teamId !== team.id && !window.confirm(`${p.name} já pertence à equipa «${atual ?? 'outra equipa'}». Mover para «${team.name}»?`)) return;
+    moveMember(providerId, team.id, `${p.name} adicionado(a) à equipa «${team.name}».`);
+  };
+
+  const removeMember = (providerId: string, team: { id: string; name: string }) => {
+    const p = providers.find(x => x.id === providerId);
+    if (!p || !window.confirm(`Retirar ${p.name} da equipa «${team.name}»? O histórico de avaliações mantém-se.`)) return;
+    moveMember(providerId, '', `${p.name} retirado(a) da equipa «${team.name}».`);
+  };
+
+  const transferMember = (providerId: string, toTeamId: string) => {
+    const p = providers.find(x => x.id === providerId);
+    const destino = teams.find(t => t.id === toTeamId);
+    if (!p || !destino) return;
+    moveMember(providerId, toTeamId, `${p.name} movido(a) para a equipa «${destino.name}».`);
   };
 
   const remove = async (id: string, teamName: string) => {
@@ -130,6 +185,34 @@ export const TeamsPage: React.FC = () => {
                 placeholder={supervisorOptions.length ? 'Sem supervisor' : 'Cadastre primeiro um membro ou prestador'} ariaLabel="Supervisor" />
             </div>
           </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-700">Membros da equipa ({memberIds.length} selecionado{memberIds.length === 1 ? '' : 's'})</span>
+              <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)} placeholder="Pesquisar prestador…"
+                className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+            {activeProviders.length === 0 ? (
+              <p className="text-xs text-slate-500">Ainda não há prestadores ativos. Cadastre-os na página Prestadores.</p>
+            ) : (
+              <ul className="max-h-52 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+                {activeProviders
+                  .filter(p => p.name.toLowerCase().includes(memberSearch.trim().toLowerCase()))
+                  .map(p => {
+                    const noutra = p.teamId ? teamName(p.teamId) : undefined;
+                    return (
+                      <li key={p.id}>
+                        <label className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50">
+                          <input type="checkbox" checked={memberIds.includes(p.id)} onChange={() => toggleMember(p.id)} />
+                          <span className="font-semibold text-slate-800">{p.name}</span>
+                          {p.specialty && <span className="text-slate-500">{p.specialty}</span>}
+                          {noutra && <span className="ml-auto text-amber-700">Já está em «{noutra}», será movido</span>}
+                        </label>
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
+          </div>
           {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
           <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
             <button onClick={() => { reset(); setShowForm(false); }} className="px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-bold">Cancelar</button>
@@ -138,6 +221,12 @@ export const TeamsPage: React.FC = () => {
             </button>
           </div>
         </section>
+      )}
+
+      {manageMsg && (
+        <p className={`p-3 rounded-xl text-xs border ${manageMsg.ok ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+          {manageMsg.text}
+        </p>
       )}
 
       {teams.length === 0 ? (
@@ -166,14 +255,52 @@ export const TeamsPage: React.FC = () => {
                     ? <span className="text-slate-800">Supervisor: <strong>{sup}</strong></span>
                     : <span className="text-slate-500">Sem supervisor atribuído</span>}
                 </div>
-                <div className="text-xs text-slate-600">
-                  <span className="font-bold">{members.length}</span> funcionário(s) nesta equipa
+                <div className="text-xs text-slate-600 space-y-2">
+                  <p><span className="font-bold">{members.length}</span> funcionário(s) nesta equipa</p>
                   {members.length > 0 && (
-                    <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    <ul className="space-y-1.5">
                       {members.map(m => (
-                        <li key={m.id} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px]">{m.name}</li>
+                        <li key={m.id} className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="text-[11px] font-semibold text-slate-800 mr-auto">{m.name}</span>
+                          {canManage && (
+                            <>
+                              {teams.length > 1 && (
+                                <select
+                                  aria-label={`Mover ${m.name} para outra equipa`}
+                                  disabled={manageBusy === m.id}
+                                  value=""
+                                  onChange={e => { if (e.target.value) transferMember(m.id, e.target.value); }}
+                                  className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white max-w-[9rem]"
+                                >
+                                  <option value="">Mover para…</option>
+                                  {teams.filter(t => t.id !== team.id && t.status === 'ACTIVE').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                </select>
+                              )}
+                              <button
+                                onClick={() => removeMember(m.id, team)}
+                                disabled={manageBusy === m.id}
+                                className="p-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-600 disabled:opacity-50"
+                                aria-label={`Retirar ${m.name} da equipa`}
+                                title="Retirar da equipa"
+                              ><X className="w-3 h-3" /></button>
+                            </>
+                          )}
+                        </li>
                       ))}
                     </ul>
+                  )}
+                  {canManage && (
+                    <select
+                      aria-label={`Adicionar membro à equipa ${team.name}`}
+                      value=""
+                      onChange={e => { if (e.target.value) addMember(e.target.value, team); }}
+                      className="w-full text-[11px] border border-dashed border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                    >
+                      <option value="">+ Adicionar membro…</option>
+                      {activeProviders.filter(p => p.teamId !== team.id).map(p => (
+                        <option key={p.id} value={p.id}>{p.name}{p.teamId ? ` (em ${teamName(p.teamId) ?? 'outra equipa'})` : ''}</option>
+                      ))}
+                    </select>
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-auto">{team.status === 'ACTIVE' ? 'Ativa' : 'Inativa'}</p>

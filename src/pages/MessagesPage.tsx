@@ -5,7 +5,12 @@ import {
   addGroupMembersInDb, createConversationInDb, fetchConversations, fetchMessageRecipients, fetchMessages,
   findDuplicateAttachments, getAttachmentUrl, markConversationReadInDb, sendMessageInDb, setConversationTopicInDb,
   uploadMessageAttachment,
+  createPollInDb, deleteConversationInDb, deleteMessageInDb, editMessageInDb, fetchPinnedMessages, forwardMessageInDb,
+  reactToMessageInDb, sendReplyInDb, setMessagePinnedInDb, votePollInDb,
 } from '../services/supabaseService';
+import {
+  DeleteConversationModal, DeleteMessageModal, ForwardModal, MessageMenu, PollCard, PollModal, ReactionChips,
+} from '../components/messages/MessageParts';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 
 const MAX_BODY = 4000;
@@ -82,6 +87,18 @@ export const MessagesPage: React.FC = () => {
   const [showNew, setShowNew] = useState<{ topic?: string } | null>(null);
   const [showMembers, setShowMembers] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  // Opções ao estilo WhatsApp
+  const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
+  const [deleteMsg, setDeleteMsg] = useState<ChatMessage | null>(null);
+  const [showPoll, setShowPoll] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [confirmDeleteConv, setConfirmDeleteConv] = useState(false);
+  const [pinned, setPinned] = useState<Array<{ id: string; senderName: string; body: string }>>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selected = useMemo(() => conversations.find(c => c.id === selectedId) ?? null, [conversations, selectedId]);
   const topics = useMemo(
@@ -109,6 +126,7 @@ export const MessagesPage: React.FC = () => {
 
   const loadThread = useCallback(async (id: string) => {
     setMessages(await fetchMessages(id, meId, meName, filter));
+    setPinned(await fetchPinnedMessages(id, meId, meName));
     await markConversationReadInDb(id);
   }, [meId, meName, filter]);
 
@@ -129,6 +147,8 @@ export const MessagesPage: React.FC = () => {
   useEffect(() => {
     setFilter(EMPTY_FILTER); setShowFilters(false); setShowTopics(false);
     setTopicDraft(''); setTopicError(null); setImportant(false); setError(null);
+    setMenuMsg(null); setEditing(null); setReplyTo(null); setForwardMsg(null); setDeleteMsg(null);
+    setShowAttachMenu(false); setNotice(null); setPinned([]);
   }, [selectedId]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
@@ -168,14 +188,90 @@ export const MessagesPage: React.FC = () => {
       if (!up.success || !up.path) { setSending(false); setError(up.error || 'Não foi possível enviar o documento.'); return; }
       attachment = { name: pendingFile.name, path: up.path, size: pendingFile.size, type: pendingFile.type || 'application/octet-stream' };
     }
-    const res = await sendMessageInDb(selectedId, body, { important, attachment });
+    const res = (replyTo && !attachment && body)
+      ? await sendReplyInDb(selectedId, replyTo.id, body, important)
+      : await sendMessageInDb(selectedId, body, { important, attachment });
     setSending(false);
     if (!res.success) { setError(res.error || 'Não foi possível enviar a mensagem.'); return; }
-    setDraft(''); setImportant(false); setPendingFile(null); setDupWarning(null);
+    setDraft(''); setImportant(false); setPendingFile(null); setDupWarning(null); setReplyTo(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     await loadThread(selectedId);
     await loadList();
   };
+
+  // ---------- Opções da mensagem ----------
+  const refresh = async () => {
+    if (!selectedId) return;
+    await loadThread(selectedId);
+    await loadList();
+  };
+  const fail = (text?: string) => setError(text || 'Não foi possível concluir a ação.');
+
+  const reactTo = async (m: ChatMessage, emoji: string) => {
+    setMenuMsg(null); setError(null);
+    const r = await reactToMessageInDb(m.id, emoji);
+    if (!r.success) fail(r.error);
+    await refresh();
+  };
+  const togglePin = async (m: ChatMessage) => {
+    setMenuMsg(null); setError(null);
+    const r = await setMessagePinnedInDb(m.id, !m.pinned);
+    if (!r.success) fail(r.error);
+    await refresh();
+  };
+  const copyText = async (m: ChatMessage) => {
+    setMenuMsg(null);
+    try { await navigator.clipboard.writeText(m.body); setNotice('Mensagem copiada.'); } catch { fail('Não foi possível copiar. O navegador não deu permissão.'); }
+  };
+  const saveEdit = async () => {
+    if (!editing) return;
+    const text = editing.text.trim();
+    if (!text) { fail('A mensagem não pode ficar vazia. Use «Eliminar» para a apagar.'); return; }
+    if (text.length > MAX_BODY) { fail(`A mensagem não pode ter mais de ${MAX_BODY} caracteres.`); return; }
+    setError(null);
+    const r = await editMessageInDb(editing.id, text);
+    if (!r.success) { fail(r.error); return; }
+    setEditing(null);
+    await refresh();
+  };
+  const doDelete = async (forAll: boolean): Promise<string | null> => {
+    if (!deleteMsg) return null;
+    const r = await deleteMessageInDb(deleteMsg.id, forAll);
+    if (!r.success) return r.error || 'Não foi possível eliminar a mensagem.';
+    await refresh();
+    return null;
+  };
+  const doForward = async (targets: string[]): Promise<string | null> => {
+    if (!forwardMsg) return null;
+    const r = await forwardMessageInDb(forwardMsg, targets);
+    if (r.sent > 0) { setNotice(`Mensagem reencaminhada para ${r.sent} conversa(s).`); await loadList(); await refresh(); }
+    return r.errors.length > 0 ? r.errors.join(' ') : null;
+  };
+  const doPoll = async (question: string, options: string[], multiple: boolean): Promise<string | null> => {
+    if (!selectedId) return null;
+    const r = await createPollInDb(selectedId, question, options, multiple);
+    if (!r.success) return r.error || 'Não foi possível criar a sondagem.';
+    await refresh();
+    return null;
+  };
+  const vote = async (m: ChatMessage, optionIds: string[]) => {
+    setError(null);
+    const r = await votePollInDb(m.id, optionIds);
+    if (!r.success) fail(r.error);
+    await refresh();
+  };
+  const doDeleteConversation = async (): Promise<string | null> => {
+    if (!selected) return null;
+    const r = await deleteConversationInDb(selected.id);
+    if (!r.success) return r.error || 'Não foi possível eliminar a conversa.';
+    setSelectedId(null);
+    await loadList();
+    return null;
+  };
+  const jumpTo = (id: string) => document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const startLongPress = (m: ChatMessage) => { longPress.current = setTimeout(() => setMenuMsg(m), 450); };
+  const cancelLongPress = () => { if (longPress.current) { clearTimeout(longPress.current); longPress.current = null; } };
+  const isCreator = !!selected && selected.createdBy === meId;
 
   const setTopic = async (topic: string) => {
     if (!selectedId) return;
@@ -286,7 +382,24 @@ export const MessagesPage: React.FC = () => {
               {canManage && (
                 <button onClick={() => setShowMembers(true)} className="px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-300 bg-white text-slate-700">Membros</button>
               )}
+              {isCreator && (
+                <button onClick={() => setConfirmDeleteConv(true)} title="Eliminar a conversa para todos, de forma permanente"
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold border border-rose-300 bg-white text-rose-700 hover:bg-rose-50">Eliminar</button>
+              )}
             </header>
+
+            {/* Mensagens fixadas */}
+            {pinned.length > 0 && (
+              <div className="bg-white border-b border-slate-200 divide-y divide-slate-100">
+                {pinned.map(p => (
+                  <button key={p.id} onClick={() => jumpTo(p.id)} className="w-full flex items-center gap-2 px-4 py-1.5 text-left text-xs hover:bg-slate-50">
+                    <span aria-hidden="true">📌</span>
+                    <span className="font-semibold text-slate-700 shrink-0">{p.senderName}:</span>
+                    <span className="truncate text-slate-600">{p.body}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {showTopics && (
               <div className="p-3 bg-white border-b border-slate-200 space-y-3 text-xs">
@@ -340,20 +453,53 @@ export const MessagesPage: React.FC = () => {
                         <span className="text-[11px] font-medium text-slate-600 bg-white/90 px-3 py-1 rounded-lg shadow-sm">{dayLabel(m.createdAt)}</span>
                       </div>
                     )}
-                    <div className={`flex ${mine ? 'justify-end' : 'justify-start'} ${sameSender ? 'mt-0.5' : 'mt-2'}`}>
-                      <div className={`relative max-w-[85%] md:max-w-[65%] px-2.5 pt-1.5 pb-1 rounded-lg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${
+                    <div id={`msg-${m.id}`} className={`flex ${mine ? 'justify-end' : 'justify-start'} ${sameSender ? 'mt-0.5' : 'mt-2'}`}>
+                      <div
+                        onContextMenu={e => { e.preventDefault(); setMenuMsg(m); }}
+                        onTouchStart={() => startLongPress(m)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}
+                        className={`group relative max-w-[85%] md:max-w-[65%] px-2.5 pt-1.5 pb-1 rounded-lg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${
                         mine ? 'bg-emerald-100 text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}>
+                        <button onClick={() => setMenuMsg(m)} aria-label="Opções da mensagem" title="Opções"
+                          className="absolute top-0.5 right-1 w-6 h-6 rounded-full bg-white/80 text-slate-600 text-sm leading-none md:opacity-0 md:group-hover:opacity-100 focus:opacity-100">⌄</button>
                         {!mine && isGroup && !sameSender && (
                           <p className={`text-[12.5px] font-semibold mb-0.5 ${senderColor(m.senderId)}`}>{m.senderName}</p>
                         )}
-                        {m.important && <p className="text-[11px] font-bold text-amber-700 mb-0.5">★ Importante</p>}
-                        {m.attachmentPath && <AttachmentCard name={m.attachmentName ?? 'documento'} size={m.attachmentSize} path={m.attachmentPath} mine={mine} />}
-                        {m.body && !(m.attachmentPath && m.body.startsWith('📎')) && (
-                          <p className="text-[14.5px] leading-[1.35] whitespace-pre-wrap break-words pr-16">{m.body}</p>
+                        {m.forwarded && !m.deleted && <p className="text-[11px] italic text-slate-500 mb-0.5">↪ Encaminhada</p>}
+                        {m.important && !m.deleted && <p className="text-[11px] font-bold text-amber-700 mb-0.5">★ Importante</p>}
+                        {m.replyTo && !m.deleted && (
+                          <button onClick={() => jumpTo(m.replyTo!.id)} className="block w-full text-left mb-1 px-2 py-1 rounded-md bg-black/5 border-l-4 border-brand-dark">
+                            <span className="block text-[11.5px] font-semibold text-brand-dark">{m.replyTo.senderName}</span>
+                            <span className="block text-[12.5px] text-slate-600 truncate">{m.replyTo.body}</span>
+                          </button>
                         )}
+                        {m.deleted ? (
+                          <p className="text-[14px] italic text-slate-500 pr-16">🚫 {mine ? 'Eliminou esta mensagem.' : 'Esta mensagem foi eliminada.'}</p>
+                        ) : (
+                          <>
+                            {m.attachmentPath && <AttachmentCard name={m.attachmentName ?? 'documento'} size={m.attachmentSize} path={m.attachmentPath} mine={mine} />}
+                            {m.poll && <PollCard poll={m.poll} onVote={ids => vote(m, ids)} />}
+                            {editing?.id === m.id ? (
+                              <div className="space-y-1.5 pr-1">
+                                <textarea value={editing.text} onChange={e => setEditing({ id: m.id, text: e.target.value })} rows={3} maxLength={MAX_BODY} autoFocus
+                                  className="w-full text-[14.5px] bg-white border border-slate-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-brand" />
+                                <div className="flex justify-end gap-2 text-xs">
+                                  <button onClick={() => setEditing(null)} className="px-2.5 py-1 rounded-md font-semibold text-slate-700 hover:bg-black/5">Cancelar</button>
+                                  <button onClick={saveEdit} className="px-2.5 py-1 rounded-md font-semibold bg-brand-dark text-white">Guardar</button>
+                                </div>
+                              </div>
+                            ) : (
+                              m.body && !m.poll && !(m.attachmentPath && m.body.startsWith('📎')) && (
+                                <p className="text-[14.5px] leading-[1.35] whitespace-pre-wrap break-words pr-16">{m.body}</p>
+                              )
+                            )}
+                          </>
+                        )}
+                        <ReactionChips message={m} onToggle={emoji => reactTo(m, emoji)} />
                         <p className="absolute right-2 bottom-1 flex items-center gap-1 text-[11px] text-slate-500 leading-none">
+                          {m.pinned && <span aria-label="Fixada" title="Fixada">📌</span>}
+                          {m.editedAt && !m.deleted && <span>editada</span>}
                           {timeOf(m.createdAt)}
-                          {mine && <Ticks />}
+                          {mine && !m.deleted && <Ticks />}
                         </p>
                       </div>
                     </div>
@@ -371,11 +517,33 @@ export const MessagesPage: React.FC = () => {
                   <button type="button" onClick={() => { setPendingFile(null); setDupWarning(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-rose-600 font-bold shrink-0">Remover</button>
                 </div>
               )}
+              {replyTo && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-xl text-xs border-l-4 border-brand-dark">
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-brand-dark">A responder a {replyTo.senderId === meId ? 'si' : replyTo.senderName}</span>
+                    <span className="block truncate text-slate-600">{replyTo.body}</span>
+                  </span>
+                  <button type="button" onClick={() => setReplyTo(null)} className="text-slate-500 font-bold shrink-0" aria-label="Cancelar resposta">×</button>
+                </div>
+              )}
+              {notice && (
+                <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 font-medium flex justify-between gap-2">
+                  <span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="font-bold">×</button>
+                </p>
+              )}
               {dupWarning && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 font-medium">⚠ {dupWarning}</p>}
               {error && <p className="text-xs text-rose-600 font-medium px-1">{error}</p>}
               <div className="flex items-end gap-2">
-                <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Anexar documento"
-                  className="w-10 h-10 shrink-0 rounded-full text-slate-600 hover:bg-slate-200 text-xl">＋</button>
+                <div className="relative">
+                  <button type="button" onClick={() => setShowAttachMenu(v => !v)} aria-label="Anexar" aria-expanded={showAttachMenu}
+                    className="w-10 h-10 shrink-0 rounded-full text-slate-600 hover:bg-slate-200 text-xl">＋</button>
+                  {showAttachMenu && (
+                    <div className="absolute bottom-12 left-0 z-20 w-44 bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden text-sm">
+                      <button type="button" onClick={() => { setShowAttachMenu(false); fileInputRef.current?.click(); }} className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 text-left"><span aria-hidden="true">📄</span> Documento</button>
+                      <button type="button" onClick={() => { setShowAttachMenu(false); setShowPoll(true); }} className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 text-left border-t border-slate-100"><span aria-hidden="true">📊</span> Sondagem</button>
+                    </div>
+                  )}
+                </div>
                 <input ref={fileInputRef} type="file" className="hidden" onChange={e => onPickFile(e.target.files?.[0] ?? null)} />
                 <button type="button" onClick={() => setImportant(v => !v)} aria-pressed={important} aria-label="Marcar como importante"
                   className={`w-10 h-10 shrink-0 rounded-full text-lg ${important ? 'bg-amber-100 text-amber-700' : 'text-slate-600 hover:bg-slate-200'}`}>★</button>
@@ -400,6 +568,33 @@ export const MessagesPage: React.FC = () => {
           onClose={() => setShowNew(null)}
           onCreated={async (id) => { setShowNew(null); await loadList(); setSelectedId(id); }}
         />
+      )}
+      {menuMsg && (
+        <MessageMenu
+          message={menuMsg}
+          mine={menuMsg.senderId === meId}
+          onClose={() => setMenuMsg(null)}
+          onReact={emoji => reactTo(menuMsg, emoji)}
+          onReply={() => { setReplyTo(menuMsg); setMenuMsg(null); }}
+          onForward={() => { setForwardMsg(menuMsg); setMenuMsg(null); }}
+          onCopy={() => copyText(menuMsg)}
+          onPin={() => togglePin(menuMsg)}
+          onEdit={() => { setEditing({ id: menuMsg.id, text: menuMsg.body }); setMenuMsg(null); }}
+          onDelete={() => { setDeleteMsg(menuMsg); setMenuMsg(null); }}
+        />
+      )}
+      {deleteMsg && (
+        <DeleteMessageModal mine={deleteMsg.senderId === meId} alreadyDeleted={!!deleteMsg.deleted}
+          onClose={() => setDeleteMsg(null)} onDelete={doDelete} />
+      )}
+      {forwardMsg && (
+        <ForwardModal message={forwardMsg} conversations={conversations} currentId={selectedId}
+          onClose={() => setForwardMsg(null)} onForward={doForward} />
+      )}
+      {showPoll && <PollModal onClose={() => setShowPoll(false)} onCreate={doPoll} />}
+      {confirmDeleteConv && selected && (
+        <DeleteConversationModal title={selected.title} kind={selected.kind}
+          onClose={() => setConfirmDeleteConv(false)} onDelete={doDeleteConversation} />
       )}
       {showMembers && selected && (
         <AddMembersModal conversation={selected} recipients={recipients}

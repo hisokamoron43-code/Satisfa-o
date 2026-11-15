@@ -11,6 +11,7 @@ interface BottomNavProps {
 const SHORTCUTS = [
   { id: 'dashboard', label: 'Painel', icon: LayoutDashboard },
   { id: 'evaluations', label: 'Avaliações', icon: Star },
+  { id: 'my_team', label: 'Equipa', icon: Users },
   { id: 'messages', label: 'Mensagens', icon: MessageSquare },
   { id: 'clients', label: 'Clientes', icon: Building2 },
   { id: 'calendar', label: 'Calendário', icon: Calendar },

@@ -152,6 +152,8 @@ export interface Evaluation {
   audioRecordingUrl?: string; // Voice feedback recording (base64 or object URL)
   audioDurationSeconds?: number;
   serviceTypesProvided?: string[]; // Multiple service types selected by client
+  /** Escolha de quem enviou a avaliação: os avaliados (equipa/prestadores) podem ver o nome da empresa? Por defeito, não. */
+  clientVisibleToTeam?: boolean;
   detailedAnswers?: Record<string, { 
     rating?: number; 
     textAnswer?: string; 

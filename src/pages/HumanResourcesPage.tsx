@@ -33,6 +33,7 @@ import { WeightBalancerPanel } from '../components/evaluation/WeightBalancerPane
 import { EvaluationReviewWorkspace, automaticConformity, missingQualitativeMessage, qualitativeContent } from '../components/evaluation/EvaluationReviewWorkspace';
 import { calculateFinalScore } from '../services/finalScore';
 import { destinatariosDaNota } from '../services/grupoAvaliacao';
+import { ocultarEmpresaNoTexto } from '../services/privacidadeEmpresa';
 import { 
   Users, 
   Shield, 
@@ -1032,13 +1033,16 @@ export const HumanResourcesPage: React.FC = () => {
                                   finalScore: ev.technicalScore,
                                   resultStatus: isPositive ? 'POSITIVE' : 'NEGATIVE',
                                   notifiedBy: 'Recursos Humanos AETERNU',
-                                  sharedFeedback: ev.comment || 'Classificação de serviço homologada.',
+                                  // Se o avaliador não permitiu que a empresa seja revelada, o nome sai do comentário partilhado
+                                  sharedFeedback: (ev.clientVisibleToTeam
+                                    ? ev.comment
+                                    : ocultarEmpresaNoTexto(ev.comment || '', ev.clientName, ev.clientNameInput)) || 'Classificação de serviço homologada.',
                                 } as any);
                                 if (res.success) enviados++; else falhas.push(`${membro.name}: ${res.error || 'erro desconhecido'}`);
                               }
                               alert(
                                 falhas.length === 0
-                                  ? `Resultado (${ev.technicalScore}%) comunicado a ${enviados} pessoa(s) do grupo${ev.teamName ? ` — equipa ${ev.teamName}` : ''}.`
+                                  ? `Resultado (${ev.technicalScore}%) comunicado a ${enviados} pessoa(s) do grupo${ev.teamName ? ` — equipa ${ev.teamName}` : ''}. O nome da empresa ${ev.clientVisibleToTeam ? 'foi partilhado, como o avaliador permitiu' : 'foi mantido oculto, como o avaliador escolheu'}.`
                                   : `Comunicado a ${enviados} pessoa(s). Falhou para: ${falhas.join('; ')}`
                               );
                             }}

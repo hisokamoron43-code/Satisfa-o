@@ -115,6 +115,8 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
   // NPS é opcional: só é gravado se o respondente escolher um valor
   const [npsAnswered, setNpsAnswered] = useState<boolean>(false);
   const [generalComment, setGeneralComment] = useState<string>('');
+  // Privacidade: por defeito os avaliados NÃO veem o nome da empresa; o avaliador pode permitir.
+  const [clientVisibleToTeam, setClientVisibleToTeam] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -641,6 +643,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         audioRecordingUrl: audioRef || undefined,
         audioDurationSeconds: (audioUrl && recordingDuration > 0) ? recordingDuration : undefined,
         serviceTypesProvided: selectedServiceObjs.map(s => s.name),
+        clientVisibleToTeam,
         answers: answersArray,
         detailedAnswers,
         questionsSnapshot,
@@ -1376,6 +1379,27 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                     </div>
                   </div>
 
+                  {/* Privacidade: os avaliados veem o nome da empresa? */}
+                  <fieldset className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3 text-xs">
+                    <legend className="text-[10px] font-black uppercase tracking-wider text-slate-950 px-1">
+                      Privacidade da sua empresa
+                    </legend>
+                    <p className="text-slate-600">
+                      As pessoas avaliadas (a equipa que prestou o serviço) podem ver o nome da sua empresa junto da nota?
+                      Se escolher «Não», veem a avaliação mas não sabem de que empresa vem. A nossa equipa de qualidade vê sempre.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className={`flex items-start gap-2 p-3 rounded-xl border cursor-pointer ${!clientVisibleToTeam ? 'border-brand bg-brand/10' : 'border-slate-200 hover:bg-slate-50'}`}>
+                        <input type="radio" name="clientVisibleToTeam" className="mt-0.5" checked={!clientVisibleToTeam} onChange={() => setClientVisibleToTeam(false)} />
+                        <span><strong className="block text-slate-900">Não, manter o nome oculto</strong><span className="text-slate-500">Recomendado</span></span>
+                      </label>
+                      <label className={`flex items-start gap-2 p-3 rounded-xl border cursor-pointer ${clientVisibleToTeam ? 'border-brand bg-brand/10' : 'border-slate-200 hover:bg-slate-50'}`}>
+                        <input type="radio" name="clientVisibleToTeam" className="mt-0.5" checked={clientVisibleToTeam} onChange={() => setClientVisibleToTeam(true)} />
+                        <span><strong className="block text-slate-900">Sim, mostrar o nome da empresa</strong><span className="text-slate-500">Os avaliados veem «{clientNameInput.trim() || 'a sua empresa'}»</span></span>
+                      </label>
+                    </div>
+                  </fieldset>
+
                   {/* Resumo antes de submeter */}
                   <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200 space-y-3 text-xs shadow-xs">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-950">
@@ -1393,6 +1417,10 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                         <strong className="text-slate-950 font-black">
                           {availableServices.filter(s => selectedServiceIds.includes(s.id)).map(s => s.name).join(', ') || 'Serviços de Higiene e Ambiente'}
                         </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 font-semibold block">Nome da empresa visível para os avaliados:</span>
+                        <strong className="text-slate-950 font-black">{clientVisibleToTeam ? 'Sim' : 'Não (oculto)'}</strong>
                       </div>
                       <div>
                         <span className="text-slate-500 font-semibold block">Gravação de Áudio:</span>

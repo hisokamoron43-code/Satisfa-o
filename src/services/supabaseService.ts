@@ -285,7 +285,7 @@ export async function getCurrentSupabaseUser(): Promise<UserProfile | null> {
 export async function getOrCreateUserProfile(authUser: any): Promise<UserProfile> {
   const { data: profile, error } = await withTimeout(supabase
     .from('profiles')
-    .select('id, name, email, role, department, avatar_url, active, must_change_password')
+    .select('id, name, email, role, department, avatar_url, active, must_change_password, provider_id')
     .eq('id', authUser.id)
     .maybeSingle(), 15000, 'carregar o perfil');
 
@@ -310,6 +310,7 @@ export async function getOrCreateUserProfile(authUser: any): Promise<UserProfile
     lastLogin: new Date().toISOString(),
     allowedPages: pages,
     mustChangePassword: Boolean(profile.must_change_password),
+    providerId: profile.provider_id ?? undefined,
   } as UserProfile;
 }
 
@@ -780,6 +781,7 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       clientId: item.client_id,
       clientName: item.clients?.company_name || item.client_name_input || 'Cliente AETERNU',
       clientNameInput: item.client_name_input || undefined,
+      clientVisibleToTeam: item.client_visible_to_team === true,
       serviceId: item.service_id,
       serviceName: item.services?.name || 'Serviço',
       providerId: item.provider_id,
@@ -882,6 +884,7 @@ export async function fetchEvaluationByReference(reference: string): Promise<Eva
       clientId: data.client_id || '',
       clientName: data.clients?.company_name || data.client_name_input || 'Cliente AETERNU',
       clientNameInput: data.client_name_input || undefined,
+      clientVisibleToTeam: data.client_visible_to_team === true,
       serviceId: data.service_id || '',
       serviceName: data.services?.name || 'Serviço',
       providerId: data.provider_id || '',
@@ -925,6 +928,7 @@ export async function fetchEvaluationById(id: string): Promise<Evaluation | null
       clientId: data.client_id || '',
       clientName: data.clients?.company_name || data.client_name_input || 'Cliente AETERNU',
       clientNameInput: data.client_name_input || undefined,
+      clientVisibleToTeam: data.client_visible_to_team === true,
       serviceId: data.service_id || '',
       serviceName: data.services?.name || 'Serviço',
       providerId: data.provider_id || '',
@@ -1752,6 +1756,39 @@ export async function fetchSupervisorCandidates(): Promise<SupervisorCandidate[]
   }
 }
 
+export interface MyTeamOverview {
+  linked: boolean;
+  provider?: { id: string; name: string; specialty?: string };
+  team?: { id: string; name: string; code?: string; department?: string; supervisorName?: string } | null;
+  members: Array<{ id: string; name: string; specialty?: string; isSupervisor: boolean }>;
+  evaluations: Array<{
+    id: string; reference: string; serviceDate?: string; clientName?: string | null; clientVisible?: boolean; serviceName?: string; teamName?: string;
+    providerName?: string; technicalScore?: number | null; finalClassification?: 'POSITIVE' | 'NEGATIVE' | null; finalizedAt?: string | null;
+  }>;
+}
+
+/** Equipa do prestador com sessão iniciada e as notas homologadas do seu grupo (função my_team_overview). */
+export async function fetchMyTeamOverview(): Promise<{ success: boolean; data?: MyTeamOverview; error?: string }> {
+  if (!isSupabaseConfigured) return { success: false, error: 'Modo de demonstração' };
+  try {
+    const { data, error } = await supabase.rpc('my_team_overview');
+    if (error) return { success: false, error: traduzirErro(error, 'Não foi possível carregar a sua equipa.') };
+    const d: any = data ?? {};
+    return {
+      success: true,
+      data: {
+        linked: d.linked === true,
+        provider: d.provider ?? undefined,
+        team: d.team ?? null,
+        members: Array.isArray(d.members) ? d.members : [],
+        evaluations: Array.isArray(d.evaluations) ? d.evaluations : [],
+      },
+    };
+  } catch (e) {
+    return { success: false, error: traduzirErro(e, 'Não foi possível carregar a sua equipa.') };
+  }
+}
+
 export async function deleteTeamInDb(id: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) {
     const list = getStore('teams', MOCK_TEAMS);
@@ -2058,6 +2095,7 @@ export async function submitEvaluationViaRpc(
       clientId: payload.clientId || '',
       clientName: client?.companyName || payload.clientNameInput || payload.clientName || 'Cliente AETERNU',
       clientNameInput: payload.clientNameInput,
+      clientVisibleToTeam: payload.clientVisibleToTeam === true,
       serviceId: payload.serviceId || '',
       serviceName: service?.name || 'Serviço Geral',
       providerId: payload.providerId || '',
@@ -2489,10 +2527,22 @@ export interface ConversationSummary {
   lastAt?: string;
   lastSenderId?: string;
 }
+export interface MessageReaction { emoji: string; count: number; mine: boolean; names: string[] }
+export interface MessagePollOption { id: string; text: string; votes: number; mine: boolean; voters: string[] }
+export interface MessagePoll { question: string; multiple: boolean; totalVoters: number; options: MessagePollOption[] }
 export interface ChatMessage {
   attachmentName?: string; attachmentPath?: string; attachmentSize?: number; attachmentType?: string;
   id: string; senderId?: string; senderName: string; body: string; createdAt: string;
   topicId?: string; topicTitle?: string; important?: boolean;
+  /** Mensagem corrigida pelo autor. */
+  editedAt?: string;
+  /** Eliminada para todos: mostra «Mensagem eliminada». */
+  deleted?: boolean;
+  forwarded?: boolean;
+  replyTo?: { id: string; senderName: string; body: string; deleted?: boolean };
+  pinned?: boolean;
+  reactions?: MessageReaction[];
+  poll?: MessagePoll;
 }
 export interface ConversationTopic { id: string; conversationId: string; title: string; createdAt: string; }
 /** Filtros da conversa: datas (AAAA-MM-DD), tema ('' = todos, 'NONE' = sem tema), importantes e texto. */
@@ -2605,7 +2655,7 @@ export async function fetchMessages(conversationId: string, meId: string, meName
     return (allMsgs[conversationId] || []).filter(m => messageMatchesFilter(m, filter));
   }
   let query = supabase.from('messages')
-    .select('id, sender_id, body, created_at, topic_id, important, attachment_name, attachment_path, attachment_size, attachment_type, conversation_topics(title)')
+    .select('id, sender_id, body, created_at, topic_id, important, attachment_name, attachment_path, attachment_size, attachment_type, edited_at, deleted_at, forwarded, reply_to_id, pinned_at, poll_question, poll_multiple, conversation_topics(title)')
     .eq('conversation_id', conversationId);
   if (filter.from) query = query.gte('created_at', new Date(`${filter.from}T00:00:00`).toISOString());
   if (filter.to) query = query.lte('created_at', new Date(`${filter.to}T23:59:59.999`).toISOString());
@@ -2618,18 +2668,81 @@ export async function fetchMessages(conversationId: string, meId: string, meName
   if (error || !data) return [];
   const names = new Map<string, string>((await fetchMessageRecipients()).map(r => [r.id, r.name]));
   names.set(meId, meName);
-  return (data as any[]).reverse().map(r => ({
-    id: r.id, senderId: r.sender_id ?? undefined,
-    senderName: r.sender_id ? (names.get(r.sender_id) ?? 'Utilizador') : 'Conta removida',
-    body: r.body, createdAt: r.created_at,
-    topicId: r.topic_id ?? undefined,
-    topicTitle: r.conversation_topics?.title ?? undefined,
-    important: !!r.important,
-    attachmentName: r.attachment_name ?? undefined,
-    attachmentPath: r.attachment_path ?? undefined,
-    attachmentSize: r.attachment_size ?? undefined,
-    attachmentType: r.attachment_type ?? undefined,
-  }));
+  const rows = (data as any[]).reverse();
+  const ids = rows.map(r => r.id as string);
+
+  // Reações, sondagens e mensagens respondidas, em lotes (evita pedidos demasiado longos)
+  const chunks = <T,>(arr: T[], n = 60): T[][] => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
+  const reactionRows: any[] = [];
+  for (const c of chunks(ids)) {
+    const { data: rr } = await supabase.from('message_reactions').select('message_id, profile_id, emoji').in('message_id', c);
+    if (rr) reactionRows.push(...rr);
+  }
+  const pollIds = rows.filter(r => r.poll_question).map(r => r.id as string);
+  const optionRows: any[] = [];
+  const voteRows: any[] = [];
+  for (const c of chunks(pollIds)) {
+    const { data: oo } = await supabase.from('poll_options').select('id, message_id, text, position').in('message_id', c).order('position');
+    if (oo) optionRows.push(...oo);
+    const { data: vv } = await supabase.from('poll_votes').select('option_id, message_id, profile_id').in('message_id', c);
+    if (vv) voteRows.push(...vv);
+  }
+  const byId = new Map<string, any>(rows.map(r => [r.id, r]));
+  const missingReplyIds = [...new Set(rows.map(r => r.reply_to_id as string | null).filter((x): x is string => !!x && !byId.has(x)))];
+  const replyExtra = new Map<string, any>();
+  for (const c of chunks(missingReplyIds)) {
+    const { data: rp } = await supabase.from('messages').select('id, sender_id, body, deleted_at').in('id', c);
+    (rp ?? []).forEach((x: any) => replyExtra.set(x.id, x));
+  }
+  const nameOf = (id?: string | null) => (id ? (names.get(id) ?? 'Utilizador') : 'Conta removida');
+
+  return rows.map(r => {
+    const reactions: MessageReaction[] = [];
+    for (const x of reactionRows.filter(q => q.message_id === r.id)) {
+      let g = reactions.find(e => e.emoji === x.emoji);
+      if (!g) { g = { emoji: x.emoji, count: 0, mine: false, names: [] }; reactions.push(g); }
+      g.count += 1; g.names.push(x.profile_id === meId ? 'Você' : nameOf(x.profile_id));
+      if (x.profile_id === meId) g.mine = true;
+    }
+    reactions.sort((a, b) => b.count - a.count);
+
+    let poll: MessagePoll | undefined;
+    if (r.poll_question) {
+      const votes = voteRows.filter(v => v.message_id === r.id);
+      poll = {
+        question: r.poll_question, multiple: !!r.poll_multiple,
+        totalVoters: new Set(votes.map(v => v.profile_id)).size,
+        options: optionRows.filter(o => o.message_id === r.id).map(o => {
+          const ov = votes.filter(v => v.option_id === o.id);
+          return { id: o.id, text: o.text, votes: ov.length, mine: ov.some(v => v.profile_id === meId), voters: ov.map(v => (v.profile_id === meId ? 'Você' : nameOf(v.profile_id))) };
+        }),
+      };
+    }
+
+    const src = r.reply_to_id ? (byId.get(r.reply_to_id) ?? replyExtra.get(r.reply_to_id)) : undefined;
+    return {
+      id: r.id, senderId: r.sender_id ?? undefined,
+      senderName: nameOf(r.sender_id),
+      body: r.body, createdAt: r.created_at,
+      topicId: r.topic_id ?? undefined,
+      topicTitle: r.conversation_topics?.title ?? undefined,
+      important: !!r.important,
+      attachmentName: r.attachment_name ?? undefined,
+      attachmentPath: r.attachment_path ?? undefined,
+      attachmentSize: r.attachment_size ?? undefined,
+      attachmentType: r.attachment_type ?? undefined,
+      editedAt: r.edited_at ?? undefined,
+      deleted: !!r.deleted_at,
+      forwarded: !!r.forwarded,
+      pinned: !!r.pinned_at,
+      reactions: reactions.length ? reactions : undefined,
+      poll,
+      replyTo: r.reply_to_id
+        ? (src ? { id: r.reply_to_id, senderName: nameOf(src.sender_id), body: src.deleted_at ? '🚫 Mensagem eliminada' : String(src.body ?? ''), deleted: !!src.deleted_at }
+               : { id: r.reply_to_id, senderName: 'Mensagem anterior', body: 'Mensagem não disponível' })
+        : undefined,
+    } as ChatMessage;
+  });
 }
 
 /** Temas de uma conversa, por ordem alfabética. */
@@ -2681,6 +2794,112 @@ export async function sendMessageInDb(conversationId: string, body: string, opts
     p_conversation_id: conversationId, p_body: body, p_important: !!opts.important,
     p_attachment: opts.attachment ? { name: opts.attachment.name, path: opts.attachment.path, size: opts.attachment.size, type: opts.attachment.type } : null,
   });
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
+}
+
+// ----------------------------------------------------------------------------
+// Opções ao estilo WhatsApp: corrigir, eliminar, reagir, fixar, encaminhar, responder, sondagens
+// ----------------------------------------------------------------------------
+const SO_COM_BASE_DE_DADOS = { success: false as const, error: 'Esta opção só está disponível com a base de dados Supabase ligada.' };
+type Resultado = { success: boolean; error?: string };
+
+/** Corrige o texto de uma mensagem própria. */
+export async function editMessageInDb(messageId: string, body: string): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { error } = await supabase.rpc('edit_message', { p_message_id: messageId, p_body: body });
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
+}
+
+/** Elimina uma mensagem: para todos (só o autor) ou só para mim. O documento anexo é apagado do armazenamento. */
+export async function deleteMessageInDb(messageId: string, forAll: boolean): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { data, error } = await supabase.rpc('delete_message', { p_message_id: messageId, p_for_all: forAll });
+  if (error) return { success: false, error: traduzirErro(error) };
+  const path = (data as any)?.attachmentPath;
+  if (forAll && path) { try { await supabase.storage.from('message-files').remove([path]); } catch { /* o documento já não é acessível pela mensagem */ } }
+  return { success: true };
+}
+
+/** Elimina a conversa de forma permanente para todos (só quem a iniciou). Apaga também os documentos. */
+export async function deleteConversationInDb(conversationId: string): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  // Recolhe os documentos antes de apagar (depois da conversa apagada já não há como os listar)
+  const { data: docs } = await supabase.from('messages').select('attachment_path').eq('conversation_id', conversationId).not('attachment_path', 'is', null);
+  const { error } = await supabase.rpc('delete_conversation', { p_conversation_id: conversationId });
+  if (error) return { success: false, error: traduzirErro(error) };
+  const paths = ((docs as any[]) ?? []).map(d => d.attachment_path as string).filter(Boolean);
+  if (paths.length > 0) { try { await supabase.storage.from('message-files').remove(paths); } catch { /* ficheiros órfãos não são acessíveis */ } }
+  return { success: true };
+}
+
+/** Reage com um emoji. Repetir o mesmo emoji retira a reação. */
+export async function reactToMessageInDb(messageId: string, emoji: string): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { error } = await supabase.rpc('react_to_message', { p_message_id: messageId, p_emoji: emoji });
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
+}
+
+export async function setMessagePinnedInDb(messageId: string, pinned: boolean): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { error } = await supabase.rpc('set_message_pinned', { p_message_id: messageId, p_pinned: pinned });
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
+}
+
+/** Mensagens fixadas de uma conversa (até 3), da mais recente para a mais antiga. */
+export async function fetchPinnedMessages(conversationId: string, meId: string, meName: string): Promise<Array<{ id: string; senderName: string; body: string }>> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.from('messages').select('id, sender_id, body, pinned_at')
+    .eq('conversation_id', conversationId).not('pinned_at', 'is', null).order('pinned_at', { ascending: false }).limit(3);
+  if (error || !data) return [];
+  const names = new Map<string, string>((await fetchMessageRecipients()).map(r => [r.id, r.name]));
+  names.set(meId, meName);
+  return (data as any[]).map(r => ({ id: r.id, senderName: r.sender_id ? (names.get(r.sender_id) ?? 'Utilizador') : 'Conta removida', body: r.body }));
+}
+
+/**
+ * Encaminha uma mensagem para outras conversas. Se tiver documento, é copiado para a pasta de cada conversa de destino.
+ */
+export async function forwardMessageInDb(
+  message: Pick<ChatMessage, 'id' | 'attachmentPath' | 'attachmentName'>,
+  targetConversationIds: string[],
+): Promise<{ success: boolean; sent: number; errors: string[] }> {
+  if (!isSupabaseConfigured) return { ...SO_COM_BASE_DE_DADOS, sent: 0, errors: [SO_COM_BASE_DE_DADOS.error] };
+  let sent = 0;
+  const errors: string[] = [];
+  for (const target of targetConversationIds) {
+    let newPath: string | undefined;
+    if (message.attachmentPath) {
+      const safe = (message.attachmentName || 'documento').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120) || 'documento';
+      newPath = `${target}/${Date.now()}-${safe}`;
+      const { error: copyErr } = await supabase.storage.from('message-files').copy(message.attachmentPath, newPath);
+      if (copyErr) { errors.push(traduzirErro(copyErr, 'Não foi possível copiar o documento.')); continue; }
+    }
+    const { error } = await supabase.rpc('forward_message', { p_message_id: message.id, p_target_conversation_id: target, p_attachment_path: newPath ?? null });
+    if (error) {
+      errors.push(traduzirErro(error));
+      if (newPath) { try { await supabase.storage.from('message-files').remove([newPath]); } catch { /* ignorar */ } }
+    } else sent += 1;
+  }
+  return { success: sent > 0 && errors.length === 0, sent, errors };
+}
+
+/** Envia uma mensagem como resposta a outra. */
+export async function sendReplyInDb(conversationId: string, replyToId: string, body: string, important = false): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { error } = await supabase.rpc('send_reply', { p_conversation_id: conversationId, p_reply_to_id: replyToId, p_body: body, p_important: important });
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
+}
+
+export async function createPollInDb(conversationId: string, question: string, options: string[], multiple: boolean): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { error } = await supabase.rpc('create_poll', { p_conversation_id: conversationId, p_question: question, p_options: options, p_multiple: multiple });
+  return error ? { success: false, error: traduzirErro(error) } : { success: true };
+}
+
+/** Vota numa sondagem (substitui os votos anteriores; lista vazia retira o voto). */
+export async function votePollInDb(messageId: string, optionIds: string[]): Promise<Resultado> {
+  if (!isSupabaseConfigured) return SO_COM_BASE_DE_DADOS;
+  const { error } = await supabase.rpc('vote_poll', { p_message_id: messageId, p_option_ids: optionIds });
   return error ? { success: false, error: traduzirErro(error) } : { success: true };
 }
 

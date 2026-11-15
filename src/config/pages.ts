@@ -182,13 +182,23 @@ export const APP_PAGES: AppPageConfig[] = [
     displayOrder: 15
   },
   {
+    key: 'my_team',
+    name: 'A Minha Equipa',
+    section: 'Operações',
+    route: 'my_team',
+    requiredBaseRole: 'PROVIDER',
+    isSensitive: false,
+    description: 'Equipa do prestador e notas das avaliações homologadas do seu grupo.',
+    displayOrder: 17
+  },
+  {
     key: 'teams',
     name: 'Equipas',
     section: 'Operações',
     route: 'teams',
     requiredBaseRole: 'OPERATIONAL',
     isSensitive: false,
-    description: 'Criação de equipas operacionais e escolha do supervisor entre os funcionários cadastrados.',
+    description: 'Criação de equipas operacionais e escolha do supervisor e dos membros.',
     displayOrder: 5
   }
 ];

@@ -510,3 +510,105 @@ test('erros: mensagens já em português mantêm-se e o padrão é usado sem inf
   assert.equal(traduzirErro({ message: 'Avaliação não encontrada.' }), 'Avaliação não encontrada.');
   assert.equal(traduzirErro(null, 'Falha ao guardar.'), 'Falha ao guardar.');
 });
+
+// ───────── Importação de clientes a partir de PDF ─────────
+import { extrairClientesDeItens } from '../src/services/pdfClientesExtracao.ts';
+
+// Fragmento de texto na posição (x, y) da página `p` (letra de 8 pt; y maior = mais acima)
+const it = (str, x, y, p = 1) => ({ str, x, y, w: str.length * 4, h: 8, pagina: p });
+const cabecalho = (y, p) => [it('Código', 30, y, p), it('Empresa', 90, y, p), it('NIF', 230, y, p), it('E-mail', 300, y, p), it('Estado', 420, y, p)];
+
+test('pdf: tabela em duas páginas, cabeçalho repetido, texto quebrado e rodapé', () => {
+  const itens = [
+    it('Lista de clientes', 30, 800), ...cabecalho(760, 1),
+    it('CLI-1', 30, 740), it('Alfa Lda', 90, 740), it('5417000111', 230, 740), it('alfa@alfa.ao', 300, 740), it('Ativo', 420, 740),
+    // nome que quebra em duas linhas (espaçamento menor do que entre clientes)
+    it('CLI-2', 30, 715), it('Beta Serviços e Comércio', 90, 715), it('Geral Limitada', 90, 706), it('—', 230, 715), it('—', 300, 715), it('Inativo', 420, 715),
+    it('Página 1 de 2', 250, 20),
+    ...cabecalho(760, 2),
+    it('CLI-3', 30, 740, 2), it('Gama SA', 90, 740, 2), it('abc', 230, 740, 2), it('gama@gama', 300, 740, 2), it('Ativo', 420, 740, 2),
+    it('Página 2 de 2', 250, 20, 2),
+  ];
+  const r = extrairClientesDeItens(itens, 2);
+  assert.equal(r.modo, 'TABELA');
+  assert.equal(r.matriz.length, 4); // cabeçalho + 3 clientes
+  assert.equal(r.matriz[2][1], 'Beta Serviços e Comércio Geral Limitada');
+  assert.equal(r.matriz[2][2], ''); // «—» passa a vazio
+  assert.deepEqual(r.rotulos, ['Cabeçalho', 'Pág. 1 · linha 1', 'Pág. 1 · linha 2', 'Pág. 2 · linha 1']);
+
+  const a = analyzeClientImport(r.matriz, []);
+  assert.equal(a.rows[0].valid, true);
+  assert.equal(a.rows[1].valid, true);   // só o nome é obrigatório
+  assert.equal(a.rows[2].valid, false);  // NIF «abc» e e-mail inválidos, com o motivo
+  assert.match(a.rows[2].errors.join(' '), /NIF/);
+});
+
+test('pdf: fichas «Campo: valor» e mensagens quando não há clientes', () => {
+  const ficha = (n, y0) => [it(`Empresa: ${n}`, 30, y0), it('NIF: 5417000111', 30, y0 - 12), it('E-mail: x@y.ao', 30, y0 - 24)];
+  const r = extrairClientesDeItens([...ficha('Alfa', 700), ...ficha('Beta', 600)], 1);
+  assert.equal(r.modo, 'FICHAS');
+  assert.equal(r.matriz.length, 3);
+  assert.equal(r.matriz[2][0], 'Beta');
+
+  assert.match(extrairClientesDeItens([], 1).fatal, /digitalizad/);
+  assert.match(extrairClientesDeItens([it('Relatório de vendas', 30, 700)], 1).fatal, /Não encontrei clientes/);
+});
+
+// ───────── Notas da empresa: total, média geral e por serviço ─────────
+import { resumirNotas, resumoPorServico, servicosDaAvaliacao } from '../src/services/clienteNotas.ts';
+
+const SERVICOS = [{ id: 's1', name: 'Limpeza' }, { id: 's2', name: 'Segurança' }];
+const avalia = (o) => ({ id: Math.random().toString(), satisfactionRating: 4, serviceName: '', ...o });
+
+test('notas da empresa: total, média geral e positivas/negativas', () => {
+  const r = resumirNotas([
+    avalia({ technicalScore: 90, finalClassification: 'POSITIVE', finalizedAt: 'x', satisfactionRating: 5 }),
+    avalia({ technicalScore: 70, finalClassification: 'NEGATIVE', finalizedAt: 'x', satisfactionRating: 3 }),
+    avalia({}), // ainda não homologada: conta no total, não entra na média
+  ]);
+  assert.equal(r.total, 3);
+  assert.equal(r.homologadas, 2);
+  assert.equal(r.mediaNota, 80);
+  assert.equal(r.positivas, 1);
+  assert.equal(r.negativas, 1);
+  assert.equal(r.mediaSatisfacao, 4);
+  assert.equal(resumirNotas([]).mediaNota, null);
+});
+
+test('notas da empresa: separação por tipo de serviço', () => {
+  const lista = [
+    avalia({ serviceId: 's1', serviceName: 'Limpeza', technicalScore: 90, finalizedAt: 'x', finalClassification: 'POSITIVE' }),
+    avalia({ serviceId: 's1', serviceName: 'Limpeza', technicalScore: 70, finalizedAt: 'x', finalClassification: 'NEGATIVE' }),
+    avalia({ serviceId: 's2', serviceName: 'Segurança', technicalScore: 60, finalizedAt: 'x', finalClassification: 'NEGATIVE' }),
+    avalia({ serviceName: 'Jardinagem', technicalScore: 100, finalizedAt: 'x', finalClassification: 'POSITIVE' }), // serviço fora da lista
+  ];
+  const { servicos, temAvaliacoesComVariosServicos } = resumoPorServico(lista, SERVICOS);
+  assert.equal(temAvaliacoesComVariosServicos, false);
+  assert.deepEqual(servicos.map(s => [s.nome, s.total, s.mediaNota]), [['Limpeza', 2, 80], ['Jardinagem', 1, 100], ['Segurança', 1, 60]]);
+});
+
+test('notas da empresa: avaliação com vários serviços conta em cada um', () => {
+  const e = avalia({ serviceId: 's1', serviceName: 'Limpeza', serviceTypesProvided: ['Limpeza', 'segurança'], technicalScore: 85, finalizedAt: 'x' });
+  assert.deepEqual(servicosDaAvaliacao(e, SERVICOS).map(s => s.chave).sort(), ['s1', 's2']);
+  const r = resumoPorServico([e], SERVICOS);
+  assert.equal(r.temAvaliacoesComVariosServicos, true);
+  assert.equal(r.servicos.every(s => s.total === 1 && s.mediaNota === 85), true);
+  assert.equal(servicosDaAvaliacao(avalia({}), SERVICOS)[0].nome, 'Serviço não indicado');
+});
+
+// ───────── Privacidade do nome da empresa face aos avaliados ─────────
+import { nomeEmpresaParaAvaliados, ocultarEmpresaNoTexto } from '../src/services/privacidadeEmpresa.ts';
+
+test('privacidade: o nome só aparece se o avaliador o permitiu', () => {
+  assert.equal(nomeEmpresaParaAvaliados('Sonangol E.P.', true), 'Sonangol E.P.');
+  assert.equal(nomeEmpresaParaAvaliados('Sonangol E.P.', false), 'Empresa não revelada');
+  assert.equal(nomeEmpresaParaAvaliados('Sonangol E.P.', undefined), 'Empresa não revelada');
+});
+
+test('privacidade: o nome da empresa é retirado dos textos partilhados', () => {
+  assert.equal(
+    ocultarEmpresaNoTexto('Na SONANGOL E.P. o serviço foi bom. Obrigado, sonângol!', 'Sonangol E.P.'),
+    'Na [empresa] o serviço foi bom. Obrigado, [empresa]!');
+  assert.equal(ocultarEmpresaNoTexto('Sem nada a esconder.', 'Unitel S.A.'), 'Sem nada a esconder.');
+  assert.equal(ocultarEmpresaNoTexto('Texto', ''), 'Texto');
+});

@@ -78,7 +78,7 @@ export const INITIAL_USERS: UserProfile[] = [
     active: true,
     lastLogin: '2026-11-01',
     allowedPages: [
-      'dashboard', 'evaluations', 'messages'
+      'my_team', 'dashboard', 'evaluations', 'messages'
     ]
   }
 ];

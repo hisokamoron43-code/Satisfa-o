@@ -12,6 +12,7 @@ import { traduzirErro } from './mensagensErro';
 
 import { supabase, isSupabaseConfigured } from './supabaseService';
 import { UserRole } from '../types';
+import { normalizeIdentifier } from '../lib/authIdentifier';
 
 export type EmployeeCategory = 'TECNICO' | 'SUPERVISOR' | 'ADMINISTRATIVO' | 'GESTAO' | 'DIRECAO' | 'OUTRO';
 export type ProfessionalStatus = 'ATIVO' | 'FERIAS' | 'LICENCA' | 'SUSPENSO' | 'INATIVO' | 'DESLIGADO';
@@ -197,9 +198,9 @@ export const DEFAULT_ACCESS_PROFILES: AccessProfile[] = [
   {
     id: 'ap-provider',
     name: 'Técnico de Terreno & Prestador',
-    description: 'Acesso às avaliações atribuídas e comunicação interna.',
+    description: 'Vê a sua equipa, as notas das avaliações do grupo e as mensagens internas.',
     baseRole: 'PROVIDER',
-    pages: ['dashboard', 'evaluations', 'messages'],
+    pages: ['my_team', 'messages'],
     isSystem: true,
     isActive: true,
     employeesCount: 4,
@@ -804,6 +805,41 @@ export async function callAdminEmployeesFunction(action: string, data: any): Pro
   } catch (err: any) {
     return { success: false, error: await describeAdminFunctionError(err) };
   }
+}
+
+// ----------------------------------------------------------------------------
+// CONTAS DE ACESSO DOS PRESTADORES (login no sistema com identificador + palavra-passe)
+// ----------------------------------------------------------------------------
+export interface ProviderAccount {
+  providerId: string;
+  identifier: string;
+  active: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt?: string | null;
+}
+
+/** Contas existentes (uma por prestador). `null` se não foi possível ler. */
+export async function listProviderAccounts(): Promise<ProviderAccount[] | null> {
+  const res = await callAdminEmployeesFunction('list_provider_accounts', {});
+  if (!res.success) return null;
+  const rows = res.data?.accounts;
+  return Array.isArray(rows) ? rows as ProviderAccount[] : [];
+}
+
+export const createProviderAccount = (providerId: string, accessIdentifier: string, initialPassword: string) =>
+  callAdminEmployeesFunction('create_provider_account', { providerId, accessIdentifier, initialPassword });
+
+export const resetProviderPassword = (providerId: string, newPassword: string) =>
+  callAdminEmployeesFunction('reset_provider_password', { providerId, newPassword });
+
+export const setProviderAccountActive = (providerId: string, active: boolean) =>
+  callAdminEmployeesFunction('set_provider_account_status', { providerId, active });
+
+/** Identificador sugerido a partir do nome: «João Manuel Silva» → «joao.silva». */
+export function suggestProviderIdentifier(name: string, code?: string): string {
+  const parts = normalizeIdentifier(name).split('.').filter(Boolean);
+  const base = parts.length >= 2 ? `${parts[0]}.${parts[parts.length - 1]}` : (parts[0] || normalizeIdentifier(code || ''));
+  return base;
 }
 
 /**

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
-import { Provider } from '../types';
+import { Provider, Evaluation } from '../types';
 import { avaliacoesDoPrestador } from '../services/grupoAvaliacao';
-import { UserCheck, Search, Plus, Edit3, Trash2, Power, CheckCircle2, XCircle, ShieldCheck, ShieldAlert, X, Mail, Briefcase, Star, Award, Shield } from 'lucide-react';
+import { listProviderAccounts, type ProviderAccount } from '../services/employeesService';
+import { ProviderAccountModal } from '../components/providers/ProviderAccountModal';
+import { UserCheck, Search, Plus, Edit3, Trash2, Power, CheckCircle2, XCircle, ShieldCheck, ShieldAlert, X, Mail, Briefcase, Star, Award, Shield, KeyRound } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 
 export const ProvidersPage: React.FC = () => {
@@ -108,6 +110,17 @@ export const ProvidersPage: React.FC = () => {
   };
 
   const canManageAccess = currentUser?.role === 'ADMIN' || currentUser?.role === 'HR';
+
+  // Contas de login dos prestadores (credenciais) — só RH/Administrador as vê e gere
+  const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
+  const [accountModalProvider, setAccountModalProvider] = useState<Provider | null>(null);
+  const loadAccounts = useCallback(async () => {
+    if (!canManageAccess) return;
+    const list = await listProviderAccounts();
+    if (list) setAccounts(list);
+  }, [canManageAccess]);
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  const accountOf = (providerId: string) => accounts.find(a => a.providerId === providerId);
 
   return (
     <div className="space-y-6">
@@ -264,7 +277,7 @@ export const ProvidersPage: React.FC = () => {
                   </td>
                   <td className="p-4">
                     {(() => {
-                      const provEvals = avaliacoesDoPrestador(evaluations, prov, teams);
+                      const provEvals = avaliacoesDoPrestador<Evaluation>(evaluations, prov, teams);
                       const homologated = provEvals.filter(e => !!e.finalizedAt);
                       const totalHomologated = homologated.length;
                       const avgTechScore = totalHomologated > 0
@@ -318,6 +331,16 @@ export const ProvidersPage: React.FC = () => {
                   </td>
                   <td className="p-4 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {canManageAccess && (
+                        <button
+                          onClick={() => setAccountModalProvider(prov)}
+                          className={`p-1.5 rounded-lg transition ${accountOf(prov.id) ? (accountOf(prov.id)!.active ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-rose-100 text-rose-700 hover:bg-rose-200') : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                          title={accountOf(prov.id) ? (accountOf(prov.id)!.active ? 'Acesso ao sistema ativo — gerir' : 'Acesso ao sistema desativado — gerir') : 'Criar acesso ao sistema (login)'}
+                          aria-label={`Acesso ao sistema de ${prov.name}`}
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleOpenModal(prov)}
                         className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition"
@@ -340,6 +363,15 @@ export const ProvidersPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {accountModalProvider && (
+        <ProviderAccountModal
+          provider={accountModalProvider}
+          account={accountOf(accountModalProvider.id)}
+          onClose={() => setAccountModalProvider(null)}
+          onChanged={loadAccounts}
+        />
+      )}
 
       {/* Access Grant/Revoke Confirmation Modal */}
       {accessModalProvider && (

@@ -73,6 +73,11 @@ const FIELD_BY_HEADER: Record<string, keyof ClientInput> = {
   'notas': 'notes',
 };
 
+/** Campo do cliente a que corresponde o título de uma coluna (CSV ou PDF), ou undefined se não for reconhecido. */
+export function campoDoCabecalho(titulo: string): keyof ClientInput | undefined {
+  return FIELD_BY_HEADER[norm(titulo.replace(/\(.*?\)/g, ''))];
+}
+
 /** Data em YYYY-MM-DD, DD/MM/YYYY ou DD-MM-YYYY. Devolve YYYY-MM-DD ou null se inválida. */
 export function parseImportDate(raw: string): string | null {
   const s = raw.trim();

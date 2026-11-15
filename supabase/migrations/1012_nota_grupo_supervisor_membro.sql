@@ -9,8 +9,8 @@
 --  • provider_in_evaluation_group(): devolve verdadeiro quando o prestador pertence ao grupo que
 --    recebe a nota da avaliação (o prestador atribuído, os membros da equipa e o supervisor).
 --  • evaluation_group_provider_ids(): ids de todos os prestadores do grupo de uma avaliação.
---  • Política evaluations_select_grupo: um prestador lê as avaliações HOMOLOGADAS do seu grupo,
---    não apenas as que lhe foram atribuídas diretamente.
+--  A leitura das notas pelos membros do grupo é feita pela função my_team_overview() (migração 1013),
+--  que devolve só os campos necessários, e não por política direta na tabela evaluations.
 -- ============================================================================
 
 -- 1) Supervisor: membro cadastrado ou prestador -------------------------------------------------
@@ -91,11 +91,3 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.evaluation_group_provider_ids(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.evaluation_group_provider_ids(uuid) TO authenticated;
-
--- 3) Leitura pelos membros do grupo (só avaliações homologadas) ----------------------------------
-DROP POLICY IF EXISTS evaluations_select_grupo ON public.evaluations;
-CREATE POLICY evaluations_select_grupo ON public.evaluations FOR SELECT TO authenticated
-  USING (
-    finalized_at IS NOT NULL
-    AND public.provider_in_evaluation_group(public.current_provider_id(), provider_id, team_id)
-  );

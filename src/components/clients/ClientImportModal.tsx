@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Download, Upload } from 'lucide-react';
 import type { Client } from '../../types';
+import { traduzirErro } from '../../services/mensagensErro';
 import {
   analyzeClientImport, clientCsvTemplate, parseCsv, CLIENT_IMPORT_BATCH_SIZE,
   type ClientInput, type ImportAnalysis,
@@ -22,15 +23,53 @@ export const ClientImportModal: React.FC<Props> = ({ existing, onImport, onClose
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [summary, setSummary] = useState<{ created: number; failed: Array<{ line: number; error: string }> } | null>(null);
+  // Importação por PDF: onde está cada linha no PDF, avisos da leitura e estado
+  const [rotulos, setRotulos] = useState<string[]>([]);
+  const [avisosPdf, setAvisosPdf] = useState<string[]>([]);
+  const [infoPdf, setInfoPdf] = useState<string | null>(null);
+  const [lendoPdf, setLendoPdf] = useState(false);
+
+  const limparPdf = () => { setRotulos([]); setAvisosPdf([]); setInfoPdf(null); };
+  /** «Pág. 2 · linha 5» (PDF) ou o número da linha (CSV). */
+  const origem = (line: number) => rotulos[line - 1] ?? String(line);
 
   const analyze = (source: string) => {
     setSummary(null);
+    limparPdf();
     setAnalysis(analyzeClientImport(parseCsv(source), existing));
   };
 
+  const analisarPdf = async (file: File) => {
+    setSummary(null);
+    limparPdf();
+    setAnalysis(null);
+    setLendoPdf(true);
+    try {
+      const { extrairClientesDePdf } = await import('../../services/pdfLeitor');
+      const r = await extrairClientesDePdf(await file.arrayBuffer());
+      if (r.fatal) {
+        setAnalysis({ fatal: r.fatal, rows: [] });
+      } else {
+        setRotulos(r.rotulos);
+        setAvisosPdf(r.avisos);
+        setInfoPdf(`${r.modo === 'TABELA' ? 'Tabela' : 'Fichas «Campo: valor»'} detetada(s) em ${r.paginas} página(s): ${r.matriz.length - 1} linha(s) lida(s). Confira os dados abaixo antes de importar.`);
+        setAnalysis(analyzeClientImport(r.matriz, existing));
+      }
+    } catch (e) {
+      setAnalysis({ fatal: traduzirErro(e, 'Não foi possível ler o PDF.'), rows: [] });
+    } finally {
+      setLendoPdf(false);
+    }
+  };
+
   const onFile = async (file: File) => {
-    const content = await file.text();
     setFileName(file.name);
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      setText('');
+      await analisarPdf(file);
+      return;
+    }
+    const content = await file.text();
     setText(content);
     analyze(content);
   };
@@ -69,7 +108,7 @@ export const ClientImportModal: React.FC<Props> = ({ existing, onImport, onClose
           <div>
             <h3 id="import-title" className="text-lg font-black text-slate-900">Importar clientes em lote</h3>
             <p className="text-xs text-slate-500 mt-1">
-              Só o <strong>nome da empresa</strong> é obrigatório. Os restantes campos podem ser completados depois, editando o cliente.
+              Aceita ficheiros <strong>CSV</strong> e <strong>PDF</strong> (tabela com colunas como «Empresa», «NIF», «E-mail» ou fichas «Campo: valor»). Só o <strong>nome da empresa</strong> é obrigatório. Os restantes campos podem ser completados depois, editando o cliente.
               Os clientes são gravados em blocos de {CLIENT_IMPORT_BATCH_SIZE}, um pedido de cada vez.
             </p>
           </div>
@@ -84,16 +123,26 @@ export const ClientImportModal: React.FC<Props> = ({ existing, onImport, onClose
               <Download className="w-3.5 h-3.5" /> Descarregar modelo (CSV)
             </button>
             <label className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:bg-slate-50">
-              <Upload className="w-3.5 h-3.5" /> Escolher ficheiro CSV
-              <input type="file" accept=".csv,text/csv" className="hidden" disabled={busy}
+              <Upload className="w-3.5 h-3.5" /> Escolher ficheiro (CSV ou PDF)
+              <input type="file" accept=".csv,text/csv,.pdf,application/pdf" className="hidden" disabled={busy || lendoPdf}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
             </label>
             {fileName && <span className="text-xs text-slate-600">Ficheiro: <strong>{fileName}</strong></span>}
+            {lendoPdf && <span className="text-xs font-bold text-slate-700">A ler o PDF…</span>}
           </div>
+
+          {infoPdf && !analysis?.fatal && (
+            <p className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900">{infoPdf}</p>
+          )}
+          {avisosPdf.length > 0 && (
+            <ul className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 list-disc pl-6">
+              {avisosPdf.map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+          )}
 
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700">Ou cole aqui os dados (com a linha de cabeçalho; separador ; ou ,)</label>
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} disabled={busy}
+            <textarea value={text} onChange={(e) => { setText(e.target.value); }} rows={4} disabled={busy}
               className="w-full text-xs font-mono border border-slate-300 rounded-xl p-2 focus:outline-none focus:ring-2 focus:ring-brand" />
             <button onClick={() => analyze(text)} disabled={busy || !text.trim()}
               className="px-3 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold disabled:opacity-40">Analisar dados</button>
@@ -115,7 +164,7 @@ export const ClientImportModal: React.FC<Props> = ({ existing, onImport, onClose
                 <table className="w-full text-xs">
                   <thead className="bg-slate-100 sticky top-0">
                     <tr>
-                      <th className="p-2 text-left">Linha</th>
+                      <th className="p-2 text-left">{rotulos.length > 0 ? 'Origem no PDF' : 'Linha'}</th>
                       <th className="p-2 text-left">Estado</th>
                       <th className="p-2 text-left">Empresa</th>
                       <th className="p-2 text-left">NIF</th>
@@ -127,7 +176,7 @@ export const ClientImportModal: React.FC<Props> = ({ existing, onImport, onClose
                   <tbody className="divide-y divide-slate-100">
                     {analysis.rows.slice(0, PREVIEW_LIMIT).map((r) => (
                       <tr key={r.line} className={r.valid ? '' : 'bg-red-50/40'}>
-                        <td className="p-2">{r.line}</td>
+                        <td className="p-2 whitespace-nowrap">{origem(r.line)}</td>
                         <td className="p-2 font-bold">{r.valid ? '✓ Válido' : '✕ Erro'}</td>
                         <td className="p-2">{r.data?.companyName ?? '—'}</td>
                         <td className="p-2">{r.data?.nif ?? '—'}</td>
@@ -162,7 +211,7 @@ export const ClientImportModal: React.FC<Props> = ({ existing, onImport, onClose
               <p className="font-black text-slate-900">Importação concluída: {summary.created} cliente(s) criado(s), {summary.failed.length} com erro.</p>
               {summary.failed.length > 0 && (
                 <ul className="list-disc pl-5 text-red-800 space-y-0.5">
-                  {summary.failed.map((f) => <li key={f.line}>Linha {f.line}: {f.error}</li>)}
+                  {summary.failed.map((f) => <li key={f.line}>{rotulos.length > 0 ? origem(f.line) : `Linha ${f.line}`}: {f.error}</li>)}
                 </ul>
               )}
             </div>

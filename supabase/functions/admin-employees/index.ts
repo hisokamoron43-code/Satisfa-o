@@ -539,6 +539,126 @@ Deno.serve(async (req: Request): Promise<Response> => {
       // ----------------------------------------------------------------------
       // AUDITORIA DE VISUALIZAÇÃO / DOWNLOAD DE DOCUMENTOS
       // ----------------------------------------------------------------------
+      // ----------------------------------------------------------------------
+      // CONTAS DE ACESSO DOS PRESTADORES DE SERVIÇOS (login com identificador + palavra-passe)
+      // O prestador vê apenas a página «A Minha Equipa» (notas das avaliações do grupo) e as mensagens.
+      // ----------------------------------------------------------------------
+      case 'list_provider_accounts': {
+        const { data: rows, error: listErr } = await admin.from('profiles')
+          .select('id, email, active, must_change_password, provider_id, last_login_at')
+          .not('provider_id', 'is', null);
+        if (listErr) return json({ error: 'Não foi possível ler as contas dos prestadores.' }, 500);
+        return json({
+          success: true,
+          accounts: (rows ?? []).map((r: any) => ({
+            providerId: r.provider_id,
+            identifier: String(r.email ?? '').split('@')[0],
+            active: r.active === true,
+            mustChangePassword: r.must_change_password === true,
+            lastLoginAt: r.last_login_at ?? null,
+          })),
+        });
+      }
+
+      case 'create_provider_account': {
+        const { providerId, accessIdentifier, initialPassword } = data;
+        if (!isNonEmptyString(providerId, 10, 80)) return json({ error: 'Prestador inválido.' }, 400);
+
+        const ident = normalizeIdentifier(String(accessIdentifier ?? ''));
+        if (ident.length < 3 || ident.length > 50 || String(accessIdentifier ?? '').includes('@')) {
+          return json({ error: 'Identificador de acesso inválido (mínimo 3 caracteres, sem @).' }, 400);
+        }
+        if (!isStrongPassword(initialPassword)) {
+          return json({ error: 'A palavra-passe inicial deve ter pelo menos 8 caracteres, com letras e números.' }, 400);
+        }
+        if (!catalog.has('my_team')) {
+          return json({ error: 'A página «A Minha Equipa» ainda não existe na base de dados. Execute a migração 1013.' }, 500);
+        }
+
+        const { data: prov } = await admin.from('providers').select('id, name, status, department').eq('id', providerId).maybeSingle();
+        if (!prov) return json({ error: 'Prestador não encontrado.' }, 404);
+        if (prov.status !== 'ACTIVE') return json({ error: 'Só é possível criar acesso a prestadores ativos.' }, 400);
+
+        const { data: jaTem } = await admin.from('profiles').select('id').eq('provider_id', providerId).maybeSingle();
+        if (jaTem) return json({ error: 'Este prestador já tem uma conta de acesso. Use «Redefinir palavra-passe».' }, 400);
+
+        const techEmail = `${ident}@${TECHNICAL_DOMAIN}`;
+        const { data: dupProf } = await admin.from('profiles').select('id').eq('email', techEmail).maybeSingle();
+        const { data: dupEmp } = await admin.from('employees').select('id').eq('access_identifier', ident).maybeSingle();
+        if (dupProf || dupEmp) return json({ error: `O identificador "${ident}" já está em uso. Escolha outro.` }, 400);
+
+        const { data: created, error: createErr } = await admin.auth.admin.createUser({
+          email: techEmail,
+          password: initialPassword,
+          email_confirm: true,
+          user_metadata: { full_name: String(prov.name ?? '').trim() },
+        });
+        if (createErr || !created?.user) {
+          const msg = String(createErr?.message ?? '');
+          const friendly = /already|registered|exists/i.test(msg)
+            ? 'Já existe uma conta com este identificador.'
+            : 'Não foi possível criar as credenciais de acesso.';
+          await logAudit('CREATE', 'ProviderAccount', providerId, 'DENIED', `Falha ao criar conta para o prestador ${prov.name}`);
+          return json({ error: friendly }, 400);
+        }
+        const userId = created.user.id;
+
+        const { error: profErr } = await admin.from('profiles').insert({
+          id: userId,
+          name: String(prov.name ?? '').trim(),
+          email: techEmail,
+          role: 'PROVIDER',
+          department: prov.department || 'Operações',
+          active: true,
+          allowed_pages: ['my_team', 'messages'],
+          must_change_password: true,
+          provider_id: providerId,
+        });
+        if (profErr) {
+          await admin.auth.admin.deleteUser(userId);
+          return json({ error: 'Não foi possível criar o perfil de acesso do prestador.' }, 400);
+        }
+
+        await logAudit('CREATE', 'ProviderAccount', providerId, 'SUCCESS', `Conta de acesso criada para o prestador ${prov.name} (identificador ${ident}).`);
+        return json({ success: true, identifier: ident });
+      }
+
+      case 'reset_provider_password': {
+        const { providerId, newPassword } = data;
+        if (!isNonEmptyString(providerId, 10, 80)) return json({ error: 'Prestador inválido.' }, 400);
+        if (!isStrongPassword(newPassword)) {
+          return json({ error: 'A palavra-passe deve ter pelo menos 8 caracteres, com letras e números.' }, 400);
+        }
+        const { data: tProf } = await admin.from('profiles').select('id, name, role').eq('provider_id', providerId).maybeSingle();
+        if (!tProf) return json({ error: 'Este prestador ainda não tem conta de acesso.' }, 400);
+        if (tProf.role !== 'PROVIDER') return json({ error: 'Esta conta não é de prestador.' }, 403);
+
+        const { error: authErr } = await admin.auth.admin.updateUserById(tProf.id, { password: newPassword });
+        if (authErr) return json({ error: 'Não foi possível redefinir a palavra-passe.' }, 400);
+        await admin.from('profiles').update({ must_change_password: true, updated_at: new Date().toISOString() }).eq('id', tProf.id);
+
+        await logAudit('UPDATE', 'PasswordReset', providerId, 'SUCCESS', `Palavra-passe redefinida para o prestador ${tProf.name}.`);
+        return json({ success: true });
+      }
+
+      case 'set_provider_account_status': {
+        const { providerId, active } = data;
+        if (!isNonEmptyString(providerId, 10, 80) || typeof active !== 'boolean') {
+          return json({ error: 'Pedido inválido.' }, 400);
+        }
+        const { data: tProf } = await admin.from('profiles').select('id, name, role').eq('provider_id', providerId).maybeSingle();
+        if (!tProf) return json({ error: 'Este prestador ainda não tem conta de acesso.' }, 400);
+        if (tProf.role !== 'PROVIDER') return json({ error: 'Esta conta não é de prestador.' }, 403);
+
+        const { error: updErr } = await admin.from('profiles').update({ active, updated_at: new Date().toISOString() }).eq('id', tProf.id);
+        if (updErr) return json({ error: 'Não foi possível atualizar o estado da conta.' }, 400);
+        const { error: banErr } = await admin.auth.admin.updateUserById(tProf.id, { ban_duration: active ? 'none' : '876600h' });
+        if (banErr) return json({ error: 'Estado guardado, mas não foi possível aplicar o bloqueio de sessão. Tente novamente.' }, 500);
+
+        await logAudit('UPDATE', 'ProviderAccountStatus', providerId, 'SUCCESS', `Conta do prestador ${tProf.name} ${active ? 'ativada' : 'desativada'}.`);
+        return json({ success: true, active });
+      }
+
       case 'audit_document_view': {
         const { documentId, filename, actionType } = data;
         const safeAction = actionType === 'DOWNLOAD' ? 'DOWNLOAD' : 'VIEW';
