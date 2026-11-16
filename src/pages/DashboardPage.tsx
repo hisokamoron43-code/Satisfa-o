@@ -117,9 +117,12 @@ export const DashboardPage: React.FC = () => {
   // Response rate calculation: percentage of active clients who have submitted at least one evaluation
   const activeClientsCount = clients.filter(c => c.status === 'ACTIVE').length;
   const uniqueClientsResponded = new Set(filteredEvaluations.map(e => e.clientId).filter(Boolean)).size;
-  const responseRate = activeClientsCount > 0 
+  // Sem clientes ativos não há taxa: antes mostrava 100 % só por existirem avaliações
+  const responseRate: number | null = activeClientsCount > 0
     ? Math.min(100, Math.round((uniqueClientsResponded / activeClientsCount) * 100))
-    : (totalEvaluations > 0 ? 100 : 0);
+    : null;
+  // Poucas avaliações dão percentagens extremas (3 de 3 = 100 %): avisa em vez de parecer um resultado sólido
+  const SMALL_SAMPLE = 10;
 
   // Chart data for satisfaction trend over time (aggregated by date)
   const trendData = useMemo(() => {
@@ -276,10 +279,13 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900">{csatPercentage}%</div>
+            <div className="text-2xl font-black text-slate-900">{totalEvaluations > 0 ? `${csatPercentage}%` : '—'}</div>
             <p className="text-[10px] text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
               <ShieldCheck className="w-3 h-3" /> {satisfiedCount} de {totalEvaluations} ≥ 4★
             </p>
+            {totalEvaluations > 0 && totalEvaluations < SMALL_SAMPLE && (
+              <p className="text-[10px] text-amber-700 font-semibold mt-0.5">Só {totalEvaluations} avaliação(ões): a percentagem pode enganar.</p>
+            )}
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 group-hover:text-brand-dark">
             <span>👆 Detalhes</span>
@@ -301,8 +307,10 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900">{npsValue > 0 ? `+${npsValue}` : npsValue} pts</div>
-            <p className="text-[10px] text-slate-500 font-medium mt-0.5">Escala -100 a +100</p>
+            <div className="text-2xl font-black text-slate-900">{npsScores.length === 0 ? '—' : `${npsValue > 0 ? `+${npsValue}` : npsValue} pts`}</div>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+              {npsScores.length === 0 ? 'Sem respostas de NPS neste período' : `Escala -100 a +100 · ${npsScores.length} resposta(s)`}
+            </p>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 group-hover:text-blue-600">
             <span>👆 Detalhes</span>
@@ -393,8 +401,10 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900">{responseRate}%</div>
-            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">Meta: &gt; 80%</p>
+            <div className="text-2xl font-black text-slate-900">{responseRate === null ? '—' : `${responseRate}%`}</div>
+            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
+              {responseRate === null ? 'Sem clientes ativos' : `${uniqueClientsResponded} de ${activeClientsCount} clientes · Meta: > 80%`}
+            </p>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 group-hover:text-brand-dark">
             <span>👆 Detalhes</span>

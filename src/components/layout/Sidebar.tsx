@@ -158,6 +158,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
             </div>
           </div>
           <button
+            onClick={() => { setMobileOpen(false); window.dispatchEvent(new Event('sicsc:edit-bottom-nav')); }}
+            className="lg:hidden w-full mb-2 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm min-h-11 rounded-xl transition border border-slate-700/60"
+          >
+            <span>Personalizar barra de acesso rápido</span>
+          </button>
+          <button
             onClick={logout}
             className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-950/40 hover:text-red-400 text-slate-300 text-sm min-h-11 rounded-xl transition border border-slate-700/60"
           >

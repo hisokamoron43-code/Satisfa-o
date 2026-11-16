@@ -4,7 +4,7 @@ import {
   ChatMessage, ConversationSummary, MessageFilter, MessageRecipient,
   addGroupMembersInDb, createConversationInDb, fetchConversations, fetchMessageRecipients, fetchMessages,
   findDuplicateAttachments, getAttachmentUrl, markConversationReadInDb, sendMessageInDb, setConversationTopicInDb,
-  uploadMessageAttachment,
+  uploadMessageAttachment, supabase, isSupabaseConfigured,
   createPollInDb, deleteConversationInDb, deleteMessageInDb, editMessageInDb, fetchPinnedMessages, forwardMessageInDb,
   reactToMessageInDb, sendReplyInDb, setMessagePinnedInDb, votePollInDb,
 } from '../services/supabaseService';
@@ -14,7 +14,9 @@ import {
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 
 const MAX_BODY = 4000;
-const POLL_MS = 15000;
+/** Verificação de segurança: frequente se o tempo real falhar, espaçada quando está ligado. */
+const POLL_FALLBACK_MS = 5000;
+const POLL_LIVE_MS = 30000;
 const EMPTY_FILTER: MessageFilter = { from: '', to: '', topicId: '', important: false, text: '' };
 
 const initials = (name: string) =>
@@ -99,6 +101,7 @@ export const MessagesPage: React.FC = () => {
   const [pinned, setPinned] = useState<Array<{ id: string; senderName: string; body: string }>>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [live, setLive] = useState(false);   // ligação em tempo real ativa
 
   const selected = useMemo(() => conversations.find(c => c.id === selectedId) ?? null, [conversations, selectedId]);
   const topics = useMemo(
@@ -127,22 +130,57 @@ export const MessagesPage: React.FC = () => {
   const loadThread = useCallback(async (id: string) => {
     setMessages(await fetchMessages(id, meId, meName, filter));
     setPinned(await fetchPinnedMessages(id, meId, meName));
-    await markConversationReadInDb(id);
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') await markConversationReadInDb(id);
   }, [meId, meName, filter]);
 
   useEffect(() => {
     fetchMessageRecipients().then(setRecipients);
     loadList();
-    const t = setInterval(loadList, POLL_MS);
+    const t = setInterval(loadList, live ? POLL_LIVE_MS : POLL_FALLBACK_MS);
     return () => clearInterval(t);
-  }, [loadList]);
+  }, [loadList, live]);
 
   useEffect(() => {
     if (!selectedId) { setMessages([]); return; }
     loadThread(selectedId);
-    const t = setInterval(() => loadThread(selectedId), POLL_MS);
+    const t = setInterval(() => loadThread(selectedId), live ? POLL_LIVE_MS : POLL_FALLBACK_MS);
     return () => clearInterval(t);
-  }, [selectedId, loadThread]);
+  }, [selectedId, loadThread, live]);
+
+  // Tempo real: novas mensagens, edições, eliminações, reações, votos e alterações de conversas chegam logo,
+  // sem recarregar a página. Os callbacks mais recentes ficam em refs para a ligação não ser refeita a cada render.
+  const latest = useRef({ loadList, loadThread, selectedId });
+  latest.current = { loadList, loadThread, selectedId };
+  useEffect(() => {
+    if (!isSupabaseConfigured || !meId) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refreshSoon = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        latest.current.loadList();
+        if (latest.current.selectedId) latest.current.loadThread(latest.current.selectedId);
+      }, 250);
+    };
+    const channel = supabase.channel(`mensagens-${meId}`);
+    ['messages', 'message_reactions', 'poll_votes', 'conversation_members', 'conversations'].forEach(table => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, refreshSoon);
+    });
+    channel.subscribe(status => setLive(status === 'SUBSCRIBED'));
+
+    // Telemóveis e separadores em segundo plano suspendem a ligação: ao voltar, atualiza logo.
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshSoon(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', refreshSoon);
+    window.addEventListener('online', refreshSoon);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', refreshSoon);
+      window.removeEventListener('online', refreshSoon);
+      supabase.removeChannel(channel);
+      setLive(false);
+    };
+  }, [meId]);
 
   useEffect(() => {
     setFilter(EMPTY_FILTER); setShowFilters(false); setShowTopics(false);
@@ -299,7 +337,13 @@ export const MessagesPage: React.FC = () => {
       {/* ===================== LISTA DE CONVERSAS ===================== */}
       <aside className={`${selected ? 'hidden lg:flex' : 'flex'} w-full lg:w-[380px] shrink-0 flex-col border-r border-slate-200 bg-white`}>
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-          <h2 className="text-xl font-black text-slate-900">Conversas</h2>
+          <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+            Conversas
+            {isSupabaseConfigured && (
+              <span title={live ? 'Ligado em tempo real: as mensagens chegam logo' : 'A reconectar… as mensagens são verificadas a cada poucos segundos'}
+                className={`inline-block w-2 h-2 rounded-full ${live ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} aria-label={live ? 'Em tempo real' : 'A reconectar'} />
+            )}
+          </h2>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowNew({ topic: '' })} title="Criar tema" aria-label="Criar tema"
               className="px-2.5 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold"># Tema</button>

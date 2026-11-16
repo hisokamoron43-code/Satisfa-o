@@ -9,6 +9,8 @@
 --  • Fixar até 3 mensagens por conversa (qualquer membro).
 --  • Encaminhar uma mensagem (e o seu documento) para outras conversas.
 --  • Responder a uma mensagem e criar sondagens (uma ou várias respostas) com votação.
+--  • Tempo real: as tabelas das mensagens entram na publicação supabase_realtime, para que novas mensagens,
+--    reações, votos e alterações cheguem aos outros membros sem recarregar a página.
 -- Todas as regras são aplicadas na base de dados, não só no ecrã.
 -- ============================================================================
 
@@ -442,3 +444,19 @@ GRANT EXECUTE ON FUNCTION public.visible_message_conversation(uuid), public.edit
   public.set_message_pinned(uuid, boolean), public.forward_message(uuid, uuid, text),
   public.send_reply(uuid, uuid, text, boolean), public.create_poll(uuid, text, text[], boolean),
   public.vote_poll(uuid, uuid[]) TO authenticated;
+
+-- 15) Tempo real (Supabase Realtime) ------------------------------------------------------------------------
+-- Cada pessoa só recebe eventos das linhas que as políticas de leitura (RLS) lhe permitem ver.
+DO $$
+DECLARE
+  t text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    FOREACH t IN ARRAY ARRAY['messages', 'message_reactions', 'poll_votes', 'conversation_members', 'conversations']
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = t) THEN
+        EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+      END IF;
+    END LOOP;
+  END IF;
+END $$;

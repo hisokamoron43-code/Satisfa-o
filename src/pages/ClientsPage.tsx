@@ -312,8 +312,8 @@ export const ClientsPage: React.FC = () => {
                   <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{formatarNota(notasCliente.mediaNota)}</p><p className="text-[11px] text-slate-500">Nota média geral</p></div>
                   <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900"><span className="text-emerald-700">{notasCliente.positivas}</span> / <span className="text-rose-700">{notasCliente.negativas}</span></p><p className="text-[11px] text-slate-500">Positivas / negativas</p></div>
                   <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{notasCliente.mediaSatisfacao === null ? '—' : `${notasCliente.mediaSatisfacao.toFixed(1)}/5`}</p><p className="text-[11px] text-slate-500">Satisfação média do cliente</p></div>
-                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{csatPercent(selEvals).toFixed(1)}%</p><p className="text-[11px] text-slate-500">CSAT</p></div>
-                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{npsValue(selEvals)}</p><p className="text-[11px] text-slate-500">NPS</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{selEvals.length > 0 ? `${csatPercent(selEvals).toFixed(1)}%` : '—'}</p><p className="text-[11px] text-slate-500">CSAT{selEvals.length > 0 && selEvals.length < 10 ? ` (só ${selEvals.length} aval.)` : ''}</p></div>
+                  <div className="bg-slate-50 rounded-xl p-3"><p className="text-2xl font-black text-slate-900">{selEvals.some(e => typeof e.npsScore === 'number') ? npsValue(selEvals) : '—'}</p><p className="text-[11px] text-slate-500">NPS{selEvals.some(e => typeof e.npsScore === 'number') ? '' : ' (sem respostas)'}</p></div>
                 </div>
 
                 {selEvals.length > 0 && (

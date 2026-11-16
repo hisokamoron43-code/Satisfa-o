@@ -72,7 +72,7 @@ export const KpiDetailModal: React.FC<KpiDetailModalProps> = ({
   const correctiveCount = evaluations.filter(e => e.correctiveActionStatus === 'PENDING' || e.correctiveActionStatus === 'IN_PROGRESS').length;
   const activeClientsCount = clients.filter(c => c.status === 'ACTIVE').length;
   const respondedClientsCount = new Set(evaluations.map(e => e.clientId).filter(Boolean)).size;
-  const responseRateVal = activeClientsCount > 0 ? Math.min(100, Math.round((respondedClientsCount / activeClientsCount) * 100)) : 100;
+  const responseRateVal = activeClientsCount > 0 ? Math.min(100, Math.round((respondedClientsCount / activeClientsCount) * 100)) : 0;
 
   // Rating star distribution
   const starCounts = [1, 2, 3, 4, 5].map(star => ({

@@ -612,3 +612,30 @@ test('privacidade: o nome da empresa é retirado dos textos partilhados', () => 
   assert.equal(ocultarEmpresaNoTexto('Sem nada a esconder.', 'Unitel S.A.'), 'Sem nada a esconder.');
   assert.equal(ocultarEmpresaNoTexto('Texto', ''), 'Texto');
 });
+
+// ───────── Barra de acesso rápido do telemóvel ─────────
+import { pagesAvailable, resolveShortcuts, moveItem, MAX_SHORTCUTS } from '../src/lib/bottomNavPrefs.ts';
+
+const CATALOGO = ['dashboard', 'clients', 'evaluations', 'hr', 'messages', 'my_team', 'settings'];
+
+test('barra móvel: só oferece páginas permitidas (administrador vê todas)', () => {
+  assert.deepEqual(pagesAvailable(CATALOGO, ['messages', 'my_team'], false), ['messages', 'my_team']);
+  assert.deepEqual(pagesAvailable(CATALOGO, [], true), CATALOGO);
+  assert.deepEqual(pagesAvailable(CATALOGO, [], false), []);
+});
+
+test('barra móvel: padrão, escolha guardada e permissões retiradas', () => {
+  const disp = pagesAvailable(CATALOGO, ['dashboard', 'evaluations', 'messages', 'my_team', 'clients'], false);
+  assert.deepEqual(resolveShortcuts(disp, null), ['dashboard', 'evaluations', 'my_team']);   // 3 por defeito
+  assert.deepEqual(resolveShortcuts(disp, ['messages', 'clients']), ['messages', 'clients']);
+  // «hr» deixou de ser permitido, repetidos e desconhecidos saem, máximo respeitado
+  assert.deepEqual(resolveShortcuts(disp, ['hr', 'messages', 'messages', 'x', 'clients', 'dashboard', 'evaluations', 'my_team']).length, MAX_SHORTCUTS);
+  assert.deepEqual(resolveShortcuts(disp, ['hr', 'messages', 'messages']), ['messages']);
+  assert.deepEqual(resolveShortcuts(disp, []), []);
+});
+
+test('barra móvel: reordenar atalhos', () => {
+  assert.deepEqual(moveItem(['a', 'b', 'c'], 1, -1), ['b', 'a', 'c']);
+  assert.deepEqual(moveItem(['a', 'b', 'c'], 0, -1), ['a', 'b', 'c']);
+  assert.deepEqual(moveItem(['a', 'b', 'c'], 2, 1), ['a', 'b', 'c']);
+});
