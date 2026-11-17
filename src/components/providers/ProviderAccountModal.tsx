@@ -45,7 +45,7 @@ export const ProviderAccountModal: React.FC<Props> = ({ provider, account, onClo
     setError(null);
     if (identifier.includes('@')) { setError('Use um identificador simples (sem @), por exemplo joao.silva.'); return; }
     if (!idCheck.valid) { setError(idCheck.error || 'Identificador inválido.'); return; }
-    if (!isStrongPassword(password)) { setError('A palavra-passe deve ter pelo menos 8 caracteres, com letras e números.'); return; }
+    if (!isStrongPassword(password)) { setError('A palavra-passe deve ter pelo menos 10 caracteres, com letras e números.'); return; }
     setBusy(true);
     const res = await createProviderAccount(provider.id, identifier, password);
     setBusy(false);
@@ -56,7 +56,7 @@ export const ProviderAccountModal: React.FC<Props> = ({ provider, account, onClo
 
   const redefinir = async () => {
     setError(null);
-    if (!isStrongPassword(password)) { setError('A palavra-passe deve ter pelo menos 8 caracteres, com letras e números.'); return; }
+    if (!isStrongPassword(password)) { setError('A palavra-passe deve ter pelo menos 10 caracteres, com letras e números.'); return; }
     setBusy(true);
     const res = await resetProviderPassword(provider.id, password);
     setBusy(false);
@@ -147,7 +147,7 @@ export const ProviderAccountModal: React.FC<Props> = ({ provider, account, onClo
                 <input value={password} onChange={(e) => setPassword(e.target.value)} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand" />
                 <button type="button" onClick={() => setPassword(gerarPalavraPasse())} className="px-3 border border-slate-300 rounded-xl" title="Gerar outra" aria-label="Gerar outra palavra-passe"><RefreshCw className="w-4 h-4" /></button>
               </div>
-              <p className="text-slate-500 mt-1">Mínimo 8 caracteres, com letras e números.</p>
+              <p className="text-slate-500 mt-1">Mínimo 10 caracteres, com letras e números.</p>
             </div>
             <button onClick={criar} disabled={busy} className="w-full px-4 py-2.5 bg-brand-dark text-white rounded-xl font-bold disabled:opacity-50">{busy ? 'A criar…' : 'Criar acesso'}</button>
           </div>

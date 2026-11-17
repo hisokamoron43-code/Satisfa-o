@@ -341,7 +341,7 @@ export const EmployeeManagement: React.FC = () => {
     }
 
     if (createAccount && !isStrongPassword(initialPassword)) {
-      setFormError('A palavra-passe inicial deve ter pelo menos 8 caracteres, com letras e números.');
+      setFormError('A palavra-passe inicial deve ter pelo menos 10 caracteres, com letras e números.');
       return;
     }
 
@@ -1218,7 +1218,7 @@ export const EmployeeManagement: React.FC = () => {
                             value={initialPassword}
                             required={createAccount}
                             onChange={(e) => setInitialPassword(e.target.value)}
-                            placeholder="Mínimo 8 caracteres, com letras e números"
+                            placeholder="Mínimo 10 caracteres, com letras e números"
                             autoComplete="new-password"
                             className="w-full pl-3.5 pr-12 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand"
                           />
@@ -1362,7 +1362,7 @@ export const EmployeeManagement: React.FC = () => {
                       className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
                     <button type="button" onClick={async () => {
                       setAccessMsg(null);
-                      if (!isStrongPassword(editNewPwd)) { setAccessMsg('A palavra-passe deve ter pelo menos 8 caracteres, com letras e números.'); return; }
+                      if (!isStrongPassword(editNewPwd)) { setAccessMsg('A palavra-passe deve ter pelo menos 10 caracteres, com letras e números.'); return; }
                       const r = await resetEmployeePasswordViaAdmin(selectedEmployee.id, editNewPwd);
                       setAccessMsg(r.success ? 'Palavra-passe redefinida. O colaborador terá de a alterar no próximo acesso.' : (r.error || 'Não foi possível redefinir a palavra-passe.'));
                       if (r.success) setEditNewPwd('');

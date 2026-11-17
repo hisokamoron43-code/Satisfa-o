@@ -232,7 +232,7 @@ export const SettingsPage: React.FC = () => {
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Proteção de PII
               </span>
               <p className="text-[11px] text-slate-600 leading-relaxed">
-                Vistas públicas seguras (<code className="font-mono text-slate-800">v_public_clients</code>, <code className="font-mono text-slate-800">v_public_providers</code>) ocultam telefones e e-mails pessoais.
+                Clientes e prestadores não são listados publicamente. O formulário público mostra apenas as equipas e os prestadores de cada equipa, e a associação ao cliente é feita pelo nome introduzido.
               </p>
             </div>
 

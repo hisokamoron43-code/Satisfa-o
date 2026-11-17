@@ -148,12 +148,9 @@ interface AppContextType {
   updateEvaluationScores: (evaluationId: string, updates: {
     satisfactionRating?: number;
     npsScore?: number;
-    technicalScore?: number;
-    finalClassification?: 'POSITIVE' | 'NEGATIVE';
     status?: Evaluation['status'];
-    criterionRatings?: Record<string, number>;
     comment?: string;
-    notes?: string;
+    reason?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   
   addHRCase: (hrCase: Omit<HRCase, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; data?: HRCase; error?: string }>;
@@ -824,51 +821,40 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true };
   };
 
+  // Revisão manual (CSAT, NPS, comentário, estado). A pontuação técnica e a
+  // classificação final são calculadas no servidor e não são editáveis aqui.
   const updateEvaluationScores = async (
     evaluationId: string,
     updates: {
       satisfactionRating?: number;
       npsScore?: number;
-      technicalScore?: number;
-      finalClassification?: 'POSITIVE' | 'NEGATIVE';
       status?: Evaluation['status'];
-      criterionRatings?: Record<string, number>;
       comment?: string;
-      notes?: string;
+      reason?: string;
     }
   ): Promise<{ success: boolean; error?: string }> => {
     const targetEval = evaluations.find(e => e.id === evaluationId);
     if (!targetEval) return { success: false, error: 'Avaliação não encontrada.' };
 
-    const updatePayload = {
-      satisfactionRating: updates.satisfactionRating !== undefined ? updates.satisfactionRating : targetEval.satisfactionRating,
-      npsScore: updates.npsScore !== undefined ? updates.npsScore : targetEval.npsScore,
-      technicalScore: updates.technicalScore !== undefined ? updates.technicalScore : targetEval.technicalScore,
-      finalClassification: updates.finalClassification || targetEval.finalClassification,
-      status: updates.status || targetEval.status,
-      criterionRatings: updates.criterionRatings || targetEval.criterionRatings,
-      comment: updates.comment !== undefined ? updates.comment : targetEval.comment,
-      finalizedAt: updates.technicalScore !== undefined ? (targetEval.finalizedAt || new Date().toISOString()) : targetEval.finalizedAt,
-      finalizedBy: updates.technicalScore !== undefined ? (targetEval.finalizedBy || currentUser?.name || 'Administrador') : targetEval.finalizedBy,
-    };
-
-    const res = await updateEvaluationScoresInDb(evaluationId, updatePayload);
+    const res = await updateEvaluationScoresInDb(evaluationId, updates);
     if (!res.success) {
-      logAction('UPDATE', 'EvaluationScore', evaluationId, 'DENIED', `Falha ao atualizar pontuação: ${res.error}`);
-      return { success: false, error: res.error || 'Falha ao atualizar pontuação.' };
+      logAction('UPDATE', 'EvaluationReview', evaluationId, 'DENIED', `Falha ao rever avaliação ${targetEval.reference}: ${res.error}`);
+      return { success: false, error: res.error || 'Falha ao rever a avaliação.' };
     }
 
+    // Estado local apenas depois de confirmação do servidor
     setEvaluations(prev => prev.map(e => {
-      if (e.id === evaluationId) {
-        logAction('UPDATE', 'EvaluationScore', evaluationId, 'SUCCESS', `Ajustada pontuação da avaliação ${e.reference}: CSAT ${updates.satisfactionRating ?? e.satisfactionRating}/5, Técnico ${updates.technicalScore ?? e.technicalScore}%`);
-        return {
-          ...e,
-          ...updatePayload
-        };
-      }
-      return e;
+      if (e.id !== evaluationId) return e;
+      return {
+        ...e,
+        ...(updates.satisfactionRating !== undefined ? { satisfactionRating: updates.satisfactionRating } : {}),
+        ...(updates.npsScore !== undefined ? { npsScore: updates.npsScore } : {}),
+        ...(updates.status !== undefined ? { status: updates.status } : {}),
+        ...(updates.comment !== undefined ? { comment: updates.comment } : {}),
+      };
     }));
 
+    logAction('UPDATE', 'EvaluationReview', evaluationId, 'SUCCESS', `Revista avaliação ${targetEval.reference}.`);
     return { success: true };
   };
 

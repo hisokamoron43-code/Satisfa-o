@@ -314,11 +314,23 @@ export async function getOrCreateUserProfile(authUser: any): Promise<UserProfile
   } as UserProfile;
 }
 
+/** Verdadeiro só com sessão autenticada. Visitantes anónimos (formulário público) não leem clientes nem prestadores. */
+async function hasAuthenticatedSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return !!data.session;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchClientsFromDb(): Promise<Client[] | null> {
   if (!isSupabaseConfigured) {
     return getStore('clients', MOCK_CLIENTS);
   }
   try {
+    // Sem sessão autenticada não há leitura de clientes/prestadores (VUL-03).
+    if (!(await hasAuthenticatedSession())) return [];
     // 1. Tentar tabela completa (autorizado para colaboradores/gestores autenticados)
     const { data, error } = await supabase
       .from('clients')
@@ -343,27 +355,6 @@ export async function fetchClientsFromDb(): Promise<Client[] | null> {
         contractedServices: item.contracted_services || [],
         status: item.status || 'ACTIVE',
         createdAt: item.created_at ? item.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10),
-      }));
-    }
-
-    // 2. Fallback seguro para vista pública v_public_clients (formulário de cliente anónimo)
-    // Protege PII confidencial (contactos, emails, telefones) expondo apenas campos necessários
-    const { data: viewData, error: viewError } = await supabase
-      .from('v_public_clients')
-      .select('id, company_name, internal_code')
-      .order('company_name');
-
-    if (!viewError && viewData && viewData.length > 0) {
-      return viewData.map((item: any) => ({
-        id: item.id,
-        companyName: item.company_name,
-        internalCode: item.internal_code,
-        contactPerson: '',
-        email: '',
-        phone: '',
-        contractedServices: [],
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString().substring(0, 10),
       }));
     }
 
@@ -599,6 +590,8 @@ export async function fetchProvidersFromDb(): Promise<Provider[] | null> {
     return getStore('providers', MOCK_PROVIDERS);
   }
   try {
+    // Sem sessão autenticada não há leitura de clientes/prestadores (VUL-03).
+    if (!(await hasAuthenticatedSession())) return [];
     // 1. Tentar tabela completa (autorizado para colaboradores autenticados)
     const { data, error } = await supabase.from('providers').select('*').order('name');
     if (!error && data) {
@@ -614,26 +607,6 @@ export async function fetchProvidersFromDb(): Promise<Provider[] | null> {
         evaluationAccessAuthorized: !!item.evaluation_access_authorized,
         accessAuthorizedAt: item.access_authorized_at,
         accessAuthorizedBy: item.access_authorized_by,
-      }));
-    }
-
-    // 2. Fallback seguro para vista pública v_public_providers (formulário de cliente anónimo)
-    // Oculta e-mails e histórico administrativo de autorizações
-    const { data: viewData, error: viewError } = await supabase
-      .from('v_public_providers')
-      .select('id, name, internal_code, services')
-      .order('name');
-
-    if (!viewError && viewData) {
-      return viewData.map((item: any) => ({
-        id: item.id,
-        internalCode: item.internal_code,
-        name: item.name,
-        professionalEmail: '',
-        services: item.services || [],
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString().substring(0, 10),
-        evaluationAccessAuthorized: false,
       }));
     }
 
@@ -982,42 +955,34 @@ export async function updateEvaluationScoresInDb(
   updates: {
     satisfactionRating?: number;
     npsScore?: number;
-    technicalScore?: number;
-    finalClassification?: 'POSITIVE' | 'NEGATIVE';
-    status?: Evaluation['status'];
-    criterionRatings?: Record<string, number>;
     comment?: string;
-    finalizedAt?: string;
-    finalizedBy?: string;
+    status?: Evaluation['status'];
+    reason?: string;
   }
 ): Promise<{ success: boolean; error?: string }> {
+  // A pontuação técnica e a classificação final NÃO são editáveis no cliente:
+  // são calculadas no servidor (calculate_and_finalize_evaluation). A revisão
+  // passa sempre pela RPC, que valida permissões, justificação e imutabilidade.
   if (!isSupabaseConfigured) {
+    const { reason: _reason, ...rest } = updates;
     const list = getStore('evaluations', MOCK_EVALUATIONS);
-    setStore('evaluations', list.map(e => e.id === id ? { ...e, ...updates } : e));
+    setStore('evaluations', list.map(e => e.id === id ? { ...e, ...rest } : e));
     return { success: true };
   }
   try {
-    const payload: any = { updated_at: new Date().toISOString() };
-    if (updates.satisfactionRating !== undefined) payload.satisfaction_rating = updates.satisfactionRating;
-    if (updates.npsScore !== undefined) payload.nps_score = updates.npsScore;
-    if (updates.technicalScore !== undefined) payload.technical_score = updates.technicalScore;
-    if (updates.finalClassification !== undefined) payload.final_classification = updates.finalClassification;
-    if (updates.status !== undefined) payload.status = updates.status;
-    if (updates.criterionRatings !== undefined) payload.criterion_ratings = updates.criterionRatings;
-    if (updates.comment !== undefined) payload.comment = updates.comment;
-    if (updates.finalizedAt !== undefined) payload.finalized_at = updates.finalizedAt;
-    if (updates.finalizedBy !== undefined) payload.finalized_by = updates.finalizedBy;
-
-    const { error } = await supabase.from('evaluations').update(payload).eq('id', id);
-    if (error) {
-      console.warn('Evaluation score update remote notice:', error.message);
-      const list = getStore('evaluations', MOCK_EVALUATIONS);
-      setStore('evaluations', list.map(e => e.id === id ? { ...e, ...updates } : e));
-      return { success: true };
-    }
+    const { error } = await supabase.rpc('update_evaluation_review', {
+      p_evaluation_id: id,
+      p_satisfaction: updates.satisfactionRating ?? null,
+      p_nps: updates.npsScore ?? null,
+      p_comment: updates.comment ?? null,
+      p_status: updates.status ?? null,
+      p_reason: updates.reason ?? null,
+    });
+    // Sem fallback local: se a base de dados recusar, o utilizador tem de saber.
+    if (error) return { success: false, error: traduzirErro(error, 'Não foi possível guardar a revisão da avaliação.') };
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: traduzirErro(err, 'Erro ao atualizar pontuação da avaliação.') };
+    return { success: false, error: traduzirErro(err, 'Erro ao atualizar a avaliação.') };
   }
 }
 
@@ -1069,17 +1034,18 @@ export async function insertAuditLogInDb(log: Omit<AuditLog, 'id' | 'timestamp'>
     return;
   }
   try {
-    await supabase.from('audit_logs').insert({
-      user_email: log.userEmail,
-      user_name: log.userName,
-      operation_type: log.operationType,
-      affected_entity: log.affectedEntity,
-      record_id: log.recordId,
-      result: log.result,
-      details: log.details,
+    // Gravado pela RPC log_system_audit: o autor é sempre o utilizador autenticado
+    // e os tipos de operação são validados no servidor.
+    const { error } = await supabase.rpc('log_system_audit', {
+      p_operation_type: log.operationType,
+      p_affected_entity: log.affectedEntity,
+      p_record_id: log.recordId ?? null,
+      p_result: log.result,
+      p_details: log.details,
     });
+    if (error) console.warn('[SICSC] Registo de auditoria não gravado no servidor.');
   } catch {
-    // Audit log push failure should not break client operation
+    // Falha de auditoria não deve impedir a operação do utilizador
   }
 }
 

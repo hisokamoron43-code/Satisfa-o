@@ -161,7 +161,7 @@ export function authEmailToIdentifierDisplay(authEmail: string): string {
   return authEmail;
 }
 
-/** Palavra-passe: 8 a 128 caracteres, com pelo menos uma letra e um número. */
+/** Palavra-passe: 10 a 128 caracteres, com pelo menos uma letra e um número. */
 export function isStrongPassword(p: string): boolean {
-  return p.length >= 8 && p.length <= 128 && /[A-Za-z]/.test(p) && /[0-9]/.test(p);
+  return p.length >= 10 && p.length <= 128 && /[A-Za-z]/.test(p) && /[0-9]/.test(p);
 }

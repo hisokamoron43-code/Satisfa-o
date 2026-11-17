@@ -165,7 +165,7 @@ function porTexto(e: ErroLike): string | null {
   if (m.includes('invalid login credentials')) return 'Credenciais inválidas. Verifique o identificador e a palavra-passe.';
   if (m.includes('email not confirmed')) return 'O e-mail ainda não foi confirmado.';
   if (m.includes('user already registered') || m.includes('already been registered')) return 'Já existe uma conta com este e-mail.';
-  if (m.includes('password should be at least')) return 'A palavra-passe é demasiado curta. Use pelo menos 8 caracteres, com letras e números.';
+  if (m.includes('password should be at least')) return 'A palavra-passe é demasiado curta. Use pelo menos 10 caracteres, com letras e números.';
   if (m.includes('new password should be different')) return 'A nova palavra-passe tem de ser diferente da atual.';
   if (m.includes('weak password') || m.includes('password is known to be weak')) return 'A palavra-passe é demasiado fraca. Escolha uma mais difícil de adivinhar.';
   if (m.includes('jwt expired') || m.includes('invalid jwt') || m.includes('token is expired') || m.includes('refresh token')) return 'A sessão expirou. Inicie sessão novamente.';

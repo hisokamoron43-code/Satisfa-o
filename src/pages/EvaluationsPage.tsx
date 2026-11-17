@@ -383,17 +383,16 @@ export const EvaluationsPage: React.FC = () => {
     const res = await updateEvaluationScores(editingScoreEval.id, {
       satisfactionRating: editCsat,
       npsScore: editNps,
-      technicalScore: editTechnicalScore,
-      finalClassification: editClassification,
       status: editStatus,
-      comment: updatedComment
+      comment: updatedComment,
+      reason: editJustification.trim()
     });
 
     setIsSubmittingScoreEdit(false);
     if (!res.success) {
       setScoreEditError(res.error || 'Falha ao gravar alteração de pontuação.');
     } else {
-      setScoreEditSuccess('Pontuação e classificação final atualizadas com sucesso!');
+      setScoreEditSuccess('Avaliação revista com sucesso.');
       setTimeout(() => {
         setEditingScoreEval(null);
       }, 1200);
@@ -1300,12 +1299,12 @@ export const EvaluationsPage: React.FC = () => {
                 <input type="number" min="0" max="10" value={editNps} onChange={e => setEditNps(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Nota Técnica (%)</label>
-                <input type="number" min="0" max="100" value={editTechnicalScore} onChange={e => setEditTechnicalScore(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                <label className="text-xs font-bold text-slate-700">Nota Técnica (%) · calculada no servidor</label>
+                <input type="number" value={editTechnicalScore} disabled readOnly className="w-full p-2 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-500" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Classificação</label>
-                <select value={editClassification} onChange={e => setEditClassification(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900">
+                <label className="text-xs font-bold text-slate-700">Classificação · calculada no servidor</label>
+                <select value={editClassification} disabled className="w-full p-2 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-500">
                   <option value="POSITIVE">POSITIVA</option>
                   <option value="NEGATIVE">NEGATIVA</option>
                 </select>

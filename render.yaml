@@ -18,6 +18,12 @@ services:
         name: Referrer-Policy
         value: strict-origin-when-cross-origin
       - path: /*
+        name: Strict-Transport-Security
+        value: "max-age=31536000; includeSubDomains"
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: "same-origin"
+      - path: /*
         name: Permissions-Policy
         value: "camera=(), geolocation=(), payment=(), microphone=(self)"
     routes:

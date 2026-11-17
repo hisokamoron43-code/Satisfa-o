@@ -33,9 +33,9 @@ function corsHeadersFor(req: Request): Record<string, string> {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-/** Palavra-passe: 8 a 128 caracteres, com pelo menos uma letra e um número. */
+/** Palavra-passe: 10 a 128 caracteres, com pelo menos uma letra e um número. */
 function isStrongPassword(p: unknown): p is string {
-  return typeof p === 'string' && p.length >= 8 && p.length <= 128 && /[A-Za-z]/.test(p) && /[0-9]/.test(p);
+  return typeof p === 'string' && p.length >= 10 && p.length <= 128 && /[A-Za-z]/.test(p) && /[0-9]/.test(p);
 }
 
 const ROLE_LEVEL: Record<string, number> = { ADMIN: 5, HR: 4, DIRECTOR: 3, OPERATIONAL: 2, PROVIDER: 1 };
@@ -245,7 +245,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return json({ error: 'Identificador de acesso inválido (mínimo 3 caracteres, sem @).' }, 400);
           }
           if (!isStrongPassword(initialPassword)) {
-            return json({ error: 'A palavra-passe inicial deve ter pelo menos 8 caracteres, com letras e números.' }, 400);
+            return json({ error: 'A palavra-passe inicial deve ter pelo menos 10 caracteres, com letras e números.' }, 400);
           }
 
           const { data: dup } = await admin.from('employees').select('id').eq('access_identifier', ident).maybeSingle();
@@ -347,6 +347,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
           .select('id, full_name, user_id').eq('id', employeeId).maybeSingle();
         if (!target) return json({ error: 'Colaborador não encontrado.' }, 404);
 
+        // Hierarquia (VUL-05): quem não é ADMIN não altera contas de nível igual ou superior ao seu.
+        // A própria conta pode ser editada nos dados pessoais, mas nunca suspensa ou desligada por si.
+        const isSelf = target.user_id === callerId;
+        if (target.user_id) {
+          const { data: tp } = await admin.from('profiles').select('role').eq('id', target.user_id).maybeSingle();
+          const targetLevel = ROLE_LEVEL[tp?.role ?? 'PROVIDER'] ?? 0;
+          if (callerRole !== 'ADMIN' && !isSelf && targetLevel >= callerLevel) {
+            return json({ error: 'Não tem autoridade para alterar este colaborador.' }, 403);
+          }
+        }
+
         const clean: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: callerEmail };
         if (isNonEmptyString(updates.fullName, 2, 150)) clean.full_name = updates.fullName.trim();
         if (CATEGORIES.includes(updates.category)) clean.category = updates.category;
@@ -356,6 +367,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         if (PROFESSIONAL_STATUSES.includes(updates.professionalStatus)) {
           if (DEACTIVATING_STATUSES.includes(updates.professionalStatus) && target.user_id) {
+            if (isSelf) return json({ error: 'Não pode suspender ou desligar a sua própria conta.' }, 400);
             const { data: tProf } = await admin.from('profiles').select('id, role, active').eq('id', target.user_id).maybeSingle();
             if (tProf?.role === 'ADMIN' && tProf.active) {
               if ((await countOtherActiveAdmins(admin, tProf.id)) < 1) {
@@ -472,7 +484,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const { employeeId, newPassword } = data;
         if (!isNonEmptyString(employeeId, 10, 80)) return json({ error: 'Colaborador inválido.' }, 400);
         if (!isStrongPassword(newPassword)) {
-          return json({ error: 'A palavra-passe deve ter pelo menos 8 caracteres, com letras e números.' }, 400);
+          return json({ error: 'A palavra-passe deve ter pelo menos 10 caracteres, com letras e números.' }, 400);
         }
 
         const { data: target } = await admin.from('employees').select('id, user_id, full_name').eq('id', employeeId).maybeSingle();
@@ -569,7 +581,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           return json({ error: 'Identificador de acesso inválido (mínimo 3 caracteres, sem @).' }, 400);
         }
         if (!isStrongPassword(initialPassword)) {
-          return json({ error: 'A palavra-passe inicial deve ter pelo menos 8 caracteres, com letras e números.' }, 400);
+          return json({ error: 'A palavra-passe inicial deve ter pelo menos 10 caracteres, com letras e números.' }, 400);
         }
         if (!catalog.has('my_team')) {
           return json({ error: 'A página «A Minha Equipa» ainda não existe na base de dados. Execute a migração 1013.' }, 500);
@@ -627,7 +639,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const { providerId, newPassword } = data;
         if (!isNonEmptyString(providerId, 10, 80)) return json({ error: 'Prestador inválido.' }, 400);
         if (!isStrongPassword(newPassword)) {
-          return json({ error: 'A palavra-passe deve ter pelo menos 8 caracteres, com letras e números.' }, 400);
+          return json({ error: 'A palavra-passe deve ter pelo menos 10 caracteres, com letras e números.' }, 400);
         }
         const { data: tProf } = await admin.from('profiles').select('id, name, role').eq('provider_id', providerId).maybeSingle();
         if (!tProf) return json({ error: 'Este prestador ainda não tem conta de acesso.' }, 400);

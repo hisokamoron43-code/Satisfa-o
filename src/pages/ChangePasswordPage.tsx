@@ -17,7 +17,7 @@ export const ChangePasswordPage: React.FC = () => {
     e.preventDefault();
     setError(null);
     if (!isStrongPassword(password)) {
-      setError('A nova palavra-passe deve ter pelo menos 8 caracteres, com letras e números.');
+      setError('A nova palavra-passe deve ter pelo menos 10 caracteres, com letras e números.');
       return;
     }
     if (password !== confirm) {
