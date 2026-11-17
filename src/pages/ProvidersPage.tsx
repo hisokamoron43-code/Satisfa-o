@@ -8,7 +8,7 @@ import { UserCheck, Search, Plus, Edit3, Trash2, Power, CheckCircle2, XCircle, S
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
 
 export const ProvidersPage: React.FC = () => {
-  const { providers, addProvider, updateProvider, deleteProvider, toggleProviderAccess, services, teams, currentUser, evaluations, clients } = useApp();
+  const { providers, addProvider, updateProvider, deleteProvider, toggleProviderAccess, services, teams, currentUser, evaluations, clients, teamHistory, activities } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedKpiModal, setSelectedKpiModal] = useState<string | null>(null);
 
@@ -277,7 +277,7 @@ export const ProvidersPage: React.FC = () => {
                   </td>
                   <td className="p-4">
                     {(() => {
-                      const provEvals = avaliacoesDoPrestador<Evaluation>(evaluations, prov, teams);
+                      const provEvals = avaliacoesDoPrestador<Evaluation>(evaluations, prov, teams, { historico: teamHistory, atividades: activities });
                       const homologated = provEvals.filter(e => !!e.finalizedAt);
                       const totalHomologated = homologated.length;
                       const avgTechScore = totalHomologated > 0

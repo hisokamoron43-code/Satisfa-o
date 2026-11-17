@@ -4,6 +4,7 @@
  */
 import type { Client, ClientGoal, Evaluation, Provider } from '../types';
 import { fmtDate, scopeData, SECTION_LABELS, type ReportData, type ReportOptions } from './reportBuilder';
+import { calcularRankings, fmtMedia, notaDoItem, TOP_SERVICOS, TOP_EQUIPAS, TOP_FUNCIONARIOS, type ItemRanking } from './rankings';
 import { csatPercent, npsValue } from './goalProgress';
 import type { UserOptions } from 'jspdf-autotable';
 import type { CompanyKpis } from './companyKpis.ts';
@@ -197,6 +198,25 @@ export async function buildReportPdf(data: ReportData, o: ReportOptions) {
         showHead: 'everyPage',
       });
     }, provs.length > 0);
+  }
+  if (sections.includes('RANKINGS')) {
+    const r = calcularRankings({ evals: scoped.evals, services: data.services, teams: scoped.teams, providers: scoped.providers, ctx: scoped.ctx, limiar: data.passingThreshold });
+    const rank = (titulo: string, itens: ItemRanking[], vazio: string) => {
+      section(titulo, vazio, () => {
+        table({
+          startY: y + 3,
+          head: [['#', 'Nome', 'Média', 'Avaliações', 'Positivas', 'Negativas', 'Nota']],
+          body: itens.map((i, k) => [k + 1, i.nome, fmtMedia(i.media), i.avaliacoes, i.positivas, i.negativas, notaDoItem(i) || '—']),
+          showHead: 'everyPage',
+        });
+      }, itens.length > 0);
+    };
+    rank(`Serviços mais bem avaliados (top ${TOP_SERVICOS})`, r.servicos.melhores, 'Sem avaliações homologadas.');
+    rank(`Serviços com pior classificação (top ${TOP_SERVICOS})`, r.servicos.piores, 'Sem mais serviços para comparar.');
+    rank(`Equipas mais bem avaliadas (top ${TOP_EQUIPAS})`, r.equipas.melhores, 'Sem avaliações homologadas com equipa.');
+    rank(`Equipas com pior classificação (top ${TOP_EQUIPAS})`, r.equipas.piores, 'Sem mais equipas para comparar.');
+    rank(`Funcionários mais bem avaliados (top ${TOP_FUNCIONARIOS})`, r.funcionarios.melhores, 'Sem avaliações homologadas por funcionário.');
+    rank(`Funcionários com avaliação mais negativa (top ${TOP_FUNCIONARIOS})`, r.funcionarios.piores, 'Sem mais funcionários para comparar.');
   }
   if (sections.includes('RH')) {
     const cases = scoped.hrCases;

@@ -33,6 +33,8 @@ import { WeightBalancerPanel } from '../components/evaluation/WeightBalancerPane
 import { EvaluationReviewWorkspace, automaticConformity, missingQualitativeMessage, qualitativeContent } from '../components/evaluation/EvaluationReviewWorkspace';
 import { calculateFinalScore } from '../services/finalScore';
 import { destinatariosDaNota } from '../services/grupoAvaliacao';
+import { ParticipantesNota } from '../components/evaluation/ParticipantesNota';
+import { fetchEvaluationParticipants } from '../services/supabaseService';
 import { ocultarEmpresaNoTexto } from '../services/privacidadeEmpresa';
 import { 
   Users, 
@@ -94,6 +96,7 @@ export const HumanResourcesPage: React.FC = () => {
     addTeam,
     deleteTeam,
     activities,
+    teamHistory,
     addActivity,
     deleteActivity,
     associateEvaluationClient
@@ -992,6 +995,13 @@ export const HumanResourcesPage: React.FC = () => {
                         <span className="text-slate-500">Homologado em: {ev.finalizedAt?.substring(0, 10)}</span>
                       </div>
 
+                      <details className="pt-2 border-t border-black/10">
+                        <summary className="cursor-pointer text-[11px] font-bold text-slate-700">Quem recebe esta nota</summary>
+                        <div className="pt-2">
+                          <ParticipantesNota ev={ev} providers={providers} teams={teams} activities={activities} teamHistory={teamHistory} />
+                        </div>
+                      </details>
+
                       <div className="pt-2 border-t border-black/10 flex items-center justify-between gap-2">
                         <span className="text-[10px] text-slate-500 font-medium">
                           Por: <strong className="text-slate-800">{ev.finalizedBy || 'Recursos Humanos'}</strong>
@@ -1016,10 +1026,14 @@ export const HumanResourcesPage: React.FC = () => {
                                 alert('Esta avaliação ainda não tem pontuação final. Homologue-a antes de notificar o grupo.');
                                 return;
                               }
-                              // A nota é do grupo inteiro: prestador atribuído, membros da equipa e supervisor
-                              const grupo = destinatariosDaNota(ev, providers, teams);
+                              // A nota é de quem participou: atribuído, supervisor e membros que estavam na equipa e foram escalados
+                              // Usa o retrato gravado pelo servidor ao homologar; se não estiver disponível, calcula aqui
+                              const gravado = await fetchEvaluationParticipants(ev.id);
+                              const grupo = gravado && gravado.length > 0
+                                ? providers.filter(p => p.status === 'ACTIVE' && gravado.some(x => x.counts && x.providerId === p.id))
+                                : destinatariosDaNota(ev, providers, teams, { historico: teamHistory, atividades: activities });
                               if (grupo.length === 0) {
-                                alert('Não há nenhum prestador ou equipa associados a esta avaliação. Atribua primeiro a equipa ou o funcionário.');
+                                alert('Ninguém conta para esta nota: não há prestador atribuído nem membros que tenham participado neste serviço. Verifique a equipa, a data do serviço e a escala no calendário.');
                                 return;
                               }
                               let enviados = 0;

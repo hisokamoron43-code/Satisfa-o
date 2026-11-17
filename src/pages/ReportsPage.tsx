@@ -12,13 +12,13 @@ import {
 } from '../services/supabaseService';
 import { ClientGoal } from '../types';
 
-const ALL_SECTIONS: ReportSection[] = ['AVALIACOES', 'CLIENTES_METAS', 'ATIVIDADES', 'RH', 'EQUIPA', 'HOMOLOGACAO'];
+const ALL_SECTIONS: ReportSection[] = ['AVALIACOES', 'CLIENTES_METAS', 'ATIVIDADES', 'RH', 'EQUIPA', 'HOMOLOGACAO', 'RANKINGS'];
 const SCOPE_LABEL: Record<ReportScope, string> = {
   GLOBAL: 'Global', SERVICE: 'Por serviço', EMPLOYEE: 'Por funcionário', CLIENT: 'Por cliente',
 };
 
 export const ReportsPage: React.FC = () => {
-  const { evaluations, services, clients, providers, activities, hrCases, teams, currentUser } = useApp();
+  const { evaluations, services, clients, providers, activities, hrCases, teams, currentUser, teamHistory, passingThreshold } = useApp();
   const [view, setView] = useState<'OVERVIEW' | 'REPORTS'>('OVERVIEW');
   const [selectedKpi, setSelectedKpi] = useState<KpiType | null>(null);
   const [goals, setGoals] = useState<ClientGoal[]>([]);
@@ -44,8 +44,8 @@ export const ReportsPage: React.FC = () => {
       scope, serviceId: serviceId || undefined, providerId: providerId || undefined, clientId: clientId || undefined,
       from: from || undefined, to: to || undefined, sections, generatedBy: currentUser?.name || 'Sistema',
     };
-    return buildReportText(o, { evaluations, clients, goals, services, providers, activities, hrCases, teams });
-  }, [scope, serviceId, providerId, clientId, from, to, sections, scopeReady, evaluations, clients, goals, services, providers, activities, hrCases, currentUser]);
+    return buildReportText(o, { evaluations, clients, goals, services, providers, activities, hrCases, teams, teamHistory, passingThreshold });
+  }, [scope, serviceId, providerId, clientId, from, to, sections, scopeReady, evaluations, clients, goals, services, providers, activities, hrCases, teams, teamHistory, passingThreshold, currentUser]);
 
   const toggleSection = (s: ReportSection) =>
     setSections(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -67,7 +67,7 @@ export const ReportsPage: React.FC = () => {
 
   const exportPdf = async () => {
     if (!scopeReady) { setNotice('Escolha o serviço, funcionário ou cliente antes de exportar.'); return; }
-    await exportReportPdf({ evaluations, clients, goals, services, providers, activities, hrCases }, {
+    await exportReportPdf({ evaluations, clients, goals, services, providers, activities, hrCases, teams, teamHistory, passingThreshold }, {
       scope, serviceId: serviceId || undefined, providerId: providerId || undefined, clientId: clientId || undefined,
       from: from || undefined, to: to || undefined, sections, generatedBy: currentUser?.name || 'Sistema',
     });

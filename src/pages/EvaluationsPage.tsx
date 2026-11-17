@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { SecureAudio } from '../components/SecureAudio';
+import { ParticipantesNota } from '../components/evaluation/ParticipantesNota';
 import { useApp } from '../context/AppContext';
 import { Evaluation, Client, Provider } from '../types';
 import { 
@@ -47,6 +48,9 @@ export const EvaluationsPage: React.FC = () => {
     services, 
     providers, 
     teams,
+    activities,
+    teamHistory,
+    refreshFromSupabase,
     addEvaluation, 
     associateEvaluationClient, 
     assignEvaluationProvider, 
@@ -1245,6 +1249,20 @@ export const EvaluationsPage: React.FC = () => {
               </div>
             </div>
             
+            {assigningTeamEval.teamId && (
+              <div className="pt-3 border-t border-slate-100">
+                <ParticipantesNota
+                  ev={assigningTeamEval}
+                  providers={providers}
+                  teams={teams}
+                  activities={activities}
+                  teamHistory={teamHistory}
+                  canLink={activeRole === 'ADMIN' || activeRole === 'HR'}
+                  onLinked={refreshFromSupabase}
+                />
+              </div>
+            )}
+
             {teamAssignError && <p className="text-xs text-rose-600 font-bold">{teamAssignError}</p>}
             {teamAssignSuccess && <p className="text-xs text-emerald-600 font-bold">{teamAssignSuccess}</p>}
             

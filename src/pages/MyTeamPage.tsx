@@ -19,7 +19,7 @@ const fmtData = (iso?: string | null) => {
  * A nota conta para todos os membros da equipa (e para o supervisor), não só para quem foi atribuído à avaliação.
  */
 export const MyTeamPage: React.FC = () => {
-  const { currentUser, providers, teams, evaluations } = useApp();
+  const { currentUser, providers, teams, evaluations, teamHistory, activities } = useApp();
   const [aba, setAba] = useState<Aba>('notas');
   const [dados, setDados] = useState<MyTeamOverview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,13 +52,13 @@ export const MyTeamPage: React.FC = () => {
       provider: { id: eu.id, name: eu.name, specialty: eu.specialty },
       team: equipa ? { id: equipa.id, name: equipa.name, code: equipa.code, department: equipa.department, supervisorName: sup?.name ?? equipa.supervisorEmployeeName ?? equipa.supervisorName } : null,
       members: lista.map(m => ({ id: m.id, name: m.name, specialty: m.specialty, isSupervisor: m.id === equipa?.supervisorProviderId })),
-      evaluations: avaliacoesDoPrestador((evaluations as Evaluation[]).filter(e => e.finalizedAt), eu, teams).map(e => ({
+      evaluations: avaliacoesDoPrestador((evaluations as Evaluation[]).filter(e => e.finalizedAt), eu, teams, { historico: teamHistory, atividades: activities }).map(e => ({
         id: e.id, reference: e.reference, serviceDate: e.serviceDate, clientName: e.clientVisibleToTeam ? e.clientName : null, clientVisible: e.clientVisibleToTeam === true, serviceName: e.serviceName,
         teamName: e.teamName, providerName: e.providerName, technicalScore: e.technicalScore ?? null,
         finalClassification: (e.finalClassification as any) ?? null, finalizedAt: e.finalizedAt ?? null,
       })),
     };
-  }, [providers, teams, evaluations, currentUser]);
+  }, [providers, teams, evaluations, currentUser, teamHistory, activities]);
 
   const info = isSupabaseConfigured ? dados : demo;
   const notas = (info?.evaluations ?? []).filter(e => typeof e.technicalScore === 'number');

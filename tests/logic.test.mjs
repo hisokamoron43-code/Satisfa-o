@@ -639,3 +639,228 @@ test('barra móvel: reordenar atalhos', () => {
   assert.deepEqual(moveItem(['a', 'b', 'c'], 0, -1), ['a', 'b', 'c']);
   assert.deepEqual(moveItem(['a', 'b', 'c'], 2, 1), ['a', 'b', 'c']);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Participação na nota: histórico da equipa + escala do calendário (migração 1015)
+// ---------------------------------------------------------------------------------------------
+import {
+  pertencia, membrosNaData, atividadeDaAvaliacao, participantesDaAvaliacao, repartirPesos,
+} from '../src/services/grupoAvaliacao.ts';
+
+const T = 'team-1';
+const prov = (id, teamId = T) => ({ id, name: id, teamId, status: 'ACTIVE' });
+const equipa = [{ id: T, supervisorProviderId: undefined }];
+const hist = (providerId, joinedAt, leftAt = null, teamId = T) => ({ providerId, teamId, joinedAt, leftAt });
+const evTeam = (extra = {}) => ({ id: 'e1', teamId: T, serviceDate: '2026-10-10', providerId: undefined, ...extra });
+const acts = (assigned, extra = {}) => [{ id: 'a1', teamId: T, activityDate: '2026-10-10', assignedProviderIds: assigned, status: 'COMPLETED', ...extra }];
+
+test('repartirPesos soma sempre exatamente 100,00', () => {
+  for (const n of [1, 2, 3, 4, 6, 7, 9, 11]) {
+    const soma = repartirPesos(n).reduce((s, x) => s + Math.round(x * 100), 0);
+    assert.equal(soma, 10000, `n=${n}`);
+  }
+  assert.deepEqual(repartirPesos(3), [33.34, 33.33, 33.33]);
+  assert.deepEqual(repartirPesos(0), []);
+});
+
+test('pertencia: entrada e saída inclusivas, antes da entrada não conta', () => {
+  const h = [hist('m', '2026-10-05', '2026-10-20')];
+  assert.equal(pertencia(h, 'm', T, '2026-10-04'), false);
+  assert.equal(pertencia(h, 'm', T, '2026-10-05'), true);
+  assert.equal(pertencia(h, 'm', T, '2026-10-20'), true);
+  assert.equal(pertencia(h, 'm', T, '2026-10-21'), false);
+  assert.equal(pertencia(h, 'm', 'outra', '2026-10-10'), false);
+});
+
+test('membro adicionado depois do serviço não recebe a nota (entrou depois)', () => {
+  const providers = [prov('a'), prov('b'), prov('novo')];
+  const historico = [hist('a', '2026-01-01'), hist('b', '2026-01-01'), hist('novo', '2026-10-15')];
+  const p = participantesDaAvaliacao(evTeam(), providers, equipa, { historico, atividades: [] });
+  const novo = p.find(x => x.providerId === 'novo');
+  assert.equal(novo.conta, false);
+  assert.equal(novo.motivo, 'ENTROU_DEPOIS');
+  assert.equal(novo.peso, 0);
+  assert.deepEqual(p.filter(x => x.conta).map(x => x.providerId), ['a', 'b']);
+  assert.deepEqual(p.filter(x => x.conta).map(x => x.peso), [50, 50]);
+});
+
+test('4 membros, só 2 escalados: os outros 2 ficam de fora e os pesos repartem-se pelos 2 presentes', () => {
+  const providers = [prov('a'), prov('b'), prov('c'), prov('d')];
+  const historico = providers.map(p => hist(p.id, '2026-01-01'));
+  const ctx = { historico, atividades: acts(['a', 'c']) };
+  const p = participantesDaAvaliacao(evTeam(), providers, equipa, ctx);
+  assert.deepEqual(p.filter(x => x.conta).map(x => [x.providerId, x.motivo, x.peso]), [['a', 'ESCALADO', 50], ['c', 'ESCALADO', 50]]);
+  assert.deepEqual(p.filter(x => !x.conta).map(x => [x.providerId, x.motivo]), [['b', 'NAO_ESCALADO'], ['d', 'NAO_ESCALADO']]);
+});
+
+test('3 escalados de 4: pesos somam 100 (33,34 / 33,33 / 33,33)', () => {
+  const providers = [prov('a'), prov('b'), prov('c'), prov('d')];
+  const historico = providers.map(p => hist(p.id, '2026-01-01'));
+  const p = participantesDaAvaliacao(evTeam(), providers, equipa, { historico, atividades: acts(['a', 'b', 'd']) });
+  const pesos = p.filter(x => x.conta).map(x => Math.round(x.peso * 100));
+  assert.equal(pesos.reduce((s, x) => s + x, 0), 10000);
+  assert.deepEqual(pesos.slice().sort(), [3333, 3333, 3334]);
+});
+
+test('sem escala no calendário conta toda a equipa que lá estava na data', () => {
+  const providers = [prov('a'), prov('b'), prov('novo')];
+  const historico = [hist('a', '2026-01-01'), hist('b', '2026-01-01'), hist('novo', '2026-11-01')];
+  const p = participantesDaAvaliacao(evTeam(), providers, equipa, { historico, atividades: [] });
+  assert.deepEqual(p.filter(x => x.conta).map(x => [x.providerId, x.motivo]), [['a', 'SEM_ESCALA'], ['b', 'SEM_ESCALA']]);
+});
+
+test('quem saiu da equipa mantém as notas de quando lá estava e não recebe as seguintes', () => {
+  const providers = [prov('a'), prov('saiu', undefined)];
+  const historico = [hist('a', '2026-01-01'), hist('saiu', '2026-01-01', '2026-10-12')];
+  const antes = participantesDaAvaliacao(evTeam({ serviceDate: '2026-10-10' }), providers, equipa, { historico, atividades: [] });
+  assert.equal(antes.find(x => x.providerId === 'saiu').conta, true);
+  const depois = participantesDaAvaliacao(evTeam({ serviceDate: '2026-10-13' }), providers, equipa, { historico, atividades: [] });
+  assert.equal(depois.find(x => x.providerId === 'saiu').conta, false);
+});
+
+test('prestador atribuído conta sempre; supervisor segue a escala', () => {
+  const providers = [prov('a'), prov('b'), prov('sup', undefined), prov('extra', undefined)];
+  const historico = [hist('a', '2026-01-01'), hist('b', '2026-01-01')];
+  const teams = [{ id: T, supervisorProviderId: 'sup' }];
+  // escala só com 'a': supervisor não foi, fica de fora
+  let p = participantesDaAvaliacao(evTeam({ providerId: 'extra' }), providers, teams, { historico, atividades: acts(['a']) });
+  assert.deepEqual(Object.fromEntries(p.map(x => [x.providerId, x.motivo])), { a: 'ESCALADO', b: 'NAO_ESCALADO', sup: 'NAO_ESCALADO', extra: 'ATRIBUIDO' });
+  assert.equal(p.filter(x => x.conta).reduce((s, x) => s + Math.round(x.peso * 100), 0), 10000);
+  // escala com o supervisor: conta
+  p = participantesDaAvaliacao(evTeam(), providers, teams, { historico, atividades: acts(['a', 'sup']) });
+  assert.deepEqual(p.filter(x => x.conta).map(x => x.providerId).sort(), ['a', 'sup']);
+  assert.equal(p.find(x => x.providerId === 'sup').motivo, 'SUPERVISOR');
+  // sem escala: supervisor conta
+  p = participantesDaAvaliacao(evTeam(), providers, teams, { historico, atividades: [] });
+  assert.equal(p.find(x => x.providerId === 'sup').conta, true);
+});
+
+test('atividadeDaAvaliacao: ligada, única do dia, desempate por cliente e nunca adivinha', () => {
+  const lista = [
+    { id: 'x1', teamId: T, activityDate: '2026-10-10', clientId: 'c1', serviceId: 's1', assignedProviderIds: ['a'], status: 'SCHEDULED' },
+    { id: 'x2', teamId: T, activityDate: '2026-10-10', clientId: 'c2', serviceId: 's1', assignedProviderIds: ['b'], status: 'SCHEDULED' },
+    { id: 'x3', teamId: T, activityDate: '2026-10-10', clientId: 'c2', serviceId: 's1', assignedProviderIds: ['c'], status: 'CANCELLED' },
+  ];
+  assert.equal(atividadeDaAvaliacao({ ...evTeam(), activityId: 'x1' }, lista).id, 'x1');
+  assert.equal(atividadeDaAvaliacao({ ...evTeam(), clientId: 'c2' }, lista).id, 'x2'); // cancelada é ignorada
+  assert.equal(atividadeDaAvaliacao(evTeam(), lista), undefined);                       // duas possíveis: não adivinha
+  assert.equal(atividadeDaAvaliacao({ ...evTeam(), serviceDate: '2026-10-11' }, lista), undefined);
+});
+
+test('prestadorRecebeNota / avaliacoesDoPrestador / destinatariosDaNota respeitam o contexto', () => {
+  const providers = [prov('a'), prov('b'), prov('novo')];
+  const historico = [hist('a', '2026-01-01'), hist('b', '2026-01-01'), hist('novo', '2026-10-15')];
+  const ctx = { historico, atividades: acts(['a']) };
+  const ev = evTeam();
+  assert.equal(prestadorRecebeNota(ev, providers[0], equipa, ctx), true);
+  assert.equal(prestadorRecebeNota(ev, providers[1], equipa, ctx), false); // não escalado
+  assert.equal(prestadorRecebeNota(ev, providers[2], equipa, ctx), false); // entrou depois
+  assert.equal(prestadorRecebeNota(ev, providers[1], equipa), true);       // sem contexto: regra antiga
+  assert.deepEqual(avaliacoesDoPrestador([ev], providers[1], equipa, ctx), []);
+  assert.deepEqual(destinatariosDaNota(ev, providers, equipa, ctx).map(x => x.id), ['a']);
+});
+
+test('modo de demonstração (sem histórico): vale a equipa atual', () => {
+  const providers = [prov('a'), prov('b')];
+  const p = participantesDaAvaliacao(evTeam(), providers, equipa, { historico: [], atividades: [] });
+  assert.deepEqual(p.filter(x => x.conta).map(x => x.providerId), ['a', 'b']);
+  assert.deepEqual(membrosNaData(providers, [], T, '2026-10-10'), ['a', 'b']);
+});
+
+test('membrosNaData devolve só quem já estava na equipa nessa data', () => {
+  const providers = [prov('a'), prov('novo')];
+  const historico = [hist('a', '2026-01-01'), hist('novo', '2026-10-15')];
+  assert.deepEqual(membrosNaData(providers, historico, T, '2026-10-10'), ['a']);
+  assert.deepEqual(membrosNaData(providers, historico, T, '2026-10-15'), ['a', 'novo']);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Rankings do relatório: serviços (top 3), equipas (top 5) e funcionários (top 5)
+// ---------------------------------------------------------------------------------------------
+import { calcularRankings, separarTop } from '../src/services/rankings.ts';
+import { buildReportText } from '../src/services/reportBuilder.ts';
+
+const RT = 'eq1';
+const evR = (id, extra) => ({
+  id, reference: id, clientName: 'C', serviceId: 's1', serviceName: 'S1', providerName: '', serviceDate: '2026-10-10',
+  evaluationDate: '2026-10-10T10:00:00Z', satisfactionRating: 4, comment: '', teamId: RT,
+  finalizedAt: '2026-10-11T10:00:00Z', technicalScore: 80, finalClassification: 'POSITIVE', ...extra,
+});
+const svcs = ['s1', 's2', 's3', 's4', 's5'].map(id => ({ id, name: id.toUpperCase() }));
+
+test('serviços: top 3 melhores e top 3 piores, sem repetir, ordenados por média', () => {
+  const evals = [
+    evR('a1', { serviceId: 's1', technicalScore: 95 }), evR('a2', { serviceId: 's2', technicalScore: 90 }),
+    evR('a3', { serviceId: 's3', technicalScore: 80 }), evR('a4', { serviceId: 's4', technicalScore: 60, finalClassification: 'NEGATIVE' }),
+    evR('a5', { serviceId: 's5', technicalScore: 40, finalClassification: 'NEGATIVE' }),
+  ];
+  const r = calcularRankings({ evals, services: svcs, teams: [], providers: [] });
+  assert.deepEqual(r.servicos.melhores.map(x => x.id), ['s1', 's2', 's3']);
+  assert.deepEqual(r.servicos.piores.map(x => x.id), ['s5', 's4']); // só sobram 2: não repete os melhores
+  assert.equal(r.servicos.total, 5);
+  assert.equal(r.servicos.piores[0].abaixoDoMinimo, true);
+});
+
+test('só avaliações homologadas com nota entram nos rankings', () => {
+  const evals = [evR('b1', { technicalScore: 90 }), evR('b2', { finalizedAt: undefined, technicalScore: 10 }), evR('b3', { technicalScore: undefined })];
+  const r = calcularRankings({ evals, services: svcs, teams: [], providers: [] });
+  assert.equal(r.avaliacoesConsideradas, 1);
+  assert.equal(r.servicos.melhores[0].media, 90);
+});
+
+test('média por serviço, empate decidido por mais avaliações e depois por nome', () => {
+  const lista = [
+    { id: 'x', nome: 'Beta', media: 80, avaliacoes: 2, positivas: 2, negativas: 0, abaixoDoMinimo: false, poucosDados: true },
+    { id: 'y', nome: 'Alfa', media: 80, avaliacoes: 5, positivas: 5, negativas: 0, abaixoDoMinimo: false, poucosDados: false },
+    { id: 'z', nome: 'Alfa2', media: 80, avaliacoes: 2, positivas: 2, negativas: 0, abaixoDoMinimo: false, poucosDados: true },
+  ];
+  const t = separarTop(lista, 3); // 3 itens: 2 melhores (y, depois z por nome) e 1 pior
+  assert.deepEqual(t.melhores.map(i => i.id), ['y', 'z']);
+  assert.deepEqual(t.piores.map(i => i.id), ['x']);
+});
+
+test('funcionários: top 5, só contam notas em que participaram (escala e entrada na equipa)', () => {
+  const ps = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'].map(id => ({ id, name: id, teamId: RT, status: 'ACTIVE' }));
+  const historico = ps.map(p => ({ providerId: p.id, teamId: RT, joinedAt: '2026-01-01', leftAt: null }));
+  historico.find(h => h.providerId === 'p7').joinedAt = '2026-12-01'; // entrou depois: nunca conta
+  const evals = [evR('c1', { technicalScore: 90, activityId: 'a1' }), evR('c2', { technicalScore: 50, finalClassification: 'NEGATIVE', activityId: 'a2' })];
+  const atividades = [
+    { id: 'a1', teamId: RT, activityDate: '2026-10-10', assignedProviderIds: ['p1', 'p2', 'p3', 'p4'], status: 'COMPLETED' },
+    { id: 'a2', teamId: RT, activityDate: '2026-10-10', assignedProviderIds: ['p4', 'p5', 'p6'], status: 'COMPLETED' },
+  ];
+  const r = calcularRankings({ evals, services: svcs, teams: [{ id: RT, name: 'Eq 1' }], providers: ps, ctx: { historico, atividades } });
+  const media = id => r.funcionarios.melhores.concat(r.funcionarios.piores).find(i => i.id === id)?.media;
+  assert.equal(media('p1'), 90);
+  assert.equal(media('p4'), 70); // média de 90 e 50
+  assert.equal(media('p5'), 50);
+  assert.equal(media('p7'), undefined); // entrou depois, sem notas
+  assert.equal(r.funcionarios.total, 6);
+  assert.deepEqual(r.funcionarios.melhores.map(i => i.id), ['p1', 'p2', 'p3']);
+  assert.deepEqual(r.funcionarios.piores.map(i => i.id), ['p5', 'p6', 'p4']);
+  assert.equal(r.equipas.melhores[0].nome, 'Eq 1');
+  assert.equal(r.equipas.melhores[0].media, 70);
+});
+
+test('relatório em texto inclui os rankings e o apoio a quem está abaixo do mínimo', () => {
+  const ps = ['p1', 'p2'].map(id => ({ id, name: id.toUpperCase(), teamId: RT, status: 'ACTIVE', services: [], internalCode: id }));
+  const evals = [evR('d1', { technicalScore: 95, providerId: 'p1' }), evR('d2', { technicalScore: 40, finalClassification: 'NEGATIVE', providerId: 'p2', serviceId: 's2' })];
+  const txt = buildReportText(
+    { scope: 'GLOBAL', sections: ['RANKINGS'], generatedBy: 'Teste', now: new Date('2026-11-16T10:00:00') },
+    { evaluations: evals, clients: [], goals: [], services: svcs, providers: ps, activities: [], hrCases: [], teams: [{ id: RT, name: 'Eq 1' }], teamHistory: [], passingThreshold: 70 },
+  );
+  assert.match(txt, /\[RANKINGS\]/);
+  assert.match(txt, /Serviços mais bem avaliados \(top 3\)/);
+  assert.match(txt, /Equipas com pior classificação \(top 5\)/);
+  assert.match(txt, /Funcionários com avaliação mais negativa \(top 5\)/);
+  assert.match(txt, /Para acompanhamento e formação: P2/);
+});
+
+test('com 2 serviços, o fraco não aparece entre os melhores (divide ao meio)', () => {
+  const evals = [evR('f1', { serviceId: 's1', technicalScore: 95 }), evR('f2', { serviceId: 's2', technicalScore: 40, finalClassification: 'NEGATIVE' })];
+  const r = calcularRankings({ evals, services: svcs, teams: [], providers: [] });
+  assert.deepEqual(r.servicos.melhores.map(i => i.id), ['s1']);
+  assert.deepEqual(r.servicos.piores.map(i => i.id), ['s2']);
+  const so1 = calcularRankings({ evals: [evals[0]], services: svcs, teams: [], providers: [] });
+  assert.equal(so1.servicos.melhores.length, 1);
+  assert.equal(so1.servicos.piores.length, 0);
+});

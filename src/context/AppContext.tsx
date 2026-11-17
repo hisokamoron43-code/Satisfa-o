@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { CLIENT_IMPORT_BATCH_SIZE, type ClientInput } from '../services/clientImport';
 import { 
   UserProfile, Client, ServiceItem, Provider, Evaluation, HRCase, ProviderPermissionAudit, AuditLog, UserRole, FormQuestion,
-  EvaluationCriterion, EvaluationHistoricalSnapshot, AuditorReview, WorkerNotification, Team, Activity, FormCategoryItem, EvaluationQueueCounts
+  EvaluationCriterion, EvaluationHistoricalSnapshot, AuditorReview, WorkerNotification, Team, Activity, FormCategoryItem, EvaluationQueueCounts, TeamMembership
 } from '../types';
 import { 
   MOCK_USERS, MOCK_CLIENTS, MOCK_SERVICES, MOCK_PROVIDERS, MOCK_EVALUATIONS, MOCK_HR_CASES, MOCK_PERMISSION_AUDITS, MOCK_AUDIT_LOGS 
@@ -46,6 +46,7 @@ import {
   insertTeamInDb,
   deleteTeamInDb,
   fetchActivitiesFromDb,
+  fetchTeamMemberHistoryFromDb,
   insertActivityInDb,
   deleteActivityInDb,
   deleteClientInDb,
@@ -113,6 +114,9 @@ interface AppContextType {
   addTeam: (team: Omit<Team, 'id' | 'createdAt'>) => Promise<{ success: boolean; data?: Team; error?: string }>;
   deleteTeam: (id: string) => Promise<{ success: boolean; error?: string }>;
   activities: Activity[];
+  /** Entradas e saídas dos membros nas equipas (define quem pode receber a nota de cada serviço). */
+  teamHistory: TeamMembership[];
+  reloadTeamHistory: () => Promise<void>;
   addActivity: (activity: Omit<Activity, 'id'>) => Promise<{ success: boolean; hasConflict: boolean; data?: Activity; error?: string }>;
   deleteActivity: (id: string) => Promise<{ success: boolean; error?: string }>;
   /** Desfaz a última alteração do calendário (criar ou eliminar atividade). */
@@ -251,6 +255,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Cronograma / Actividades do Calendário (Fonte oficial: Supabase activities)
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [teamHistory, setTeamHistory] = useState<TeamMembership[]>([]);
 
   // Categorias do Formulário AETERNU: Editáveis e dinâmicas (Fonte oficial: Supabase form_categories)
   const [formCategories, setFormCategories] = useState<FormCategoryItem[]>([]);
@@ -317,6 +322,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (dbCriteria !== null) setCriteria(dbCriteria);
         if (dbConfig !== null && dbConfig.passingThreshold !== undefined) setPassingThreshold(dbConfig.passingThreshold);
         if (dbCategories !== null) setFormCategories(dbCategories);
+        // Histórico das equipas (migração 1015): se ainda não existir, vale a equipa atual de cada membro
+        const dbHistory = await fetchTeamMemberHistoryFromDb();
+        if (dbHistory !== null) setTeamHistory(dbHistory);
       }
     } catch {
       // Non-blocking sync failure
@@ -561,6 +569,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, data: res.data };
   };
 
+  const reloadTeamHistory = async (): Promise<void> => {
+    const h = await fetchTeamMemberHistoryFromDb();
+    if (h !== null) setTeamHistory(h);
+  };
+
   const updateProvider = async (id: string, updated: Partial<Provider>): Promise<{ success: boolean; error?: string }> => {
     const res = await updateProviderInDb(id, updated);
     if (!res.success) {
@@ -570,6 +583,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setProviders(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
     logAction('UPDATE', 'Provider', id, 'SUCCESS', `Atualizado prestador ID ${id}`);
+    // Mudar de equipa ou de estado abre/fecha a pertença no histórico (trigger da base de dados)
+    if (updated.teamId !== undefined || updated.status !== undefined) void reloadTeamHistory();
     return { success: true };
   };
 
@@ -1388,6 +1403,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       deleteTeam,
       activities,
       addActivity,
+      teamHistory,
+      reloadTeamHistory,
       deleteActivity,
       undoLastActivityChange,
       activityUndoLabel: activityUndo.length > 0 ? activityUndo[activityUndo.length - 1].label : null,

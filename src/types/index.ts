@@ -136,6 +136,8 @@ export interface Evaluation {
   providerNameInput?: string;
   teamId?: string;
   teamName?: string;
+  /** Atividade do calendário de operações a que a avaliação diz respeito (define quem foi ao serviço). */
+  activityId?: string;
   /** Avaliação qualitativa do auditor (áudio, argumentos escritos e notas por questão). */
   auditorReview?: AuditorReview;
   answers?: Array<{
@@ -254,6 +256,16 @@ export interface Team {
   status: 'ACTIVE' | 'INACTIVE';
   createdAt: string;
   membersCount?: number;
+}
+
+/** Entrada e saída de um prestador numa equipa (migração 1015). `leftAt` vazio = ainda pertence. */
+export interface TeamMembership {
+  id?: string;
+  providerId: string;
+  teamId: string;
+  /** Data de entrada, 'YYYY-MM-DD'. Só avaliações de serviços desta data em diante contam para o membro. */
+  joinedAt: string;
+  leftAt?: string | null;
 }
 
 export interface Activity {

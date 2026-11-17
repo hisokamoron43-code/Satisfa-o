@@ -1,6 +1,6 @@
 import { traduzirErro } from './mensagensErro';
 import { identifierToAuthEmail } from '../lib/authIdentifier';
-import type { ClientGoal, GoalMetric, GoalStatus } from '../types';
+import type { ClientGoal, GoalMetric, GoalStatus, TeamMembership } from '../types';
 /**
  * @file supabaseService.ts
  * @description Supabase client integration & data service layer for SICSC (AETERNU).
@@ -788,6 +788,7 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       providerName: item.providers?.name || item.provider_name_input || 'Técnico',
       teamId: item.team_id || undefined,
       teamName: item.team_name || undefined,
+      activityId: item.activity_id || undefined,
       serviceDate: item.service_date,
       evaluationDate: item.evaluation_date,
       satisfactionRating: item.satisfaction_rating,
@@ -1750,6 +1751,77 @@ export async function fetchSupervisorCandidates(): Promise<SupervisorCandidate[]
       name: String(r.name || ''),
       code: r.code || undefined,
       category: r.category || undefined,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** Histórico de entradas e saídas dos membros nas equipas (migração 1015). `null` = ainda não disponível. */
+export async function fetchTeamMemberHistoryFromDb(): Promise<TeamMembership[] | null> {
+  if (!isSupabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('team_member_history')
+      .select('id, provider_id, team_id, joined_at, left_at')
+      .order('joined_at');
+    if (error || !Array.isArray(data)) return null;
+    return data.map((r: any) => ({
+      id: r.id,
+      providerId: r.provider_id,
+      teamId: r.team_id,
+      joinedAt: String(r.joined_at).slice(0, 10),
+      leftAt: r.left_at ? String(r.left_at).slice(0, 10) : null,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** RH/Admin corrige a data de entrada do membro na sua equipa atual. */
+export async function setMemberJoinedDateInDb(providerId: string, joinedAt: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { success: false, error: 'A data de entrada precisa da base de dados ligada.' };
+  try {
+    const { data, error } = await supabase.rpc('set_member_joined_date', { p_provider_id: providerId, p_joined_at: joinedAt });
+    if (error) return { success: false, error: traduzirErro(error) };
+    return { success: !!(data as any)?.success };
+  } catch (err: any) {
+    return { success: false, error: traduzirErro(err) };
+  }
+}
+
+/** Liga (ou desliga, com null) a avaliação a uma atividade do calendário. */
+export async function setEvaluationActivityInDb(evaluationId: string, activityId: string | null): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { success: false, error: 'A ligação à atividade precisa da base de dados ligada.' };
+  try {
+    const { data, error } = await supabase.rpc('set_evaluation_activity', { p_evaluation_id: evaluationId, p_activity_id: activityId });
+    if (error) return { success: false, error: traduzirErro(error) };
+    return { success: !!(data as any)?.success };
+  } catch (err: any) {
+    return { success: false, error: traduzirErro(err) };
+  }
+}
+
+export interface ParticipanteAvaliacaoDb {
+  providerId: string;
+  name: string;
+  counts: boolean;
+  reason: 'ESCALADO' | 'SEM_ESCALA' | 'ATRIBUIDO' | 'SUPERVISOR' | 'NAO_ESCALADO' | 'ENTROU_DEPOIS';
+  weightPercentage: number;
+}
+
+/** Quem conta (e quem não conta) para a nota de uma avaliação, calculado pelo servidor. */
+export async function fetchEvaluationParticipants(evaluationId: string): Promise<ParticipanteAvaliacaoDb[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.rpc('preview_evaluation_participants', { p_evaluation_id: evaluationId });
+    if (error || !Array.isArray(data)) return null;
+    return (data as any[]).map(r => ({
+      providerId: String(r.providerId),
+      name: String(r.name || ''),
+      counts: r.counts === true,
+      reason: r.reason,
+      weightPercentage: Number(r.weightPercentage) || 0,
     }));
   } catch {
     return null;

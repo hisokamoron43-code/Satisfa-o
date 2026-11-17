@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Calendar as CalendarIcon, 
@@ -20,9 +20,10 @@ import {
   Award
 } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
+import { membrosNaData } from '../services/grupoAvaliacao';
 
 export const CalendarPage: React.FC = () => {
-  const { clients, services, teams, providers, activities, addActivity, deleteActivity, evaluations, undoLastActivityChange, activityUndoLabel, activityUndoCount } = useApp();
+  const { clients, services, teams, providers, activities, addActivity, deleteActivity, evaluations, undoLastActivityChange, activityUndoLabel, activityUndoCount, teamHistory } = useApp();
   const [undoError, setUndoError] = useState<string | null>(null);
 
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('month');
@@ -39,15 +40,42 @@ export const CalendarPage: React.FC = () => {
   const [selectedDayDate, setSelectedDayDate] = useState<string | null>(null); // 'YYYY-MM-DD'
 
   // New activity form state
-  const [modalClient, setModalClient] = useState(clients[0]?.companyName || 'Sonangol');
+  const [modalClientId, setModalClientId] = useState('');
   const [modalTitle, setModalTitle] = useState('');
   const [modalDate, setModalDate] = useState(new Date().toISOString().substring(0, 10));
   const [modalTime, setModalTime] = useState('09:00');
   const [modalEndTime, setModalEndTime] = useState('11:00');
-  const [modalService, setModalService] = useState(services[0]?.name || 'Inspecção de Extintores');
-  const [modalTeam, setModalTeam] = useState(teams[0]?.name || 'Equipa Operacional');
+  const [modalServiceId, setModalServiceId] = useState('');
+  const [modalTeamId, setModalTeamId] = useState('');
   const [modalLocation, setModalLocation] = useState('Luanda - Sede Principal');
-  const [modalProvider, setModalProvider] = useState(providers[0]?.name || 'Carlos Neto');
+  // Membros que vão ao serviço neste dia (os restantes da equipa ficam de fora e não recebem a nota)
+  const [modalMembers, setModalMembers] = useState<string[]>([]);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalBusy, setModalBusy] = useState(false);
+
+  const activeTeams = useMemo(() => teams.filter(t => t.status === 'ACTIVE'), [teams]);
+  // Membros que já pertenciam à equipa na data escolhida (quem entrou depois não pode ser escalado)
+  const elegiveisIds = useMemo(() => {
+    if (!modalTeamId) return [];
+    const ids = membrosNaData(providers.filter(p => p.status === 'ACTIVE'), teamHistory, modalTeamId, modalDate);
+    // O supervisor também se escala (e só recebe a nota se for ao serviço)
+    const sup = teams.find(t => t.id === modalTeamId)?.supervisorProviderId;
+    if (sup && !ids.includes(sup) && providers.some(p => p.id === sup && p.status === 'ACTIVE')) ids.push(sup);
+    return ids;
+  }, [providers, teams, teamHistory, modalTeamId, modalDate]);
+  const elegiveis = useMemo(
+    () => providers.filter(p => elegiveisIds.includes(p.id)).sort((a, b) => a.name.localeCompare(b.name)),
+    [providers, elegiveisIds],
+  );
+  // Quem está hoje na equipa mas ainda não estava na data escolhida
+  const entrouDepois = useMemo(
+    () => (modalTeamId
+      ? providers.filter(p => p.status === 'ACTIVE' && p.teamId === modalTeamId && !elegiveisIds.includes(p.id))
+      : []),
+    [providers, modalTeamId, elegiveisIds],
+  );
+  // Ao mudar de equipa ou de data, parte-se de «toda a equipa vai» e desmarca-se quem falta
+  useEffect(() => { setModalMembers(elegiveisIds); }, [elegiveisIds.join('|')]);
 
   // Month navigation
   const year = currentDate.getFullYear();
@@ -70,28 +98,39 @@ export const CalendarPage: React.FC = () => {
   };
 
   // Handle saving new activity
-  const handleSaveActivity = (e: React.FormEvent) => {
+  const handleSaveActivity = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
     if (!modalTitle.trim()) return;
+    if (!modalTeamId) { setModalError('Escolha a equipa que vai fazer o serviço.'); return; }
+    if (modalMembers.length === 0) { setModalError('Escolha pelo menos um membro que vai ao serviço.'); return; }
 
     // Check if there's any conflict on the same date/time
     const hasConflict = activities.some(
       act => act.activityDate === modalDate && act.startTime === modalTime
     );
+    const client = clients.find(c => c.id === modalClientId);
+    const service = services.find(sv => sv.id === modalServiceId);
+    const team = teams.find(t => t.id === modalTeamId);
 
-    addActivity({
+    setModalBusy(true);
+    const res = await addActivity({
       title: modalTitle.trim(),
-      clientName: modalClient,
-      clientId: clients.find(c => c.companyName === modalClient)?.id,
-      serviceName: modalService,
+      clientName: client?.companyName,
+      clientId: client?.id,
+      serviceName: service?.name,
+      serviceId: service?.id,
       location: modalLocation,
       activityDate: modalDate,
       startTime: modalTime,
       endTime: modalEndTime,
-      teamName: modalTeam,
-      assignedProviderIds: [modalProvider],
+      teamId: team?.id,
+      teamName: team?.name,
+      assignedProviderIds: modalMembers,
       status: hasConflict ? 'CONFLICT' : 'SCHEDULED'
     });
+    setModalBusy(false);
+    if (!res.success) { setModalError(res.error || 'Não foi possível guardar o agendamento.'); return; }
 
     setModalTitle('');
     setIsModalOpen(false);
@@ -188,6 +227,7 @@ export const CalendarPage: React.FC = () => {
           <button 
             onClick={() => {
               setModalDate(new Date().toISOString().substring(0, 10));
+              setModalError(null);
               setIsModalOpen(true);
             }} 
             className="bg-brand hover:bg-[#7ab01f] text-slate-950 font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 transition shadow-md cursor-pointer"
@@ -591,14 +631,15 @@ export const CalendarPage: React.FC = () => {
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Cliente Cadastrado *</label>
                 <select 
-                  value={modalClient} 
-                  onChange={(e) => setModalClient(e.target.value)}
+                  value={modalClientId} 
+                  onChange={(e) => setModalClientId(e.target.value)}
+                  required
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 focus:outline-none focus:border-brand"
                 >
+                  <option value="">Escolha o cliente…</option>
                   {clients.map(c => (
-                    <option key={c.id} value={c.companyName}>{c.companyName} ({c.internalCode})</option>
+                    <option key={c.id} value={c.id}>{c.companyName} ({c.internalCode})</option>
                   ))}
-                  {clients.length === 0 && <option value="Sonangol E.P.">Sonangol E.P.</option>}
                 </select>
               </div>
 
@@ -638,31 +679,83 @@ export const CalendarPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Equipa Operacional Atribuída</label>
+                <label className="block text-slate-700 font-bold mb-1">Serviço</label>
                 <select 
-                  value={modalTeam} 
-                  onChange={(e) => setModalTeam(e.target.value)}
+                  value={modalServiceId} 
+                  onChange={(e) => setModalServiceId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 focus:outline-none focus:border-brand"
                 >
-                  {teams.map(t => (
-                    <option key={t.id} value={t.name}>{t.name} ({t.code})</option>
+                  <option value="">Sem serviço definido</option>
+                  {services.filter(sv => sv.status === 'ACTIVE').map(sv => (
+                    <option key={sv.id} value={sv.id}>{sv.name}</option>
                   ))}
-                  <option value="Equipa Operacional Geral">Equipa Operacional Geral</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Prestador Responsável</label>
+                <label className="block text-slate-700 font-bold mb-1">Equipa Operacional *</label>
                 <select 
-                  value={modalProvider} 
-                  onChange={(e) => setModalProvider(e.target.value)}
+                  value={modalTeamId} 
+                  onChange={(e) => setModalTeamId(e.target.value)}
+                  required
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 focus:outline-none focus:border-brand"
                 >
-                  {providers.map(p => (
-                    <option key={p.id} value={p.name}>{p.name} ({p.internalCode})</option>
+                  <option value="">Escolha a equipa…</option>
+                  {activeTeams.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}{t.code ? ` (${t.code})` : ''}</option>
                   ))}
                 </select>
               </div>
+
+              {modalTeamId && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="block text-slate-700 font-bold">
+                      Quem vai ao serviço ({modalMembers.length} de {elegiveis.length})
+                    </label>
+                    {elegiveis.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setModalMembers(modalMembers.length === elegiveis.length ? [] : elegiveis.map(p => p.id))}
+                        className="text-[11px] font-bold text-brand-dark hover:underline"
+                      >
+                        {modalMembers.length === elegiveis.length ? 'Desmarcar todos' : 'Marcar todos'}
+                      </button>
+                    )}
+                  </div>
+                  {elegiveis.length === 0 ? (
+                    <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      Esta equipa não tinha membros nesta data. Adicione membros em «Equipas» ou escolha outra data.
+                    </p>
+                  ) : (
+                    <ul className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+                      {elegiveis.map(p => (
+                        <li key={p.id}>
+                          <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={modalMembers.includes(p.id)}
+                              onChange={() => setModalMembers(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])}
+                            />
+                            <span className="font-semibold text-slate-800">{p.name}</span>
+                            {p.specialty && <span className="text-slate-500 ml-auto">{p.specialty}</span>}
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-[11px] text-slate-500">
+                    Só quem for marcado recebe a nota deste serviço, supervisor incluído. Quem não for fica de fora, sem nota.
+                  </p>
+                  {entrouDepois.length > 0 && (
+                    <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      Não aparece{entrouDepois.length > 1 ? 'm' : ''}: {entrouDepois.map(p => p.name).join(', ')} — entrou/entraram na equipa depois de {modalDate.split('-').reverse().join('/')}.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {modalError && <p className="text-xs text-rose-600 font-medium">{modalError}</p>}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button 
@@ -674,9 +767,10 @@ export const CalendarPage: React.FC = () => {
                 </button>
                 <button 
                   type="submit" 
-                  className="px-5 py-2.5 bg-brand text-slate-950 rounded-xl font-extrabold hover:bg-[#7ab01f] transition shadow-md cursor-pointer"
+                  disabled={modalBusy}
+                  className="px-5 py-2.5 bg-brand text-slate-950 rounded-xl font-extrabold hover:bg-[#7ab01f] transition shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  Salvar Agendamento
+                  {modalBusy ? 'A guardar…' : 'Salvar Agendamento'}
                 </button>
               </div>
             </form>

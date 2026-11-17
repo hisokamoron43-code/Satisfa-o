@@ -421,3 +421,43 @@ No Supabase:
 
 ## Notificações, empresas, clientes, nota do grupo e supervisor
 Ver `docs/ALTERACOES_NOTIFICACOES_EMPRESAS_GRUPO.md`. Migração nova: `1012_nota_grupo_supervisor_membro.sql`.
+
+## Versão 31 — Notas só para quem participou no serviço (histórico da equipa + escala do calendário)
+
+**Regra:** a nota de uma avaliação conta apenas para quem participou no serviço.
+- Quem entrou na equipa **depois** da data do serviço não recebe essa nota (histórico de entrada e saída).
+- Se só parte da equipa foi ao serviço, só os **escalados no calendário** recebem a nota. Isto inclui o **supervisor**: com escala só conta se for escalado; sem escala conta.
+- Quem foi atribuído à avaliação (escolhido no formulário ou atribuído por RH) conta sempre.
+- Sem atividade ligada ou sem escala, contam todos os membros que estavam na equipa na data do serviço.
+- A nota reparte-se em partes iguais pelos presentes; a soma é sempre 100,00. Entrada e saída contam como dia inclusivo.
+
+**Base de dados — `supabase/migrations/1015_historico_equipas_escalacao_participantes.sql`** (executar depois da 1014)
+- `team_member_history` + trigger em `providers` (entrada, saída, movimento, inativação). Quem já estava numa equipa fica com a data de criação do prestador como entrada; RH corrige em Equipas (`set_member_joined_date`).
+- Trigger em `activities`: não deixa escalar quem não pertencia à equipa na data.
+- `evaluations.activity_id`: ligação automática por equipa + data (só se for única); `set_evaluation_activity` para ligar à mão.
+- `evaluation_participants`, `sicsc_compute_participants`, snapshot ao homologar, `recompute_evaluation_participants` (só Admin), `preview_evaluation_participants`.
+- `my_team_overview()` e `evaluation_group_provider_ids()` passam a usar os participantes.
+
+**Aplicação**
+- Calendário corrigido: grava equipa, serviço e cliente por id (antes gravava o nome do prestador no campo de ids) e escolhe quem vai ao serviço.
+- Equipas: data de entrada de cada membro, editável por RH/Admin.
+- Novo painel «Quem recebe esta nota» (RH e atribuição de equipa).
+- `grupoAvaliacao.ts`, relatórios, Prestadores, A Minha Equipa e «Notificar grupo» usam a mesma regra.
+- Testes: `npm run test:logic` (75 a passar).
+
+**Por verificar antes de publicar:** a migração 1015 não foi executada (sem PostgreSQL no ambiente de desenvolvimento) e `npm run build`/`lint` não foram corridos. Correr a 1015 primeiro no Supabase de teste.
+
+## Versão 32 — Rankings no relatório (serviços, equipas e funcionários)
+
+Nova área **«Rankings: melhores e piores»** em Relatórios, no texto (partilhar/copiar/.txt) e no PDF.
+- **Serviços:** top 3 mais bem avaliados e top 3 com pior classificação.
+- **Equipas:** top 5 melhores e top 5 piores.
+- **Funcionários:** top 5 melhores e top 5 com avaliação mais negativa.
+- **Base:** nota técnica oficial das avaliações **homologadas** do âmbito e período escolhidos. Cada linha mostra média, nº de avaliações, positivas e negativas.
+- **Funcionários:** só contam as notas dos serviços em que participaram (histórico da equipa + escala do calendário, regra da versão 31). Quem faltou ao serviço ou entrou depois não é penalizado nem premiado por ele.
+- **Sinalizações:** «abaixo do mínimo» (média abaixo do limiar de aprovação configurado) e «poucas avaliações» (menos de 3, média pouco fiável).
+- **Acompanhamento e formação:** no texto, os funcionários do fim da tabela abaixo do mínimo aparecem listados para serem reunidos num grupo de desenvolvimento.
+- **Poucos itens:** nunca aparece o mesmo item nas duas listas, e um item fraco não aparece entre os melhores só por haver poucos (2 serviços → 1 melhor e 1 pior; 5 serviços → 3 e 2).
+- **Desempate:** maior média; depois mais avaliações; depois ordem alfabética.
+- O PDF do relatório passou a receber equipas, histórico e limiar (antes não recebia as equipas).
+- Código: `src/services/rankings.ts` (lógica pura), `reportBuilder.ts`, `pdfExport.ts`, `ReportsPage.tsx`. Testes: `npm run test:logic` (81 a passar).

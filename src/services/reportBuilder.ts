@@ -1,9 +1,13 @@
-import type { Activity, Client, ClientGoal, Evaluation, HRCase, Provider, ServiceItem, Team } from '../types';
-import { avaliacoesDoPrestador, prestadorRecebeNota } from './grupoAvaliacao';
-import { csatPercent, evaluationsForClient, goalProgress, npsValue } from './goalProgress';
+import type { Activity, Client, ClientGoal, Evaluation, HRCase, Provider, ServiceItem, Team, TeamMembership } from '../types';
+import { avaliacoesDoPrestador, prestadorRecebeNota } from './grupoAvaliacao.ts';
+import { csatPercent, evaluationsForClient, goalProgress, npsValue } from './goalProgress.ts';
+import {
+  calcularRankings, fmtMedia, notaDoItem, TOP_SERVICOS, TOP_EQUIPAS, TOP_FUNCIONARIOS,
+  MIN_AVALIACOES_FIAVEIS, type ItemRanking,
+} from './rankings.ts';
 
 export type ReportScope = 'GLOBAL' | 'SERVICE' | 'EMPLOYEE' | 'CLIENT';
-export type ReportSection = 'AVALIACOES' | 'CLIENTES_METAS' | 'ATIVIDADES' | 'RH' | 'EQUIPA' | 'HOMOLOGACAO';
+export type ReportSection = 'AVALIACOES' | 'CLIENTES_METAS' | 'ATIVIDADES' | 'RH' | 'EQUIPA' | 'HOMOLOGACAO' | 'RANKINGS';
 
 export const SECTION_LABELS: Record<ReportSection, string> = {
   AVALIACOES: 'Avaliações (CSAT e NPS)',
@@ -12,6 +16,7 @@ export const SECTION_LABELS: Record<ReportSection, string> = {
   RH: 'Recursos Humanos (ocorrências)',
   EQUIPA: 'Equipa e serviços por funcionário',
   HOMOLOGACAO: 'Homologação e classificação final',
+  RANKINGS: 'Rankings: melhores e piores (serviços, equipas, funcionários)',
 };
 
 export interface ReportOptions {
@@ -36,6 +41,10 @@ export interface ReportData {
   hrCases: HRCase[];
   /** Equipas: permitem aplicar a nota das avaliações ao grupo inteiro. */
   teams?: Team[];
+  /** Entradas e saídas nas equipas: com a escala do calendário, definem quem recebe cada nota. */
+  teamHistory?: TeamMembership[];
+  /** Nota mínima de aprovação (%) usada para assinalar «abaixo do mínimo» nos rankings. */
+  passingThreshold?: number;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -53,6 +62,8 @@ const pct = (n: number) => `${n.toFixed(1)}%`;
 
 /** Filtra os dados pelo âmbito e pelo período. */
 export function scopeData(data: ReportData, o: ReportOptions) {
+  // Contexto da participação: histórico das equipas + escala de TODAS as atividades (não só as do período)
+  const ctx = data.teamHistory ? { historico: data.teamHistory, atividades: data.activities } : undefined;
   let evals = data.evaluations.filter(e => inPeriod(e.evaluationDate, o.from, o.to));
   let clients = data.clients;
   let activities = data.activities.filter(a => inPeriod(a.activityDate, o.from, o.to));
@@ -67,7 +78,7 @@ export function scopeData(data: ReportData, o: ReportOptions) {
   if (o.scope === 'EMPLOYEE' && o.providerId) {
     const alvo = data.providers.find(p => p.id === o.providerId);
     // A nota conta para o grupo: inclui as avaliações da equipa do funcionário e do supervisor
-    evals = evals.filter(e => alvo ? prestadorRecebeNota(e, alvo, data.teams ?? []) : e.providerId === o.providerId);
+    evals = evals.filter(e => alvo ? prestadorRecebeNota(e, alvo, data.teams ?? [], ctx) : e.providerId === o.providerId);
     activities = activities.filter(a => a.assignedProviderIds.includes(o.providerId!));
     providers = providers.filter(p => p.id === o.providerId);
   }
@@ -85,7 +96,7 @@ export function scopeData(data: ReportData, o: ReportOptions) {
   const hrCases = o.scope === 'GLOBAL' ? data.hrCases : data.hrCases.filter(h => evalIds.has(h.evaluationId));
   const clientIds = new Set(clients.map(c => c.id));
   const goals = data.goals.filter(g => clientIds.has(g.clientId));
-  return { evals, clients, activities, providers, hrCases, goals, teams: data.teams ?? [] };
+  return { evals, clients, activities, providers, hrCases, goals, teams: data.teams ?? [], ctx };
 }
 
 function scopeTitle(o: ReportOptions, data: ReportData): string {
@@ -168,11 +179,37 @@ export function buildReportText(o: ReportOptions, data: ReportData): string {
     line('[EQUIPA E SERVIÇOS]');
     if (s.providers.length === 0) line('Sem funcionários no âmbito.');
     for (const p of s.providers) {
-      const pe = avaliacoesDoPrestador(s.evals, p, s.teams);
+      const pe = avaliacoesDoPrestador(s.evals, p, s.teams, s.ctx);
       const pa = s.activities.filter(a => a.assignedProviderIds.includes(p.id));
       line(`- ${p.name}${p.department ? ` (${p.department})` : ''}`);
       line(`    Serviços: ${p.services.length ? p.services.join(', ') : 'não atribuídos'}`);
       line(`    Avaliações: ${pe.length} | CSAT ${pct(csatPercent(pe))} | Atividades: ${pa.length}`);
+    }
+    line();
+  }
+
+  if (sections.includes('RANKINGS')) {
+    const r = calcularRankings({ evals: s.evals, services: data.services, teams: s.teams, providers: s.providers, ctx: s.ctx, limiar: data.passingThreshold });
+    line('[RANKINGS]');
+    line(`Base: nota técnica das ${r.avaliacoesConsideradas} avaliação(ões) homologada(s) no âmbito. Mínimo de aprovação: ${r.limiar}%.`);
+    line(`Funcionários: contam só as avaliações em que participaram no serviço. «Poucas avaliações» = menos de ${MIN_AVALIACOES_FIAVEIS}.`);
+    const bloco = (titulo: string, itens: ItemRanking[], vazio: string) => {
+      line(`${titulo}`);
+      if (itens.length === 0) { line(`  ${vazio}`); return; }
+      itens.forEach((i, k) => {
+        const nota = notaDoItem(i);
+        line(`  ${k + 1}. ${i.nome} — ${fmtMedia(i.media)} (${i.avaliacoes} avaliação(ões), ${i.positivas} positiva(s), ${i.negativas} negativa(s))${nota ? ` [${nota}]` : ''}`);
+      });
+    };
+    bloco(`Serviços mais bem avaliados (top ${TOP_SERVICOS})`, r.servicos.melhores, 'Sem avaliações homologadas.');
+    bloco(`Serviços com pior classificação (top ${TOP_SERVICOS})`, r.servicos.piores, r.servicos.total > 0 ? 'Sem mais serviços para comparar.' : 'Sem avaliações homologadas.');
+    bloco(`Equipas mais bem avaliadas (top ${TOP_EQUIPAS})`, r.equipas.melhores, 'Sem avaliações homologadas com equipa.');
+    bloco(`Equipas com pior classificação (top ${TOP_EQUIPAS})`, r.equipas.piores, r.equipas.total > 0 ? 'Sem mais equipas para comparar.' : 'Sem avaliações homologadas com equipa.');
+    bloco(`Funcionários mais bem avaliados (top ${TOP_FUNCIONARIOS})`, r.funcionarios.melhores, 'Sem avaliações homologadas por funcionário.');
+    bloco(`Funcionários com avaliação mais negativa (top ${TOP_FUNCIONARIOS})`, r.funcionarios.piores, r.funcionarios.total > 0 ? 'Sem mais funcionários para comparar.' : 'Sem avaliações homologadas por funcionário.');
+    const apoio = r.funcionarios.piores.filter(i => i.abaixoDoMinimo);
+    if (apoio.length > 0) {
+      line(`Para acompanhamento e formação: ${apoio.map(i => i.nome).join(', ')} (média abaixo de ${r.limiar}%). Podem ser reunidos num grupo de desenvolvimento, orientado pelos funcionários mais bem avaliados.`);
     }
     line();
   }

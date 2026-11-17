@@ -1,4 +1,4 @@
-import { fetchSupervisorCandidates, SupervisorCandidate } from '../services/supabaseService';
+import { fetchSupervisorCandidates, setMemberJoinedDateInDb, SupervisorCandidate } from '../services/supabaseService';
 import React, { useMemo, useState, useEffect } from 'react';
 import { Plus, Trash2, UserCheck, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -13,7 +13,7 @@ const DEFAULT_DEPARTMENTS = [
 ];
 
 export const TeamsPage: React.FC = () => {
-  const { teams, providers, addTeam, deleteTeam, updateProvider, currentUser } = useApp();
+  const { teams, providers, addTeam, deleteTeam, updateProvider, currentUser, teamHistory, reloadTeamHistory } = useApp();
   const canManage = currentUser?.role === 'ADMIN' || currentUser?.role === 'HR';
 
   const [showForm, setShowForm] = useState(false);
@@ -136,6 +136,24 @@ export const TeamsPage: React.FC = () => {
     moveMember(providerId, toTeamId, `${p.name} movido(a) para a equipa «${destino.name}».`);
   };
 
+  const hoje = new Date().toISOString().slice(0, 10);
+  /** Data em que o membro entrou na equipa atual (a pertença em aberto no histórico). */
+  const entradaNaEquipa = (providerId: string, teamId: string) =>
+    teamHistory.find(h => h.providerId === providerId && h.teamId === teamId && !h.leftAt)?.joinedAt;
+  const formatarData = (d: string) => d.split('-').reverse().join('/');
+
+  const changeJoinedDate = async (providerId: string, nome: string, data: string) => {
+    if (!data) return;
+    setManageBusy(providerId);
+    setManageMsg(null);
+    const r = await setMemberJoinedDateInDb(providerId, data);
+    if (r.success) await reloadTeamHistory();
+    setManageBusy(null);
+    setManageMsg(r.success
+      ? { ok: true, text: `Data de entrada de ${nome} atualizada para ${formatarData(data)}. Só as avaliações de serviços a partir dessa data contam para ${nome}.` }
+      : { ok: false, text: r.error || 'Não foi possível atualizar a data de entrada.' });
+  };
+
   const remove = async (id: string, teamName: string) => {
     if (!window.confirm(`Apagar a equipa "${teamName}"? Os funcionários, avaliações e atividades ligados a ela ficam sem equipa; o histórico mantém-se.`)) return;
     const r = await deleteTeam(id);
@@ -148,7 +166,7 @@ export const TeamsPage: React.FC = () => {
         <div>
           <span className="text-[11px] font-bold text-brand-dark uppercase tracking-wider">Operações</span>
           <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Equipas</h1>
-          <p className="text-xs text-slate-500 mt-1">Crie equipas e escolha o supervisor entre os membros cadastrados ou os prestadores. A nota de cada avaliação aplica-se a toda a equipa, incluindo o supervisor.</p>
+          <p className="text-xs text-slate-500 mt-1">Crie equipas e escolha o supervisor entre os membros cadastrados ou os prestadores. A nota de cada avaliação conta para o supervisor e para os membros que participaram no serviço: quem entrou na equipa depois do serviço, ou não foi escalado no calendário, não recebe essa nota.</p>
         </div>
         {canManage && !showForm && (
           <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-dark hover:bg-brand-deep text-white rounded-xl text-sm font-bold">
@@ -262,6 +280,25 @@ export const TeamsPage: React.FC = () => {
                       {members.map(m => (
                         <li key={m.id} className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[11px] font-semibold text-slate-800 mr-auto">{m.name}</span>
+                          {(() => {
+                            const entrada = entradaNaEquipa(m.id, team.id);
+                            if (!entrada) return null;
+                            return canManage ? (
+                              <label className="flex items-center gap-1 text-[10px] text-slate-500" title="Só avaliações de serviços a partir desta data contam para este membro">
+                                Entrou em
+                                <input
+                                  type="date"
+                                  value={entrada}
+                                  max={hoje}
+                                  disabled={manageBusy === m.id}
+                                  onChange={e => changeJoinedDate(m.id, m.name, e.target.value)}
+                                  className="text-[10px] border border-slate-300 rounded-md px-1 py-0.5 bg-white"
+                                />
+                              </label>
+                            ) : (
+                              <span className="text-[10px] text-slate-500">Entrou em {formatarData(entrada)}</span>
+                            );
+                          })()}
                           {canManage && (
                             <>
                               {teams.length > 1 && (
