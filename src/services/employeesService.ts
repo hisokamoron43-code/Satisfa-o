@@ -1,3 +1,4 @@
+import { sanitizarTermoPesquisa } from '../lib/seguranca/pesquisa';
 import { traduzirErro } from './mensagensErro';
 /**
  * @file employeesService.ts
@@ -234,7 +235,7 @@ export const DEFAULT_EMPLOYEES: Employee[] = [
   {
     id: 'emp-002',
     employeeNumber: 'AET-002',
-    fullName: 'Dra. Maria Fernandes',
+    fullName: 'Utilizador de Demonstração',
     accessIdentifier: 'maria.fernandes',
     category: 'ADMINISTRATIVO',
     personalData: { biNumber: '002918472LA031', nif: '5408892110', nationality: 'Angolana' },
@@ -436,7 +437,7 @@ export async function fetchEmployees(params: FetchEmployeesParams = {}): Promise
       .select('*, access_profiles(name, base_role)', { count: 'exact' });
 
     if (params.search && params.search.trim()) {
-      const s = params.search.trim().toLowerCase();
+      const s = sanitizarTermoPesquisa(params.search).toLowerCase();
       query = query.or(`full_name.ilike.%${s}%,employee_number.ilike.%${s}%,access_identifier.ilike.%${s}%`);
     }
 

@@ -7,16 +7,17 @@ import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
+import { MfaGatePage } from './pages/MfaGatePage';
 import { AppLayout } from './components/layout/AppLayout';
 import { ClientSatisfactionForm } from './components/forms/ClientSatisfactionForm';
 import { SUPABASE_CONFIG_ERROR } from './services/supabaseService';
 
 const MainRouter: React.FC = () => {
-  const { currentUser, isAuthChecking, isClientFormOpen, setIsClientFormOpen } = useApp();
+  const { currentUser, isAuthChecking, isClientFormOpen, setIsClientFormOpen, mfaPendingMode } = useApp();
 
   // Links públicos de avaliação: parâmetros exatos (form, token, mode=form)
   const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const isDirectFormUrl = !!params && (params.has('form') || params.has('token') || params.get('mode') === 'form');
+  const isDirectFormUrl = !!params && (params.has('form') || params.get('mode') === 'form');
 
   if (SUPABASE_CONFIG_ERROR) {
     return (
@@ -58,6 +59,10 @@ const MainRouter: React.FC = () => {
 
   if (currentUser.mustChangePassword) {
     return <ChangePasswordPage />;
+  }
+
+  if (mfaPendingMode) {
+    return <MfaGatePage mode={mfaPendingMode} />;
   }
 
   return <AppLayout />;

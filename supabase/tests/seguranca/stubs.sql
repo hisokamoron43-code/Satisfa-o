@@ -20,3 +20,15 @@ GRANT USAGE ON SCHEMA auth, storage TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION storage.foldername(text) TO anon, authenticated, service_role;
 DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname='supabase_realtime') THEN CREATE PUBLICATION supabase_realtime; END IF; END $$;
+
+-- Simulação de auth.jwt() (claims do JWT, incluindo "aal") e de auth.mfa_factors
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT NULLIF(current_setting('request.jwt.claims', true), '')::jsonb $$;
+CREATE TABLE IF NOT EXISTS auth.mfa_factors (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  status text NOT NULL,
+  factor_type text NOT NULL DEFAULT 'totp'
+);
+GRANT EXECUTE ON FUNCTION auth.jwt() TO anon, authenticated, service_role;
+GRANT ALL ON auth.mfa_factors TO anon, authenticated, service_role;

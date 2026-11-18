@@ -10,7 +10,9 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:db": "node supabase/tests/migracao_1000.test.mjs",
-    "test:logic": "node --experimental-strip-types --test tests/logic.test.mjs"
+    "test:logic": "node --experimental-strip-types --test tests/logic.test.mjs",
+    "test:unit-seguranca": "node --experimental-strip-types --test tests/seguranca-unit.test.mjs",
+    "test:seguranca": "node supabase/tests/seguranca/run-seguranca.mjs && node supabase/tests/seguranca/run-correcoes-v2.mjs && node supabase/tests/seguranca/run-atribuicao.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

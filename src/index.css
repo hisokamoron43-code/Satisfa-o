@@ -120,3 +120,14 @@ html[data-shell="app"] .theme-fab { display: none; }
 
 /* Foco visível consistente para quem navega com teclado (só dentro da aplicação). */
 html[data-shell="app"] button:focus-visible, html[data-shell="app"] a:focus-visible, html[data-shell="app"] summary:focus-visible { outline: 2px solid #8CBF26; outline-offset: 2px; }
+
+/* Sidebar: flutuação suave e brilhos (respeita reduced-motion) */
+@keyframes sidebar-float { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(10px, 14px, 0); } }
+@keyframes sidebar-float-slow { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(-12px, -10px, 0); } }
+.animate-sidebar-float { animation: sidebar-float 11s ease-in-out infinite; }
+.animate-sidebar-float-slow { animation: sidebar-float-slow 15s ease-in-out infinite; }
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-sidebar-float, .animate-sidebar-float-slow { animation: none; }
+}

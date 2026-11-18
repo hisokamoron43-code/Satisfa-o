@@ -63,50 +63,76 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onMore }) => {
 
   const save = useCallback((keys: string[] | null) => { saveShortcuts(userId, keys); setSaved(keys); }, [userId]);
 
-  const base = 'relative flex-1 min-w-0 min-h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl text-[11px] font-semibold transition cursor-pointer';
-  const on = 'bg-brand/20 text-brand';
-  const off = 'text-slate-300 hover:text-white';
+  // Itens da barra: atalhos configurados + "Mais" (que está sempre presente)
+  const items = [
+    ...shortcuts.map(id => ({ key: id, Icon: iconOf(id), label: labelOf(id), badge: id === 'evaluations' ? pending : 0 })),
+    { key: '__more', Icon: Menu, label: 'Mais', badge: 0 },
+  ];
+  const n = items.length;
+  const currentKey = activeTab === 'employee_management' ? 'employees' : activeTab;
+  // Quando a aba ativa não é um atalho, o destaque fica em "Mais" (comportamento anterior)
+  const activeIndex = inShortcuts ? Math.max(0, shortcuts.indexOf(currentKey)) : n - 1;
+  const ActiveIcon = items[activeIndex]?.Icon;
 
   return (
     <>
       <nav
         aria-label="Navegação principal"
-        className="bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none"
+        className="bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none"
       >
-        <div className="pointer-events-auto mx-auto max-w-md flex items-center gap-1 p-1.5 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl">
-          {shortcuts.map(id => {
-            const Icon = iconOf(id);
-            const active = (activeTab === 'employee_management' ? 'employees' : activeTab) === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setActiveTab(id)}
-                aria-current={active ? 'page' : undefined}
-                className={`${base} ${active ? on : off}`}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="truncate max-w-full px-0.5">{labelOf(id)}</span>
-                {id === 'evaluations' && pending > 0 && (
-                  <span className="absolute top-1.5 right-[18%] min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center">
-                    {pending > 99 ? '99+' : pending}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => { if (!longPressed.current) onMore(); }}
-            onPointerDown={startPress} onPointerUp={endPress} onPointerLeave={endPress} onPointerCancel={endPress}
-            onContextMenu={e => e.preventDefault()}
-            aria-haspopup="dialog"
-            title="Toque longo para personalizar a barra"
-            className={`${base} ${!inShortcuts ? on : off}`}
+        <div className="pointer-events-auto relative mx-auto max-w-md h-[68px] rounded-full bg-gradient-to-r from-brand-deep/95 via-brand-dark/90 to-brand-deep/95 ring-1 ring-brand/25 shadow-[0_14px_34px_-14px_rgba(27,77,27,0.55)] backdrop-blur-xl">
+          {/* Destaque circular da aba ativa: sobe da barra e desliza para o item selecionado */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute top-0 h-full transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            style={{ width: `${100 / n}%`, transform: `translateX(${activeIndex * 100}%)` }}
           >
-            <Menu className="w-5 h-5" />
-            <span>Mais</span>
-          </button>
+            <div className="mx-auto -mt-[18px] w-14 h-14 rounded-full bg-brand text-brand-deep shadow-[0_8px_20px_-8px_rgba(140,191,38,0.7)] ring-[7px] ring-brand-dark flex items-center justify-center">
+              {ActiveIcon && <ActiveIcon className="w-6 h-6" />}
+            </div>
+          </div>
+
+          <div className="relative z-10 flex h-full px-1">
+            {items.map((it, i) => {
+              const active = i === activeIndex;
+              const isMore = it.key === '__more';
+              const Icon = it.Icon;
+              const moreHandlers = isMore
+                ? {
+                    onPointerDown: startPress,
+                    onPointerUp: endPress,
+                    onPointerLeave: endPress,
+                    onPointerCancel: endPress,
+                    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+                    'aria-haspopup': 'dialog' as const,
+                  }
+                : {};
+              return (
+                <button
+                  key={it.key}
+                  type="button"
+                  onClick={() => {
+                    if (isMore) { if (!longPressed.current) onMore(); }
+                    else setActiveTab(it.key);
+                  }}
+                  {...moreHandlers}
+                  aria-current={active && !isMore ? 'page' : undefined}
+                  title={isMore ? 'Toque longo para personalizar a barra' : undefined}
+                  className={`relative flex-1 min-w-0 h-full flex flex-col items-center justify-end pb-2.5 gap-1 transition-colors duration-300 ${active ? 'text-brand' : 'text-white/55 hover:text-white/90'}`}
+                >
+                  <span className={`flex items-center justify-center w-7 h-7 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${active ? 'opacity-0 -translate-y-3 scale-75' : 'opacity-100 translate-y-0 scale-100'}`}>
+                    <Icon className="w-5 h-5" />
+                  </span>
+                  <span className={`truncate max-w-full px-1 text-[10px] leading-none transition-all duration-300 ${active ? 'font-extrabold' : 'font-semibold'}`}>{it.label}</span>
+                  {it.badge > 0 && (
+                    <span className="absolute top-2 left-[calc(50%+6px)] min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-brand-dark">
+                      {it.badge > 99 ? '99+' : it.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </nav>
 

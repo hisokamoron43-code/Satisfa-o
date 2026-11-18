@@ -1,33 +1,23 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { APP_PAGE_MAP } from '../../config/pages';
 import type { PageSection } from '../../config/pages';
-import { 
-  LayoutDashboard, 
-  Building2, 
-  Calendar,
-  Briefcase, 
-  Users, 
-  Star, 
-  UserCheck, 
-  BarChart3, 
-  ShieldAlert, 
-  FileText, 
-  Settings,
-  CheckCircle,
-  ChevronRight,
-  LogOut,
-  MessageSquare,
-  ClipboardList,
-  Contact
+import {
+  LayoutDashboard, Building2, Calendar, Briefcase, Users, Star, UserCheck, BarChart3,
+  ShieldAlert, FileText, Settings, CheckCircle, LogOut, MessageSquare, ClipboardList,
+  Contact, ChevronLeft
 } from 'lucide-react';
 
 interface SidebarProps {
   mobileOpen: boolean;
   setMobileOpen: (open: boolean) => void;
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
+const EASE = 'ease-[cubic-bezier(0.22,1,0.36,1)]';
+
+export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, collapsed, setCollapsed }) => {
   const { activeTab, setActiveTab, currentUser, logout, evaluationQueueCounts } = useApp();
 
   const allNavItems = [
@@ -50,63 +40,115 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
-  // Visibilidade do menu: apenas as páginas atribuídas ao utilizador (ADMIN vê todas)
+  // Visibilidade: apenas as páginas atribuídas ao utilizador (ADMIN vê todas)
   const isAdmin = currentUser?.role === 'ADMIN';
   const allowedPages = currentUser?.allowedPages ?? [];
   const navItems = allNavItems.filter(item => isAdmin || allowedPages.includes(item.id));
 
-  // Agrupa o menu pelas secções definidas em config/pages.ts
   const SECTION_ORDER: PageSection[] = ['Visão Geral', 'Operações', 'Qualidade & RH', 'Direção', 'Administração', 'Segurança', 'Sistema'];
   const groups = SECTION_ORDER
     .map(section => ({ section, items: navItems.filter(item => (APP_PAGE_MAP[item.id]?.section ?? 'Sistema') === section) }))
     .filter(g => g.items.length > 0);
 
+  // Indicador deslizante: mede o botão ativo e desloca a pílula branca até ele
+  const navRef = useRef<HTMLElement>(null);
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pill, setPill] = useState<{ top: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const medir = () => {
+      const btn = itemRefs.current[activeTab];
+      const nav = navRef.current;
+      if (!btn || !nav) { setPill(null); return; }
+      const b = btn.getBoundingClientRect();
+      const n = nav.getBoundingClientRect();
+      const top = b.top - n.top + nav.scrollTop;
+      setPill(prev => (prev && prev.top === top && prev.height === b.height ? prev : { top, height: b.height }));
+    };
+    medir();
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, [activeTab, collapsed, mobileOpen, navItems.length]);
+
+  const recolhida = collapsed; // só tem efeito em ecrãs grandes (lg)
+
   return (
     <>
-      {/* Mobile Backdrop */}
       {mobileOpen && (
-        <div 
+        <div
           onClick={() => setMobileOpen(false)}
           className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-xs"
         />
       )}
 
-      {/* Sidebar Container */}
-      <aside className={`
-        fixed top-0 bottom-0 left-0 z-50 w-72 max-w-[85vw] bg-slate-900 text-slate-300 flex flex-col transition-transform duration-300 ease-in-out border-r border-slate-800
-        ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        {/* Top Brand Area */}
-        <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* SVG Logo Aeternu */}
-            <svg className="w-9 h-9 flex-shrink-0" viewBox="0 0 100 100" fill="none">
-              <defs>
-                <linearGradient id="sidebarGradLeft" x1="0%" y1="100%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#2D6A28"/>
-                  <stop offset="100%" stopColor="#8CBF26"/>
-                </linearGradient>
-                <linearGradient id="sidebarGradRight" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#8CBF26"/>
-                  <stop offset="100%" stopColor="#1B4D1B"/>
-                </linearGradient>
-              </defs>
-              <path d="M 20 85 L 50 15 L 68 50 L 50 85 Z" fill="url(#sidebarGradLeft)" />
-              <path d="M 50 15 L 80 85 L 62 85 L 42 45 Z" fill="url(#sidebarGradRight)" />
-            </svg>
-            <div>
-              <h1 className="text-lg font-black tracking-wider text-white leading-none">AETERNU</h1>
-              <p className="text-xs font-semibold tracking-wide text-brand mt-1">SICSC · Qualidade</p>
+      <aside
+        className={`
+          fixed z-50 top-3 bottom-3 left-3 flex flex-col overflow-hidden rounded-[28px]
+          text-white shadow-[0_20px_60px_-15px_rgba(15,60,15,0.55)] ring-1 ring-white/10
+          bg-gradient-to-b from-[#2D6A28] via-[#1B4D1B] to-[#0a2410]
+          transition-[transform,width] duration-500 ${EASE}
+          w-[17.5rem] max-w-[calc(100vw-1.5rem)]
+          ${recolhida ? 'lg:w-[5.25rem]' : 'lg:w-64'}
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-[120%] lg:translate-x-0'}
+        `}
+      >
+        {/* Brilhos decorativos em vidro */}
+        <div aria-hidden className="pointer-events-none absolute -top-20 -left-16 w-56 h-56 rounded-full bg-brand/25 blur-3xl animate-sidebar-float" />
+        <div aria-hidden className="pointer-events-none absolute bottom-10 -right-20 w-60 h-60 rounded-full bg-brand/15 blur-3xl animate-sidebar-float-slow" />
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-white/[0.03] backdrop-blur-[2px]" />
+
+        {/* Marca */}
+        <div className={`relative z-10 flex items-center ${recolhida ? 'lg:justify-center lg:px-0' : 'justify-between'} px-5 pt-5 pb-4`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-white/10 ring-1 ring-white/20 backdrop-blur flex items-center justify-center flex-shrink-0 transition-transform duration-500 hover:rotate-6">
+              <svg className="w-6 h-6" viewBox="0 0 100 100" fill="none">
+                <defs>
+                  <linearGradient id="sbGradL" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#8CBF26" />
+                    <stop offset="100%" stopColor="#ffffff" />
+                  </linearGradient>
+                  <linearGradient id="sbGradR" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#ffffff" />
+                    <stop offset="100%" stopColor="#8CBF26" />
+                  </linearGradient>
+                </defs>
+                <path d="M 20 85 L 50 15 L 68 50 L 50 85 Z" fill="url(#sbGradL)" />
+                <path d="M 50 15 L 80 85 L 62 85 L 42 45 Z" fill="url(#sbGradR)" />
+              </svg>
+            </div>
+            <div className={`min-w-0 transition-all duration-300 ${recolhida ? 'lg:hidden' : ''}`}>
+              <h1 className="text-base font-black tracking-[0.18em] leading-none">AETERNU</h1>
+              <p className="text-[11px] font-semibold tracking-wide text-brand mt-1.5">SICSC · Qualidade</p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            aria-label={recolhida ? 'Expandir menu' : 'Recolher menu'}
+            title={recolhida ? 'Expandir menu' : 'Recolher menu'}
+            className={`hidden lg:flex w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 ring-1 ring-white/10 items-center justify-center transition-all duration-300 ${recolhida ? 'absolute top-[4.6rem] left-1/2 -translate-x-1/2' : ''}`}
+          >
+            <ChevronLeft className={`w-4 h-4 transition-transform duration-500 ${EASE} ${recolhida ? 'rotate-180' : ''}`} />
+          </button>
         </div>
 
-        {/* Navigation Links */}
-        <nav aria-label="Menu principal" className="flex-1 overflow-y-auto px-4 py-3">
+        {/* Navegação */}
+        <nav ref={navRef} aria-label="Menu principal" className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-2 scrollbar-none">
+          {/* Pílula branca que desliza para o item ativo */}
+          {pill && (
+            <div
+              aria-hidden
+              className={`absolute left-3 right-3 rounded-2xl bg-white shadow-[0_10px_30px_-8px_rgba(140,191,38,0.6)] transition-[transform,height] duration-500 ${EASE}`}
+              style={{ transform: `translateY(${pill.top}px)`, height: pill.height }}
+            />
+          )}
+
           {groups.map((group) => (
-            <div key={group.section} className="mb-3">
+            <div key={group.section} className="mb-2">
               {groups.length > 1 && (
-                <p className="px-3.5 pt-2 pb-1.5 text-xs font-semibold text-slate-400">{group.section}</p>
+                <p className={`px-3 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/50 transition-opacity duration-300 ${recolhida ? 'lg:opacity-0' : ''}`}>
+                  {group.section}
+                </p>
               )}
               <div className="space-y-1">
                 {group.items.map((item) => {
@@ -115,27 +157,53 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
                   return (
                     <button
                       key={item.id}
-                      onClick={() => {
-                        setActiveTab(item.id);
-                        setMobileOpen(false);
-                      }}
+                      ref={(el) => { itemRefs.current[item.id] = el; }}
+                      type="button"
+                      onClick={() => { setActiveTab(item.id); setMobileOpen(false); }}
                       aria-current={isActive ? 'page' : undefined}
+                      title={recolhida ? item.label : undefined}
                       className={`
-                        w-full flex items-center justify-between px-3.5 min-h-11 rounded-xl text-sm font-semibold transition group
-                        ${isActive 
-                          ? 'bg-brand text-slate-950 shadow-md font-bold' 
-                          : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'}
+                        group relative z-10 w-full flex items-center gap-3 px-2.5 min-h-11 rounded-2xl text-sm font-semibold
+                        transition-colors duration-300 ${recolhida ? 'lg:justify-center lg:px-0' : ''}
+                        ${isActive ? 'text-[#1B4D1B]' : 'text-white/85 hover:text-white'}
                       `}
                     >
-                      <div className="flex items-center gap-3">
-                        <Icon className={`w-[18px] h-[18px] ${isActive ? 'text-slate-950' : 'text-brand group-hover:scale-110 transition-transform'}`} />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.count && item.count > 0 ? (
-                        <span className="text-xs min-w-5 text-center px-1.5 py-0.5 rounded-md bg-rose-500 text-white font-extrabold">
-                          {item.count}
-                        </span>
+                      <span
+                        className={`
+                          flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0 transition-all duration-500 ${EASE}
+                          ${isActive
+                            ? 'bg-gradient-to-br from-[#8CBF26] to-[#2D6A28] text-white shadow-md scale-100'
+                            : 'bg-white/10 group-hover:bg-white/20 group-hover:scale-110'}
+                        `}
+                      >
+                        <Icon className="w-[17px] h-[17px]" />
+                      </span>
+
+                      <span
+                        className={`
+                          flex-1 min-w-0 flex items-center justify-between gap-2 overflow-hidden whitespace-nowrap transition-all duration-300 ${EASE}
+                          ${recolhida ? 'lg:max-w-0 lg:opacity-0' : 'max-w-[12rem] opacity-100'}
+                        `}
+                      >
+                        <span className="truncate">{item.label}</span>
+                        {item.count && item.count > 0 ? (
+                          <span className="text-[11px] min-w-5 text-center px-1.5 py-0.5 rounded-lg bg-rose-500 text-white font-extrabold shadow-sm">
+                            {item.count}
+                          </span>
+                        ) : null}
+                      </span>
+
+                      {/* Contador em modo recolhido */}
+                      {recolhida && item.count && item.count > 0 ? (
+                        <span className="hidden lg:block absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[#1B4D1B]" />
                       ) : null}
+
+                      {/* Etiqueta flutuante em modo recolhido */}
+                      {recolhida && (
+                        <span className="hidden lg:block pointer-events-none absolute left-full ml-3 px-3 py-1.5 rounded-xl bg-slate-900/95 text-white text-xs font-semibold whitespace-nowrap shadow-xl opacity-0 translate-x-[-6px] group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 ring-1 ring-white/10">
+                          {item.label}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -144,31 +212,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
           ))}
         </nav>
 
-        {/* User Footer & Logout */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/40">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-brand/20 border border-brand/40 flex items-center justify-center text-brand font-bold text-xs flex-shrink-0">
+        {/* Rodapé: utilizador e sessão */}
+        <div className="relative z-10 p-3">
+          <div className={`rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-md p-3 ${recolhida ? 'lg:p-2' : ''}`}>
+            <div className={`flex items-center gap-2.5 ${recolhida ? 'lg:justify-center' : ''}`}>
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#8CBF26] to-[#2D6A28] flex items-center justify-center text-white font-black text-sm flex-shrink-0 shadow-md">
                 {currentUser?.name ? currentUser.name.charAt(0) : 'A'}
               </div>
-              <div className="overflow-hidden">
+              <div className={`min-w-0 overflow-hidden transition-all duration-300 ${recolhida ? 'lg:hidden' : ''}`}>
                 <p className="text-xs font-bold text-white truncate">{currentUser?.name || 'Utilizador'}</p>
-                <p className="text-[10px] text-slate-400 truncate">{currentUser?.email || 'aeternu.co.ao'}</p>
+                <p className="text-[10px] text-white/60 truncate">{currentUser?.email || 'aeternu.co.ao'}</p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={logout}
+              title="Terminar sessão"
+              className={`mt-3 w-full flex items-center justify-center gap-2 min-h-10 rounded-xl bg-white/10 hover:bg-red-500/30 text-white/90 hover:text-white text-xs font-semibold transition-colors duration-300 ring-1 ring-white/10 ${recolhida ? 'lg:px-0' : ''}`}
+            >
+              <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className={recolhida ? 'lg:hidden' : ''}>Terminar Sessão</span>
+            </button>
           </div>
           <button
+            type="button"
             onClick={() => { setMobileOpen(false); window.dispatchEvent(new Event('sicsc:edit-bottom-nav')); }}
-            className="lg:hidden w-full mb-2 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm min-h-11 rounded-xl transition border border-slate-700/60"
+            className="lg:hidden mt-2 w-full min-h-10 rounded-xl bg-white/10 text-white/85 text-xs font-semibold ring-1 ring-white/10"
           >
-            <span>Personalizar barra de acesso rápido</span>
-          </button>
-          <button
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-950/40 hover:text-red-400 text-slate-300 text-sm min-h-11 rounded-xl transition border border-slate-700/60"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Terminar Sessão</span>
+            Personalizar barra de acesso rápido
           </button>
         </div>
       </aside>

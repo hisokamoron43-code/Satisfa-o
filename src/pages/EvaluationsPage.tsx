@@ -1,3 +1,5 @@
+import { setEvaluationClientVisibilityInDb, confirmEvaluationAttributionInDb } from '../services/supabaseService';
+import { linhaCsv } from '../lib/seguranca/csv';
 import React, { useState, useMemo } from 'react';
 import { SecureAudio } from '../components/SecureAudio';
 import { ParticipantesNota } from '../components/evaluation/ParticipantesNota';
@@ -95,6 +97,10 @@ export const EvaluationsPage: React.FC = () => {
   const [editTechnicalScore, setEditTechnicalScore] = useState<number>(85);
   const [editClassification, setEditClassification] = useState<'POSITIVE' | 'NEGATIVE'>('POSITIVE');
   const [editStatus, setEditStatus] = useState<Evaluation['status']>('PENDING_REVIEW');
+  const [editVisible, setEditVisible] = useState<boolean>(false);
+  const [attrTeam, setAttrTeam] = useState<string>('');
+  const [attrProvider, setAttrProvider] = useState<string>('');
+  const [attrDone, setAttrDone] = useState<boolean>(false);
   const [editJustification, setEditJustification] = useState<string>('');
   const [isSubmittingScoreEdit, setIsSubmittingScoreEdit] = useState<boolean>(false);
   const [scoreEditError, setScoreEditError] = useState<string | null>(null);
@@ -364,9 +370,21 @@ export const EvaluationsPage: React.FC = () => {
     setEditTechnicalScore(ev.technicalScore !== undefined ? Math.round(ev.technicalScore) : Math.round((ev.satisfactionRating / 5) * 100));
     setEditClassification(ev.finalClassification || (ev.satisfactionRating >= 4 ? 'POSITIVE' : 'NEGATIVE'));
     setEditStatus(ev.status || 'REVIEWED');
+    setEditVisible(!!ev.clientVisibleToTeam);
+    setAttrTeam(ev.suggestedTeamId || '');
+    setAttrProvider(ev.suggestedProviderId || '');
+    setAttrDone(false);
     setEditJustification('');
     setScoreEditError(null);
     setScoreEditSuccess(null);
+  };
+
+  const confirmarAssociacao = async () => {
+    if (!editingScoreEval) return;
+    const res = await confirmEvaluationAttributionInDb(editingScoreEval.id, attrTeam || null, attrProvider || null);
+    if (!res.success) { setScoreEditError(res.error || 'Não foi possível confirmar a associação.'); return; }
+    setAttrDone(true);
+    setScoreEditSuccess('Associação confirmada. A avaliação já pode ser homologada.');
   };
 
   const handleSaveScoreEdit = async () => {
@@ -380,6 +398,10 @@ export const EvaluationsPage: React.FC = () => {
       updatedComment += `\n\n[Nota de Ajuste de Pontuação pelo Gestor (${currentUser?.name || 'Administrador'})]: ${editJustification.trim()}`;
     }
 
+    if (editVisible !== !!editingScoreEval.clientVisibleToTeam) {
+      const vis = await setEvaluationClientVisibilityInDb(editingScoreEval.id, editVisible);
+      if (!vis.success) { setScoreEditError(vis.error || 'Não foi possível alterar a visibilidade.'); return; }
+    }
     const res = await updateEvaluationScores(editingScoreEval.id, {
       satisfactionRating: editCsat,
       npsScore: editNps,
@@ -469,25 +491,25 @@ export const EvaluationsPage: React.FC = () => {
       const clientObj = clients.find(c => c.id === ev.clientId);
 
       return [
-        `"${ev.reference}"`,
-        `"${ev.serviceDate}"`,
-        `"${(ev.clientNameInput || ev.clientName || '').replace(/"/g, '""')}"`,
-        `"${(ev.clientId ? ev.clientName : 'NÃO ASSOCIADO').replace(/"/g, '""')}"`,
-        `"${clientObj?.internalCode || 'N/A'}"`,
-        `"${(ev.serviceName || '').replace(/"/g, '""')}"`,
-        `"${(ev.providerName || 'NÃO ATRIBUÍDO').replace(/"/g, '""')}"`,
+        ev.reference,
+        ev.serviceDate,
+        ev.clientNameInput || ev.clientName || '',
+        ev.clientId ? ev.clientName : 'NÃO ASSOCIADO',
+        clientObj?.internalCode || 'N/A',
+        ev.serviceName || '',
+        ev.providerName || 'NÃO ATRIBUÍDO',
         ev.satisfactionRating,
         ev.npsScore ?? '',
         ev.technicalScore !== undefined ? `${ev.technicalScore}%` : 'N/A',
         ev.finalClassification || 'PENDENTE',
-        `"${queueLabel}"`,
-        `"${ev.finalizedAt || 'N/A'}"`,
-        `"${ev.finalizedBy || 'N/A'}"`,
-        `"${(ev.comment || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`
+        queueLabel,
+        ev.finalizedAt || 'N/A',
+        ev.finalizedBy || 'N/A',
+        (ev.comment || '').replace(/\n/g, ' ')
       ];
     });
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => linhaCsv(r))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -501,9 +523,8 @@ export const EvaluationsPage: React.FC = () => {
 
   // Link público
   const handleGenerateClientLink = () => {
-    const token = `aet_tok_${Math.random().toString(36).substring(2, 10)}_${Date.now()}`;
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://aeternu.co.ao';
-    const link = `${origin}/?mode=form&token=${token}`;
+    const link = `${origin}/?mode=form`;
     setGeneratedToken(link);
     setIsTokenModalOpen(true);
   };
@@ -1289,6 +1310,31 @@ export const EvaluationsPage: React.FC = () => {
               </button>
             </div>
             
+            {editingScoreEval && !editingScoreEval.attributionConfirmed && !attrDone && (
+              <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 text-xs space-y-3">
+                <div>
+                  <strong className="block text-slate-900">Associação por confirmar</strong>
+                  <span className="text-slate-600">Indicado pelo cliente: <strong>{editingScoreEval.staffNameInput || '—'}</strong></span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <select value={attrTeam} onChange={e => setAttrTeam(e.target.value)} className="p-2 rounded-lg border border-slate-300 bg-white text-slate-900">
+                    <option value="">Equipa (opcional)</option>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <select value={attrProvider} onChange={e => setAttrProvider(e.target.value)} className="p-2 rounded-lg border border-slate-300 bg-white text-slate-900">
+                    <option value="">Funcionário (opcional)</option>
+                    {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <button type="button" onClick={confirmarAssociacao} className="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold">Confirmar associação</button>
+              </div>
+            )}
+
+            <label className="flex items-start gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs">
+              <input type="checkbox" className="mt-0.5" checked={editVisible} onChange={e => setEditVisible(e.target.checked)} />
+              <span><strong className="block text-slate-900">Mostrar o nome da empresa à equipa</strong><span className="text-slate-500">Decisão do RH após revisão. Por defeito fica oculto.</span></span>
+            </label>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">CSAT (1-5)</label>

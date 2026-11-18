@@ -5,8 +5,12 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // As migrações 1000 e 1001 executam-se SEMPRE juntas e por esta ordem (a 1000 recria funções que a 1001 altera).
-const migSql = ['1000_producao_consolidada.sql', '1001_formularios_pesos_servicos.sql', '1003_pontuacao_80_20.sql', '1004_regras_audio_argumentos.sql', '1005_equipa_funcionario.sql', '1006_temas_conversas.sql', '1007_temas_historico_membros.sql', '1008_referencia_avaliacoes.sql', '1009_equipas_anexos_prestadores.sql']
-  .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8')).join('\n;\n');
+// Sequência completa de migrações (todas as ficheiros NNNN_*.sql, por ordem).
+// Aplicação sequencial, ficheiro a ficheiro (como o Supabase): cada migração corre isolada.
+const migFiles = fs.readdirSync(path.join(HERE, '../migrations'))
+  .filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort()
+  .map((f) => fs.readFileSync(path.join(HERE, '../migrations', f), 'utf8'));
+const migSql = { async exec(_ignored) { for (const sql of migFiles) await db.exec(sql); } };
 
 const R = [];
 const rec = (id, title, ok, detail) => {
@@ -29,7 +33,14 @@ await db.exec(`
     SELECT NULLIF(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', '')::uuid $$;
   CREATE SCHEMA storage;
   CREATE TABLE storage.buckets (id text PRIMARY KEY, name text, public boolean DEFAULT false, file_size_limit bigint, allowed_mime_types text[]);
-  CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text, name text);
+  -- Ambiente Supabase: auth.jwt(), auth.mfa_factors e privilégios por defeito em public
+  CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $f$
+    SELECT NULLIF(current_setting('request.jwt.claims', true), '')::jsonb $f$;
+  CREATE TABLE IF NOT EXISTS auth.mfa_factors (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, status text NOT NULL, factor_type text NOT NULL DEFAULT 'totp');
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+  CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text, name text, created_at timestamptz DEFAULT now(), owner uuid, owner_id text, metadata jsonb);
   ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
   CREATE FUNCTION storage.foldername(name text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $$ SELECT (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
   GRANT USAGE ON SCHEMA public, auth, storage TO anon, authenticated, service_role;
@@ -39,13 +50,14 @@ await db.exec(`
 
 // ---------- 1. Execução limpa numa base vazia (sem alterações à migração) ----------
 let err1 = null;
-try { await db.exec(migSql); } catch (e) { err1 = e.message; }
+try { await migSql.exec(); } catch (e) { err1 = e.message; }
 rec('M1', 'Migração 1000 executa numa base vazia sem erros', !err1, err1 ? `ERRO: ${err1}` : 'OK');
 
 // Simular Supabase: privilégios por defeito do schema public (o Supabase concede a anon/authenticated)
+// Privilégios das tabelas como no Supabase (o RLS continua a decidir o acesso).
+// NÃO se concede EXECUTE em funções: as migrações definem essas permissões explicitamente.
 await db.exec(`GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-               GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-               GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO PUBLIC;`);
+               GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;`);
 
 // ---------- Seed (equivalente ao que a Edge Function faz) ----------
 const A = {
@@ -78,14 +90,6 @@ async function as(role, sub, fn) {
   try { return await fn(); } finally { await db.exec(`RESET ROLE;`); }
 }
 const tryq = async (fn) => { try { return { ok: true, r: await fn() }; } catch (e) { return { ok: false, err: e.message }; } };
-
-// ---------- 2. Idempotência: segunda execução não pode falhar nem apagar dados ----------
-await db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Cliente Sobrevive','CLI-2','ACTIVE');`);
-const before = (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n;
-const second = await tryq(() => db.exec(migSql));
-const after = (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n;
-rec('M2', 'Segunda execução da migração é idempotente e preserva os dados', second.ok && before === after,
-  second.ok ? `OK. Clientes antes=${before}, depois=${after}` : `ERRO: ${second.err}`);
 
 // ---------- 3. Submissão pública ----------
 const sub1 = await tryq(() => as('anon', '', async () =>
@@ -274,8 +278,9 @@ rec('T4', 'Anónimo NÃO consegue listar objetos do storage', anonRead === 'bloq
 // ---------- 11. Vistas públicas e acesso direto ----------
 const viewAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.v_public_clients`)));
 rec('V1', 'Vista pública v_public_clients acessível ao formulário', viewAnon.ok, viewAnon.ok ? 'OK' : `ERRO: ${viewAnon.err}`);
-const tblAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.clients`)));
-rec('V2', 'Anónimo NÃO lê a tabela clients (apenas a vista)', !tblAnon.ok, tblAnon.ok ? 'LEU (falha)' : `Bloqueado: ${tblAnon.err}`);
+const tblAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*)::int AS n FROM public.clients`)));
+const tblAnonRows = tblAnon.ok ? tblAnon.r.rows[0].n : null;
+rec('V2', 'Anónimo NÃO lê a tabela clients (apenas a vista)', !tblAnon.ok || tblAnonRows === 0, !tblAnon.ok ? `Bloqueado: ${tblAnon.err}` : `linhas visíveis=${tblAnonRows}`);
 
 // ---------- 12. Ausência de funções obsoletas e parâmetro esperado pelo frontend ----------
 const sig = (await db.query(`SELECT pg_get_function_arguments(oid) a FROM pg_proc WHERE proname='calculate_and_finalize_evaluation'`)).rows[0].a;
@@ -348,7 +353,10 @@ await db.exec(`UPDATE public.profiles SET name='João Neto Silva' WHERE id='${A.
   INSERT INTO public.employees (employee_number, full_name, access_identifier, category, account_status, user_id)
   VALUES ('AET-010','João Neto Silva','joao.neto','OUTRO','ATIVA','${A.op}');`);
 const OPEMAIL='op@sicsc.aeternu.internal';
-const resolveAs = (login) => as('anon', '', async () => (await db.query(`SELECT public.resolve_login_email($1) AS e`, [login])).rows[0].e);
+// VUL-06: a resolução é feita só pelo serviço (Edge Function `login`, papel service_role).
+const resolveAs = (login) => as('service_role', '', async () => (await db.query(`SELECT public.resolve_login_email($1) AS e`, [login])).rows[0].e);
+const anonResolve = await tryq(() => as('anon', '', async () => db.query(`SELECT public.resolve_login_email('joao.neto') AS e`)));
+rec('VUL06-anon', 'Anónimo NÃO consegue resolver identificadores de login', !anonResolve.ok, anonResolve.ok ? 'ACEITE (falha)' : `Bloqueado: ${anonResolve.err}`);
 rec('L2', 'Login pelo identificador de acesso resolve a conta', (await resolveAs('joao.neto')) === OPEMAIL, 'joao.neto');
 rec('L3', 'Login pelo nome completo (com acentos e maiúsculas) resolve a conta', (await resolveAs('JOÃO NETO SILVA')) === OPEMAIL, 'JOÃO NETO SILVA');
 rec('L4', 'Login pelo número de funcionário resolve a conta', (await resolveAs('aet-010')) === OPEMAIL, 'aet-010');
@@ -407,8 +415,9 @@ const goalBad = await tryq(() => as('authenticated', A.op, async () => db.query(
 rec('G2', 'Meta com valor alvo zero é recusada', !goalBad.ok, goalBad.ok ? 'ACEITE (falha)' : `Recusada: ${goalBad.err}`);
 const goalProv = await tryq(() => as('authenticated', A.prov, async () => db.query(`SELECT count(*) FROM public.client_goals`)));
 rec('G3', 'Prestador NÃO lê metas de clientes', goalProv.ok && Number(goalProv.r.rows[0].count) === 0, goalProv.ok ? `vê ${goalProv.r.rows[0].count}` : `Bloqueado: ${goalProv.err}`);
-const goalAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*) FROM public.client_goals`)));
-rec('G4', 'Anónimo NÃO lê metas', !goalAnon.ok, goalAnon.ok ? 'LEU (falha)' : `Bloqueado: ${goalAnon.err}`);
+const goalAnon = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*)::int AS n FROM public.client_goals`)));
+const goalRows = goalAnon.ok ? goalAnon.r.rows[0].n : null;
+rec('G4', 'Anónimo NÃO lê metas', !goalAnon.ok || goalRows === 0, !goalAnon.ok ? `Bloqueado: ${goalAnon.err}` : `linhas visíveis=${goalRows}`);
 
 
 // ---------- 20. Formulários, pesos e parecer do auditor (migração 1001) ----------
@@ -447,7 +456,7 @@ const saveBadSum = await tryq(() => as('authenticated', A.hr, async () => db.que
   `SELECT public.save_evaluation_criteria($1::jsonb)`, [JSON.stringify([
     { id: 'crit-qualidade', categoryCode: 'qualidade', categoryName: 'Qualidade', weightPercentage: 50, maxScore: 5, minScore: 0, active: true, order: 1 }])])));
 rec('T6', 'Gravar critérios com soma diferente de 100 % é recusado no servidor', !saveBadSum.ok, saveBadSum.ok ? 'ACEITE (falha)' : `Recusado: ${saveBadSum.err}`);
-const stillCode = (await db.query(`SELECT category_code FROM public.evaluation_criteria WHERE id='crit-qualidade'`)).rows[0].category_code;
+const stillCode = (await db.query(`SELECT category_code FROM public.evaluation_criteria WHERE id='crit-qualidade'`)).rows[0]?.category_code ?? null;
 rec('T6b', 'Recusa não deixa alterações parciais', stillCode === 'QUALIDADE', `category_code=${stillCode}`);
 
 const hA = await mkEval('Auditoria 1', ansMedio, 'submissions/a.webm', 'Texto geral do cliente');
@@ -514,8 +523,9 @@ await db.exec(`INSERT INTO public.teams (name, status) VALUES ('Equipa Luanda', 
 const teamOk = (await db.query(`SELECT id FROM public.teams WHERE name='Equipa Luanda'`)).rows[0].id;
 const teamOff = (await db.query(`SELECT id FROM public.teams WHERE name='Equipa Inativa'`)).rows[0].id;
 const cliAntigo = (await db.query(`SELECT id FROM public.clients WHERE company_name='Cliente Antigo'`)).rows[0].id;
+let _submitN = 0; // cada submissão de teste tem comentário único (a deduplicação recusa submissões idênticas em 10 min)
 const submitAs = (payload) => as('anon', '', async () => (await db.query(`SELECT public.submit_evaluation($1::jsonb) AS r`,
-  [JSON.stringify({ serviceId: svc, satisfactionRating: 4, ...payload })])).rows[0].r.id);
+  [JSON.stringify({ serviceId: svc, satisfactionRating: 4, comment: `Teste AUTO ${++_submitN}`, ...payload })])).rows[0].r.id);
 const rowOf = async (id) => (await db.query(`SELECT client_id, client_name, team_id, team_name FROM public.evaluations WHERE id=$1`, [id])).rows[0];
 
 const idA = await submitAs({ clientName: '  cliente  ANTIGO ', teamId: teamOk });
@@ -556,16 +566,19 @@ const provB = (await db.query(`SELECT provider_id FROM public.evaluations WHERE 
 rec('PT5', 'Equipa com vários prestadores e sem escolha deixa o prestador por atribuir', provB === null, `provider=${provB}`);
 const mismatch = await tryq(() => submitAs({ clientName: 'Cliente Antigo', teamId: teamOk, providerId: p3 }));
 rec('PT6', 'Funcionário de outra equipa é recusado', !mismatch.ok && /não pertence à equipa/.test(mismatch.err), mismatch.ok ? 'ACEITE (falha)' : `Recusado: ${mismatch.err}`);
-const anonTeamsTable = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*)::int n FROM public.teams`)));
-rec('PT7', 'Anónimo continua sem acesso à tabela teams', !anonTeamsTable.ok, anonTeamsTable.ok ? 'LEU (falha)' : `Recusado: ${anonTeamsTable.err}`);
+const anonTeamsTable = await tryq(() => as('anon', '', async () => db.query(`SELECT count(*)::int AS n FROM public.teams`)));
+const anonTeamsRows = anonTeamsTable.ok ? anonTeamsTable.r.rows[0].n : null;
+rec('PT7', 'Anónimo continua sem acesso à tabela teams', !anonTeamsTable.ok || anonTeamsRows === 0, !anonTeamsTable.ok ? `Recusado: ${anonTeamsTable.err}` : `linhas visíveis=${anonTeamsRows}`);
 
 // ---------- 24. Apagar cliente e importação em lote (clientes) ----------
 const delC = (await db.query(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Cliente Apagar','DEL-1','ACTIVE') RETURNING id`)).rows[0].id;
 const delE = (await db.query(`INSERT INTO public.evaluations (client_id, client_name, client_name_input, service_name, satisfaction_rating) VALUES ($1,'Cliente Apagar','Cliente Apagar','Limpeza',4) RETURNING id`, [delC])).rows[0].id;
-await db.query(`DELETE FROM public.clients WHERE id=$1`, [delC]);
+// N-02: um cliente com avaliações NÃO pode ser apagado (ON DELETE RESTRICT); o histórico mantém a ligação.
+const delTry = await tryq(() => db.query(`DELETE FROM public.clients WHERE id=$1`, [delC]));
 const afterE = (await db.query(`SELECT client_id, client_name FROM public.evaluations WHERE id=$1`, [delE])).rows[0];
-rec('DEL1', 'Apagar cliente mantém a avaliação no histórico, com o nome da empresa', afterE && afterE.client_id === null && afterE.client_name === 'Cliente Apagar',
-  afterE ? `client_id=${afterE.client_id} nome=${afterE.client_name}` : 'avaliação perdida');
+rec('DEL1', 'Cliente com avaliações NÃO pode ser apagado; a avaliação mantém a ligação ao cliente (N-02)',
+  !delTry.ok && afterE && afterE.client_id === delC && afterE.client_name === 'Cliente Apagar',
+  delTry.ok ? 'APAGADO (falha)' : `Recusado: ${delTry.err} | client_id mantido=${afterE && afterE.client_id === delC}`);
 
 const batch40 = Array.from({ length: 40 }, (_, i) => `(${`'Lote ${i}'`}, ${`'LOT-${i}'`}, 'ACTIVE')`).join(',');
 const okBatch = await tryq(() => db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ${batch40}`));
@@ -660,6 +673,16 @@ rec('ATT4', 'Documento repetido (mesmo nome) é detetado na conversa', dup === 1
 const recips = await tryq(() => as('authenticated', A.op, async () => (await db.query(`SELECT public.list_message_recipients_v2() AS r`)).rows[0].r));
 rec('RC1', 'Lista de destinatários devolve prestadores com a ligação ao prestador', recips.ok && Array.isArray(recips.r) && recips.r.every(x => 'providerId' in x),
   recips.ok ? `destinatários=${recips.r.length}` : `ERRO: ${recips.err}`);
+
+// ---------- 2. Idempotência: segunda execução não pode falhar nem apagar dados ----------
+await db.exec(`INSERT INTO public.clients (company_name, internal_code, status) VALUES ('Cliente Sobrevive','CLI-2','ACTIVE');`);
+const before = (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n;
+const second = await tryq(() => migSql.exec());
+const after = (await db.query(`SELECT count(*)::int n FROM public.clients`)).rows[0].n;
+rec('M2', 'Segunda execução da migração é idempotente e preserva os dados', second.ok && before === after,
+  second.ok ? `OK. Clientes antes=${before}, depois=${after}` : `ERRO: ${second.err}`);
+
+
 
 // ---------- Resumo ----------
 const falhas = R.filter(r => !r.ok);

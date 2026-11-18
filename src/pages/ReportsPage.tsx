@@ -1,3 +1,4 @@
+import { linhaCsv } from '../lib/seguranca/csv';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { KpiDetailModal, KpiType } from '../components/analytics/KpiDetailModal';
@@ -75,10 +76,9 @@ export const ReportsPage: React.FC = () => {
 
   const exportCsv = () => {
     if (evaluations.length === 0) { setNotice('Não existem avaliações para exportar.'); return; }
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const head = 'Referencia,Cliente,Servico,Prestador,Classificacao_CSAT,Score_NPS,Data,Pontuacao_Tecnica,Classificacao_Final\n';
-    const rows = evaluations.map(e => [e.reference, e.clientName, e.serviceName, e.providerName, e.satisfactionRating,
-      e.npsScore ?? '', e.evaluationDate, (e as any).technicalScore ?? '', (e as any).finalClassification ?? ''].map(esc).join(',')).join('\n');
+    const rows = evaluations.map(e => linhaCsv([e.reference, e.clientName, e.serviceName, e.providerName, e.satisfactionRating,
+      e.npsScore ?? '', e.evaluationDate, (e as any).technicalScore ?? '', (e as any).finalClassification ?? ''])).join('\n');
     const blob = new Blob([head + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

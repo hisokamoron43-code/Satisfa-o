@@ -64,26 +64,9 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
   }, [services]);
 
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [staffName, setStaffName] = useState<string>('');
   // Funcionários ativos da equipa escolhida (só nomes) e o escolhido
-  const [teamProviders, setTeamProviders] = useState<{ id: string; name: string }[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('');
-  const [customTeamName, setCustomTeamName] = useState<string>('');
   const [serviceDate, setServiceDate] = useState<string>(new Date().toISOString().substring(0, 10));
-
-  // Ao escolher a equipa, carrega os seus funcionários. Com um só, fica selecionado automaticamente.
-  useEffect(() => {
-    let active = true;
-    setSelectedProviderId('');
-    setTeamProviders([]);
-    if (!isValidUuid(selectedTeamId)) return;
-    fetchTeamProvidersForPublic(selectedTeamId).then((list) => {
-      if (!active) return;
-      setTeamProviders(list);
-      if (list.length === 1) setSelectedProviderId(list[0].id);
-    });
-    return () => { active = false; };
-  }, [selectedTeamId]);
 
   // Equipas agendadas no calendário operacional para a data de serviço selecionada
   const scheduledTeamsForDate = useMemo(() => {
@@ -115,8 +98,6 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
   // NPS é opcional: só é gravado se o respondente escolher um valor
   const [npsAnswered, setNpsAnswered] = useState<boolean>(false);
   const [generalComment, setGeneralComment] = useState<string>('');
-  // Privacidade: por defeito os avaliados NÃO veem o nome da empresa; o avaliador pode permitir.
-  const [clientVisibleToTeam, setClientVisibleToTeam] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -133,9 +114,6 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
   useEffect(() => {
     if (availableServices.length > 0 && selectedServiceIds.length === 0) {
       setSelectedServiceIds([availableServices[0].id]);
-    }
-    if (teams.length > 0 && !selectedTeamId) {
-      setSelectedTeamId(teams[0].id);
     }
 
     // Default ratings for RATING_5 questions
@@ -476,6 +454,10 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
     if (isSubmitting) return;
     setErrorMessage('');
     setSubmitError(null);
+    if (staffName.trim().length < 2) {
+      setSubmitError('Indique a equipa ou o funcionário que prestou o serviço.');
+      return;
+    }
 
     // Validate Step 1 basics
     const clientName = clientNameInput.trim();
@@ -526,8 +508,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         ? selectedServiceObjs.map(s => s.name).join(', ') 
         : 'Serviço de Higiene e Ambiente';
 
-      const teamObj = teams.find(t => t.id === selectedTeamId);
-      const teamName = teamObj ? teamObj.name : (customTeamName.trim() || 'Equipa Técnica Operacional AETERNU');
+      const teamName = staffName.trim();
 
       // Calculate average satisfaction rating from rating questions
       const ratingValues = Object.values(ratings);
@@ -624,7 +605,6 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
 
       // Proteção de formato UUID: apenas envia se for formato UUID genuíno
       const validServiceId = isValidUuid(selectedServiceIds[0]) ? selectedServiceIds[0] : undefined;
-      const validTeamId = isValidUuid(selectedTeamId) ? selectedTeamId : undefined;
 
       const result = await addEvaluation({
         clientId: undefined, // Submissão pública anónima SEMPRE gera client_id = NULL
@@ -632,9 +612,8 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         clientNameInput: clientName,
         serviceId: validServiceId,
         serviceName,
-        providerId: selectedProviderId || undefined,
+        staffNameInput: staffName.trim(),
         providerName: teamName,
-        teamId: validTeamId,
         teamName: teamName,
         serviceDate,
         satisfactionRating: Math.max(1, Math.min(5, averageRating)),
@@ -643,7 +622,6 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
         audioRecordingUrl: audioRef || undefined,
         audioDurationSeconds: (audioUrl && recordingDuration > 0) ? recordingDuration : undefined,
         serviceTypesProvided: selectedServiceObjs.map(s => s.name),
-        clientVisibleToTeam,
         answers: answersArray,
         detailedAnswers,
         questionsSnapshot,
@@ -683,7 +661,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
     { step: 1, name: 'Identificação & Serviços', shortName: 'Identificação', desc: 'Dados da empresa, prestador e tipos de serviços prestados' },
     { step: 2, name: 'Avaliação de Desempenho', shortName: 'Critérios', desc: 'Pontuação de qualidade, pontualidade, segurança e atendimento' },
     { step: 3, name: 'Testemunho & Áudio', shortName: 'Testemunho & Voz', desc: 'Feedback detalhado por escrito ou gravação de microfone' },
-    { step: 4, name: 'Recomendação & Envio', shortName: 'NPS & Conclusão', desc: 'Classificação final Net Promoter Score e envio seguro' },
+    { step: 4, name: 'Recomendação & Envio', shortName: 'Recomendação e envio', desc: 'Recomendação e envio seguro' },
   ];
 
   const progressPercent = Math.round((currentStep / 4) * 100);
@@ -888,7 +866,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                         <span className="flex items-center gap-1.5">
                           <Building2 className="w-3.5 h-3.5 text-brand-dark" /> Empresa Cliente / Organização *
                         </span>
-                        <span className="text-[10px] font-bold text-slate-500 lowercase">escrita livre</span>
+                        
                       </label>
                       
                       <div className="relative">
@@ -908,66 +886,26 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
 
                       <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
                         <ShieldCheck className="w-3 h-3 text-brand-dark flex-shrink-0" />
-                        Escreva livremente a sua entidade. Os dados serão registados de forma confidencial para análise da AETERNU.
+                        Escreva o nome da sua empresa. Os dados são tratados de forma confidencial.
                       </p>
                     </div>
 
-                    {/* Equipa Responsável */}
+                    {/* Equipa ou funcionário que prestou o serviço (texto livre; o RH confirma a associação) */}
                     <div className="space-y-2">
                       <label className="block text-xs font-black text-slate-950 uppercase tracking-wide flex items-center gap-1.5">
-                        <UserCheck className="w-3.5 h-3.5 text-brand-dark" /> Equipa Responsável *
+                        <UserCheck className="w-3.5 h-3.5 text-brand-dark" /> Equipa ou funcionário que prestou o serviço *
                       </label>
-                      {teams.length > 0 ? (
-                        <select
-                          value={selectedTeamId}
-                          onChange={(e) => setSelectedTeamId(e.target.value)}
-                          className="w-full bg-white border border-slate-300 text-slate-950 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand font-medium shadow-2xs transition"
-                        >
-                          {teams.map(t => (
-                            <option key={t.id} value={t.id} className="bg-white text-slate-950">{t.name} ({t.code}) - {t.department}</option>
-                          ))}
-                          <option value="custom" className="bg-white text-slate-950">Outra Equipa (Escrever Livremente)...</option>
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={customTeamName}
-                          onChange={(e) => setCustomTeamName(e.target.value)}
-                          placeholder="Nome da Equipa Operacional..."
-                          className="w-full bg-white border border-slate-300 text-slate-950 placeholder-slate-400 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand font-medium shadow-2xs transition"
-                        />
-                      )}
-                      {selectedTeamId === 'custom' && teams.length > 0 && (
-                        <input
-                          type="text"
-                          value={customTeamName}
-                          onChange={(e) => setCustomTeamName(e.target.value)}
-                          placeholder="Escreva o nome da equipa..."
-                          className="w-full mt-2 bg-white border border-slate-300 text-slate-950 placeholder-slate-400 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand font-medium shadow-2xs transition"
-                        />
-                      )}
+                      <input
+                        type="text"
+                        value={staffName}
+                        onChange={(e) => setStaffName(e.target.value)}
+                        maxLength={160}
+                        placeholder="Ex: Equipa Delta, ou o nome do técnico"
+                        className="w-full bg-white border border-slate-300 text-slate-950 placeholder-slate-400 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand"
+                      />
+                      <p className="text-xs text-slate-600">Escreva o nome da equipa ou do funcionário. A nossa equipa de qualidade confirma a associação.</p>
                     </div>
                   </div>
-
-                  {/* Funcionário que prestou o serviço (opcional quando a equipa tem vários) */}
-                  {teamProviders.length > 1 && (
-                    <div className="space-y-2">
-                      <label className="block text-xs font-black text-slate-950 uppercase tracking-wide">Funcionário que prestou o serviço</label>
-                      <select
-                        value={selectedProviderId}
-                        onChange={(e) => setSelectedProviderId(e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-950 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand"
-                      >
-                        <option value="">Não sei / não indicar</option>
-                        {teamProviders.map((pr) => (
-                          <option key={pr.id} value={pr.id} className="bg-white text-slate-950">{pr.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  {teamProviders.length === 1 && (
-                    <p className="text-xs text-slate-700">Funcionário que prestou o serviço: <strong>{teamProviders[0].name}</strong></p>
-                  )}
 
                   {/* Data do Serviço */}
                   <div className="space-y-2">
@@ -1013,7 +951,7 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                             <div>
                               <p className="font-black text-slate-950">{srv.name}</p>
                               <p className="text-[10px] text-slate-600 mt-0.5 line-clamp-1 font-medium">
-                                {srv.code ? `${srv.code} — ` : ''}{srv.description || 'Intervenção técnica especializada AETERNU'}
+                                {srv.description || 'Intervenção técnica especializada AETERNU'}
                               </p>
                             </div>
                           </button>
@@ -1379,26 +1317,6 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                     </div>
                   </div>
 
-                  {/* Privacidade: os avaliados veem o nome da empresa? */}
-                  <fieldset className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3 text-xs">
-                    <legend className="text-[10px] font-black uppercase tracking-wider text-slate-950 px-1">
-                      Privacidade da sua empresa
-                    </legend>
-                    <p className="text-slate-600">
-                      As pessoas avaliadas (a equipa que prestou o serviço) podem ver o nome da sua empresa junto da nota?
-                      Se escolher «Não», veem a avaliação mas não sabem de que empresa vem. A nossa equipa de qualidade vê sempre.
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <label className={`flex items-start gap-2 p-3 rounded-xl border cursor-pointer ${!clientVisibleToTeam ? 'border-brand bg-brand/10' : 'border-slate-200 hover:bg-slate-50'}`}>
-                        <input type="radio" name="clientVisibleToTeam" className="mt-0.5" checked={!clientVisibleToTeam} onChange={() => setClientVisibleToTeam(false)} />
-                        <span><strong className="block text-slate-900">Não, manter o nome oculto</strong><span className="text-slate-500">Recomendado</span></span>
-                      </label>
-                      <label className={`flex items-start gap-2 p-3 rounded-xl border cursor-pointer ${clientVisibleToTeam ? 'border-brand bg-brand/10' : 'border-slate-200 hover:bg-slate-50'}`}>
-                        <input type="radio" name="clientVisibleToTeam" className="mt-0.5" checked={clientVisibleToTeam} onChange={() => setClientVisibleToTeam(true)} />
-                        <span><strong className="block text-slate-900">Sim, mostrar o nome da empresa</strong><span className="text-slate-500">Os avaliados veem «{clientNameInput.trim() || 'a sua empresa'}»</span></span>
-                      </label>
-                    </div>
-                  </fieldset>
 
                   {/* Resumo antes de submeter */}
                   <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200 space-y-3 text-xs shadow-xs">
@@ -1419,17 +1337,13 @@ export const ClientSatisfactionForm: React.FC<ClientSatisfactionFormProps> = ({ 
                         </strong>
                       </div>
                       <div>
-                        <span className="text-slate-500 font-semibold block">Nome da empresa visível para os avaliados:</span>
-                        <strong className="text-slate-950 font-black">{clientVisibleToTeam ? 'Sim' : 'Não (oculto)'}</strong>
-                      </div>
-                      <div>
                         <span className="text-slate-500 font-semibold block">Gravação de Áudio:</span>
                         <strong className={audioUrl ? 'text-brand-dark font-black' : 'text-slate-500'}>
                           {audioUrl ? `Áudio Anexado (${formatSeconds(recordingDuration)})` : 'Nenhum áudio gravado'}
                         </strong>
                       </div>
                       <div>
-                        <span className="text-slate-500 font-semibold block">Índice NPS:</span>
+                        <span className="text-slate-500 font-semibold block">Recomendação:</span>
                         <strong className="text-brand-dark font-black">{npsScore} / 10</strong>
                       </div>
                     </div>

@@ -133,6 +133,10 @@ export interface Evaluation {
   serviceName: string;
   providerId?: string;
   providerName: string;
+  staffNameInput?: string;
+  suggestedTeamId?: string;
+  suggestedProviderId?: string;
+  attributionConfirmed?: boolean;
   providerNameInput?: string;
   teamId?: string;
   teamName?: string;

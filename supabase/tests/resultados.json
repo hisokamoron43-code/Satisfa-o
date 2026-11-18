@@ -5,11 +5,6 @@
     "ok": true
   },
   {
-    "id": "M2",
-    "title": "Segunda execução da migração é idempotente e preserva os dados",
-    "ok": true
-  },
-  {
     "id": "S0",
     "title": "submit_evaluation aceita submissão anónima válida",
     "ok": true
@@ -82,27 +77,27 @@
   {
     "id": "F1",
     "title": "Homologação (RH) executa e devolve as chaves que o frontend espera",
-    "ok": true
+    "ok": false
   },
   {
     "id": "F2",
     "title": "Sem áudio (10 automáticos) e argumentos decididos com 0: 62 + 10 + 0 = 72.00",
-    "ok": true
+    "ok": false
   },
   {
     "id": "F3",
     "title": "Estado após homologação é REVIEWED (alinhado com o frontend)",
-    "ok": true
+    "ok": false
   },
   {
     "id": "I1",
     "title": "Avaliação homologada NÃO pode ser re-homologada",
-    "ok": true
+    "ok": false
   },
   {
     "id": "I2",
     "title": "Alteração direta da pontuação homologada é bloqueada pelo trigger",
-    "ok": true
+    "ok": false
   },
   {
     "id": "I3",
@@ -117,7 +112,7 @@
   {
     "id": "B1",
     "title": "Erro de soma de pesos devolve mensagem legível com a soma atual",
-    "ok": true
+    "ok": false
   },
   {
     "id": "F4",
@@ -127,7 +122,7 @@
   {
     "id": "C1",
     "title": "save_evaluation_criteria recusa soma diferente de 100 com mensagem clara",
-    "ok": true
+    "ok": false
   },
   {
     "id": "C2",
@@ -305,6 +300,11 @@
     "ok": true
   },
   {
+    "id": "VUL06-anon",
+    "title": "Anónimo NÃO consegue resolver identificadores de login",
+    "ok": true
+  },
+  {
     "id": "L2",
     "title": "Login pelo identificador de acesso resolve a conta",
     "ok": true
@@ -427,22 +427,22 @@
   {
     "id": "T1-RATING_10",
     "title": "Questão do tipo RATING_10 é aceite",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T1-SINGLE_CHOICE",
     "title": "Questão do tipo SINGLE_CHOICE é aceite",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T1-MULTI_CHOICE",
     "title": "Questão do tipo MULTI_CHOICE é aceite",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T1-YES_NO_NA",
     "title": "Questão do tipo YES_NO_NA é aceite",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T1-BAD",
@@ -472,7 +472,7 @@
   {
     "id": "T5",
     "title": "Critérios do RH ficam ligados às categorias (category_code)",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T6",
@@ -482,22 +482,22 @@
   {
     "id": "T6b",
     "title": "Recusa não deixa alterações parciais",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T7",
     "title": "Homologação com áudio e argumentos classificados (esperado 77.00)",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T8",
     "title": "Parecer e partes (automático/áudio/argumentos) gravados no snapshot imutável",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T9",
     "title": "Parecer do auditor é imutável após a homologação",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T10",
@@ -522,7 +522,7 @@
   {
     "id": "T11c",
     "title": "Respostas máximas e 5/5 nos dois elementos dão 100.00",
-    "ok": true
+    "ok": false
   },
   {
     "id": "N1",
@@ -537,7 +537,7 @@
   {
     "id": "N3",
     "title": "Sem áudio e com 10 atribuídos pelo analisador: 62 + 10 + 10 = 82.00",
-    "ok": true
+    "ok": false
   },
   {
     "id": "T12",
@@ -606,7 +606,7 @@
   },
   {
     "id": "DEL1",
-    "title": "Apagar cliente mantém a avaliação no histórico, com o nome da empresa",
+    "title": "Cliente com avaliações NÃO pode ser apagado; a avaliação mantém a ligação ao cliente (N-02)",
     "ok": true
   },
   {
@@ -723,5 +723,10 @@
     "id": "RC1",
     "title": "Lista de destinatários devolve prestadores com a ligação ao prestador",
     "ok": true
+  },
+  {
+    "id": "M2",
+    "title": "Segunda execução da migração é idempotente e preserva os dados",
+    "ok": false
   }
 ]

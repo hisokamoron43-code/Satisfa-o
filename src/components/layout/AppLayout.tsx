@@ -27,6 +27,8 @@ const MessagesPage = lazy(() => import('../../pages/MessagesPage').then((m) => (
 
 export const AppLayout: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => typeof window !== 'undefined' && localStorage.getItem('sicsc:sidebar-collapsed') === '1');
+  useEffect(() => { localStorage.setItem('sicsc:sidebar-collapsed', sidebarCollapsed ? '1' : '0'); }, [sidebarCollapsed]);
   const { activeTab, currentUser, setActiveTab } = useApp();
   const pageKey = activeTab === 'employee_management' ? 'employees' : activeTab;
   const canView = currentUser?.role === 'ADMIN' || (currentUser?.allowedPages ?? []).includes(pageKey);
@@ -107,10 +109,10 @@ export const AppLayout: React.FC = () => {
     <div className="min-h-dvh bg-slate-100 flex flex-col lg:flex-row">
       <IdleSessionGuard />
       {/* Sidebar */}
-      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
 
       {/* Main Content Wrapper */}
-      <div className="flex-1 min-w-0 lg:pl-72 flex flex-col min-h-dvh">
+      <div className={`flex-1 min-w-0 flex flex-col min-h-dvh transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${sidebarCollapsed ? 'lg:pl-[6.5rem]' : 'lg:pl-[19rem]'}`}>
         <Header setMobileOpen={setMobileOpen} />
         
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">

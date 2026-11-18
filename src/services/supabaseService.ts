@@ -1,4 +1,5 @@
 import { traduzirErro } from './mensagensErro';
+import { identificadorSeguro, extensaoAnexoPermitida } from '../lib/seguranca/pesquisa';
 import { identifierToAuthEmail } from '../lib/authIdentifier';
 import type { ClientGoal, GoalMetric, GoalStatus, TeamMembership } from '../types';
 /**
@@ -208,46 +209,119 @@ export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
  * Signs in a user using Supabase Auth (email + password).
  */
 export async function signInWithSupabase(
-  email: string, 
+  email: string,
   password: string
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
   if (!isSupabaseConfigured) {
     return { success: false, error: 'Serviço de autenticação indisponível.' };
   }
   try {
-    // Aceita e-mail legado ou identificador de acesso (convertido para o e-mail técnico)
-    const { data: resolvedEmail, error: resolveError } = await supabase.rpc('resolve_login_email', { p_login: email.trim() });
-    if (resolveError || !resolvedEmail) {
-      return { success: false, error: 'Credenciais inválidas. Verifique os seus dados.' };
+    // A resolução do identificador e o limite de tentativas são feitos pela Edge Function `login`.
+    const res = await withTimeout(
+      fetch(`${SUPABASE_URL}/functions/v1/login`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login: email.trim(), password }),
+      }),
+      20000,
+      'iniciar sessão',
+    );
+    const dados = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; error?: string };
+    if (!res.ok || !dados.access_token || !dados.refresh_token) {
+      return {
+        success: false,
+        error: res.status === 429 && dados.error ? dados.error : 'Credenciais inválidas. Verifique os seus dados.',
+      };
     }
-    const cleanEmail = String(resolvedEmail);
-    const { data, error } = await withTimeout(supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password: password,
-    }), 20000, 'iniciar sessão');
-
-    if (error) {
-      let friendly = traduzirErro(error, 'Não foi possível iniciar sessão.');
-      if (error.message.includes('Invalid login credentials')) {
-        friendly = 'Credenciais inválidas. Verifique o e-mail e a palavra-passe criados no Supabase.';
-      } else if (error.message.includes('Email not confirmed')) {
-        friendly = 'O e-mail ainda não foi confirmado. Aceda ao painel do Supabase -> Authentication -> Users e confirme o utilizador, ou desative "Confirm email" nas definições de Auth.';
-      } else if (error.message.includes('fetch') || error.message.includes('network')) {
-        friendly = 'Erro de rede ao comunicar com o Supabase. Verifique a ligação à internet.';
-      }
-      return { success: false, error: friendly };
+    const { data, error } = await supabase.auth.setSession({
+      access_token: dados.access_token,
+      refresh_token: dados.refresh_token,
+    });
+    if (error || !data.user) {
+      return { success: false, error: 'Não foi possível iniciar sessão. Tente novamente.' };
     }
-
-    if (!data.user) {
-      return { success: false, error: 'Utilizador não encontrado no sistema.' };
-    }
-
-    // Retrieve or provision user profile in public.profiles table
     const profile = await getOrCreateUserProfile(data.user);
     return { success: true, user: profile };
   } catch (err: any) {
     await signOutFromSupabase();
     return { success: false, error: traduzirErro(err, 'Erro inesperado durante a autenticação.') };
+  }
+}
+
+/** Requisito de MFA do utilizador atual (função mfa_requirement na base de dados). */
+export interface MfaRequirement {
+  role: string | null;
+  requiredRole: boolean;
+  enforced: boolean;
+  enforcedFrom: string | null;
+  aal: string;
+  verifiedFactor: boolean;
+}
+
+export async function getMfaRequirement(): Promise<MfaRequirement | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.rpc('mfa_requirement');
+    if (error || !data) return null;
+    return data as MfaRequirement;
+  } catch {
+    return null;
+  }
+}
+
+/** Ecrã de MFA a mostrar: 'verify' se já há fator, 'enroll' se a MFA é obrigatória e ainda não há fator, ou null. */
+export function modoMfaPendente(req: MfaRequirement | null): 'enroll' | 'verify' | null {
+  if (!req || !req.requiredRole || req.aal === 'aal2') return null;
+  if (req.verifiedFactor) return 'verify';
+  return req.enforced ? 'enroll' : null;
+}
+
+/** Inicia a inscrição de uma aplicação de autenticação (TOTP). */
+export async function enrollTotp(): Promise<{ success: boolean; factorId?: string; qr?: string; secret?: string; error?: string }> {
+  try {
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'SICSC' });
+    if (error || !data) return { success: false, error: traduzirErro(error, 'Não foi possível iniciar a configuração.') };
+    return { success: true, factorId: data.id, qr: data.totp.qr_code, secret: data.totp.secret };
+  } catch (err: any) {
+    return { success: false, error: traduzirErro(err, 'Não foi possível iniciar a configuração.') };
+  }
+}
+
+/** Confirma a inscrição com o primeiro código; a sessão passa a aal2. */
+export async function confirmTotpEnrollment(factorId: string, code: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: code.trim() });
+    if (error) return { success: false, error: 'Código inválido ou expirado. Tente novamente.' };
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Código inválido ou expirado. Tente novamente.' };
+  }
+}
+
+/** Verifica o código TOTP do utilizador numa sessão aal1. */
+export async function verifyTotpSession(code: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (error || !data) return { success: false, error: 'Não foi possível verificar a autenticação de dois fatores.' };
+    const fator = data.totp.find((f) => f.status === 'verified');
+    if (!fator) return { success: false, error: 'Não existe um fator de autenticação configurado.' };
+    const { error: erroVerificacao } = await supabase.auth.mfa.challengeAndVerify({ factorId: fator.id, code: code.trim() });
+    if (erroVerificacao) return { success: false, error: 'Código inválido ou expirado. Tente novamente.' };
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Código inválido ou expirado. Tente novamente.' };
+  }
+}
+
+/** Define se a empresa do cliente é mostrada à equipa (apenas RH e Administrador; N-07). */
+export async function setEvaluationClientVisibilityInDb(id: string, visible: boolean): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { success: true };
+  try {
+    const { error } = await supabase.rpc('set_evaluation_client_visibility', { p_evaluation_id: id, p_visible: visible });
+    if (error) return { success: false, error: traduzirErro(error, 'Não foi possível alterar a visibilidade.') };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: traduzirErro(err, 'Não foi possível alterar a visibilidade.') };
   }
 }
 
@@ -810,7 +884,7 @@ export async function finalizeEvaluationViaRpc(
       technicalScore: scorePct,
       finalClassification: classification,
       finalizedAt: new Date().toISOString(),
-      finalizedBy: 'Dra. Maria Fernandes (RH)',
+      finalizedBy: 'Utilizador de Demonstração (RH)',
       criterionRatings
     } : e);
     setStore('evaluations', updated);
@@ -864,6 +938,10 @@ export async function fetchEvaluationByReference(reference: string): Promise<Eva
       providerId: data.provider_id || '',
       providerName: data.providers?.name || data.provider_name_input || 'Técnico',
       providerNameInput: data.provider_name_input || undefined,
+      staffNameInput: data.staff_name_input || undefined,
+      suggestedTeamId: data.suggested_team_id || undefined,
+      suggestedProviderId: data.suggested_provider_id || undefined,
+      attributionConfirmed: data.attribution_confirmed ?? undefined,
       serviceDate: data.service_date,
       evaluationDate: data.evaluation_date,
       satisfactionRating: data.satisfaction_rating,
@@ -908,6 +986,10 @@ export async function fetchEvaluationById(id: string): Promise<Evaluation | null
       providerId: data.provider_id || '',
       providerName: data.providers?.name || data.provider_name_input || 'Técnico',
       providerNameInput: data.provider_name_input || undefined,
+      staffNameInput: data.staff_name_input || undefined,
+      suggestedTeamId: data.suggested_team_id || undefined,
+      suggestedProviderId: data.suggested_provider_id || undefined,
+      attributionConfirmed: data.attribution_confirmed ?? undefined,
       serviceDate: data.service_date,
       evaluationDate: data.evaluation_date,
       satisfactionRating: data.satisfaction_rating,
@@ -1542,7 +1624,7 @@ export async function updateFormCategoryInDb(
     const { data, error } = await supabase
       .from('form_categories')
       .update(payload)
-      .or(`id.eq.${id},code.eq.${id}`)
+      .or(`id.eq.${identificadorSeguro(id)},code.eq.${identificadorSeguro(id)}`)
       .select('*')
       .maybeSingle();
 
@@ -1585,7 +1667,7 @@ export async function deleteFormCategoryInDb(id: string): Promise<{ success: boo
     const { error } = await supabase
       .from('form_categories')
       .delete()
-      .or(`id.eq.${id},code.eq.${id}`);
+      .or(`id.eq.${identificadorSeguro(id)},code.eq.${identificadorSeguro(id)}`);
 
     if (error) {
       return { success: false, error: traduzirErro(error) };
@@ -2185,6 +2267,7 @@ export async function submitEvaluationViaRpc(
     const validServiceId = rawServiceId;
 
     const sanitizedPayload = {
+      staffNameInput: (payload.staffNameInput || '').trim() || undefined,
       ...payload,
       clientName: clientNameClean,
       clientNameInput: clientNameClean,
@@ -2600,7 +2683,7 @@ export async function fetchMessageRecipients(): Promise<MessageRecipient[]> {
   if (!isSupabaseConfigured) {
     return [
       { id: 'u1111111-1111-4111-8111-111111111111', name: 'Dr. António Silva', role: 'ADMIN', department: 'Direção Geral' },
-      { id: 'u2222222-2222-4222-8222-222222222222', name: 'Dra. Maria Fernandes', role: 'HR', department: 'Recursos Humanos & Qualidade' },
+      { id: 'u2222222-2222-4222-8222-222222222222', name: 'Utilizador de Demonstração', role: 'HR', department: 'Recursos Humanos & Qualidade' },
       { id: 'u3333333-3333-4333-8333-333333333333', name: 'Eng. Carlos Ferreira', role: 'DIRECTOR', department: 'Direção Executiva' },
       { id: 'u4444444-4444-4444-8444-444444444444', name: 'Paulo Sousa', role: 'OPERATIONAL', department: 'Operações e Terreno' },
       { id: 'u5555555-5555-4555-8555-555555555555', name: 'Mateus Domingos', role: 'PROVIDER', department: 'Equipa Técnica' }
@@ -2617,10 +2700,10 @@ export async function fetchConversations(meId: string, meName: string): Promise<
       {
         id: 'conv-01',
         kind: 'DIRECT',
-        title: 'Dra. Maria Fernandes',
+        title: 'Utilizador de Demonstração',
         members: [
           { id: meId, name: meName },
-          { id: 'u2222222-2222-4222-8222-222222222222', name: 'Dra. Maria Fernandes' }
+          { id: 'u2222222-2222-4222-8222-222222222222', name: 'Utilizador de Demonstração' }
         ],
         updatedAt: new Date().toISOString(),
         unread: 0,
@@ -2681,9 +2764,9 @@ export async function fetchMessages(conversationId: string, meId: string, meName
   if (!isSupabaseConfigured) {
     const allMsgs = getStore<Record<string, ChatMessage[]>>('messages_by_conv', {
       'conv-01': [
-        { id: 'm1', senderId: 'u2222222-2222-4222-8222-222222222222', senderName: 'Dra. Maria Fernandes', body: 'Bom dia. Os relatórios de satisfação de clientes de outubro já estão disponíveis.', createdAt: '2026-11-01 08:45:00' },
+        { id: 'm1', senderId: 'u2222222-2222-4222-8222-222222222222', senderName: 'Utilizador de Demonstração', body: 'Bom dia. Os relatórios de satisfação de clientes de outubro já estão disponíveis.', createdAt: '2026-11-01 08:45:00' },
         { id: 'm2', senderId: meId, senderName: meName, body: 'Obrigado Dra. Maria, vou rever e homologar as pendentes.', createdAt: '2026-11-01 09:00:00' },
-        { id: 'm3', senderId: 'u2222222-2222-4222-8222-222222222222', senderName: 'Dra. Maria Fernandes', body: 'Homologação das avaliações do Hospital Geral concluída com sucesso.', createdAt: '2026-11-01 09:15:00' }
+        { id: 'm3', senderId: 'u2222222-2222-4222-8222-222222222222', senderName: 'Utilizador de Demonstração', body: 'Homologação das avaliações do Hospital Geral concluída com sucesso.', createdAt: '2026-11-01 09:15:00' }
       ],
       'conv-02': [
         { id: 'm4', senderId: 'u4444444-4444-4444-8444-444444444444', senderName: 'Paulo Sousa', body: 'Bom dia equipa. Confirmo intervenção no piso 1 a 12.', createdAt: '2026-11-01 07:30:00' },
@@ -3138,7 +3221,8 @@ export async function deleteClientInDb(id: string): Promise<{ success: boolean; 
     return { success: true };
   }
   try {
-    const { error } = await supabase.from('clients').delete().eq('id', id);
+    // Desativação em vez de eliminação: as avaliações históricas mantêm a ligação ao cliente (N-02).
+    const { error } = await supabase.from('clients').update({ status: 'INACTIVE' }).eq('id', id);
     if (error) return { success: false, error: traduzirErro(error) };
     return { success: true };
   } catch (err: any) {
@@ -3220,6 +3304,7 @@ export async function findDuplicateAttachments(conversationId: string, fileName:
 /** Envia um documento para o bucket privado da conversa. Devolve o caminho a guardar na mensagem. */
 export async function uploadMessageAttachment(conversationId: string, file: File): Promise<{ success: boolean; path?: string; error?: string }> {
   if (file.size <= 0 || file.size > 10 * 1024 * 1024) return { success: false, error: 'O documento deve ter entre 1 byte e 10 MB.' };
+  if (!extensaoAnexoPermitida(file.name)) return { success: false, error: 'Tipo de ficheiro não permitido. Use PDF, JPG, PNG, DOCX ou XLSX.' };
   const safe = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120) || 'documento';
   const path = `${conversationId}/${Date.now()}-${safe}`;
   if (!isSupabaseConfigured) return { success: true, path };
@@ -3232,6 +3317,23 @@ export async function uploadMessageAttachment(conversationId: string, file: File
 /** Link temporário (5 minutos) para abrir um documento da conversa. */
 export async function getAttachmentUrl(path: string): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
-  const { data, error } = await supabase.storage.from('message-files').createSignedUrl(path, 300);
+  // download: true -> o navegador descarrega o ficheiro em vez de o interpretar (N-08)
+  const { data, error } = await supabase.storage.from('message-files').createSignedUrl(path, 300, { download: true });
   return error || !data ? null : data.signedUrl;
+}
+
+/** RH (ou Administrador) confirma a equipa e/ou o funcionário que prestou o serviço. */
+export async function confirmEvaluationAttributionInDb(
+  id: string, teamId: string | null, providerId: string | null
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { success: true };
+  try {
+    const { error } = await supabase.rpc('confirm_evaluation_attribution', {
+      p_evaluation_id: id, p_team_id: teamId, p_provider_id: providerId,
+    });
+    if (error) return { success: false, error: traduzirErro(error, 'Não foi possível confirmar a associação.') };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: traduzirErro(err, 'Não foi possível confirmar a associação.') };
+  }
 }

@@ -66,6 +66,8 @@ import {
   assignEvaluationTeamInDb,
   testSupabaseConnection,
   signInWithSupabase,
+  getMfaRequirement,
+  modoMfaPendente,
   signOutFromSupabase,
   getCurrentSupabaseUser,
   getOrCreateUserProfile,
@@ -81,6 +83,8 @@ interface AppContextType {
   activeRole: UserRole;
   login: (email: string, password?: string, role?: UserRole) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  mfaPendingMode: 'enroll' | 'verify' | null;
+  refreshMfaState: () => Promise<void>;
   
   // Data lists
   clients: Client[];
@@ -260,6 +264,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isClientFormOpen, setIsClientFormOpen] = useState<boolean>(false);
   const [selectedEvaluationForAnalysis, setSelectedEvaluationForAnalysis] = useState<Evaluation | null>(null);
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean | null>(null);
+  const [mfaPendingMode, setMfaPendingMode] = useState<'enroll' | 'verify' | null>(null);
+
+  const refreshMfaState = async () => {
+    if (!currentUser) { setMfaPendingMode(null); return; }
+    const req = await getMfaRequirement();
+    setMfaPendingMode(modoMfaPendente(req));
+  };
+
+  useEffect(() => {
+    refreshMfaState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Sync / hydrate data from Supabase
@@ -1431,6 +1447,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       selectedEvaluationForAnalysis,
       setSelectedEvaluationForAnalysis,
       isSupabaseConnected,
+      mfaPendingMode,
+      refreshMfaState,
       isSyncing,
       refreshFromSupabase
     }}>
