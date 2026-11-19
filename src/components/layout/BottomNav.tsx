@@ -72,27 +72,25 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onMore }) => {
   const currentKey = activeTab === 'employee_management' ? 'employees' : activeTab;
   // Quando a aba ativa não é um atalho, o destaque fica em "Mais" (comportamento anterior)
   const activeIndex = inShortcuts ? Math.max(0, shortcuts.indexOf(currentKey)) : n - 1;
-  const ActiveIcon = items[activeIndex]?.Icon;
 
   return (
     <>
+      {/* Barra encostada ao fundo do ecrã, em toda a largura, com a mesma cor da sidebar */}
       <nav
         aria-label="Navegação principal"
-        className="bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none"
+        className="bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden bg-gradient-to-r from-brand-deep via-brand-dark to-brand-deep border-t border-white/10 shadow-[0_-6px_20px_-10px_rgba(0,0,0,0.45)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       >
-        <div className="pointer-events-auto relative mx-auto max-w-md h-[68px] rounded-full bg-gradient-to-r from-brand-deep/95 via-brand-dark/90 to-brand-deep/95 ring-1 ring-brand/25 shadow-[0_14px_34px_-14px_rgba(27,77,27,0.55)] backdrop-blur-xl">
-          {/* Destaque circular da aba ativa: sobe da barra e desliza para o item selecionado */}
+        <div className="relative mx-auto max-w-xl h-16">
+          {/* Destaque da aba ativa: pílula que desliza até ao item selecionado (sempre dentro da barra) */}
           <div
             aria-hidden
-            className="pointer-events-none absolute top-0 h-full transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            className="pointer-events-none absolute inset-y-0 left-0 transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
             style={{ width: `${100 / n}%`, transform: `translateX(${activeIndex * 100}%)` }}
           >
-            <div className="mx-auto -mt-[18px] w-14 h-14 rounded-full bg-brand text-brand-deep shadow-[0_8px_20px_-8px_rgba(140,191,38,0.7)] ring-[7px] ring-brand-dark flex items-center justify-center">
-              {ActiveIcon && <ActiveIcon className="w-6 h-6" />}
-            </div>
+            <div className="mx-auto mt-2 w-14 h-8 rounded-full bg-brand shadow-[0_6px_16px_-6px_rgba(140,191,38,0.8)]" />
           </div>
 
-          <div className="relative z-10 flex h-full px-1">
+          <div className="relative z-10 flex h-full">
             {items.map((it, i) => {
               const active = i === activeIndex;
               const isMore = it.key === '__more';
@@ -118,14 +116,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onMore }) => {
                   {...moreHandlers}
                   aria-current={active && !isMore ? 'page' : undefined}
                   title={isMore ? 'Toque longo para personalizar a barra' : undefined}
-                  className={`relative flex-1 min-w-0 h-full flex flex-col items-center justify-end pb-2.5 gap-1 transition-colors duration-300 ${active ? 'text-brand' : 'text-white/55 hover:text-white/90'}`}
+                  className={`relative flex-1 min-w-0 h-full flex flex-col items-center pt-2 gap-1 transition-colors duration-300 ${active ? 'text-white' : 'text-white/90 hover:text-white'}`}
                 >
-                  <span className={`flex items-center justify-center w-7 h-7 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${active ? 'opacity-0 -translate-y-3 scale-75' : 'opacity-100 translate-y-0 scale-100'}`}>
+                  <span className={`flex items-center justify-center w-14 h-8 transition-colors duration-300 ${active ? 'text-brand-deep' : ''}`}>
                     <Icon className="w-5 h-5" />
                   </span>
-                  <span className={`truncate max-w-full px-1 text-[10px] leading-none transition-all duration-300 ${active ? 'font-extrabold' : 'font-semibold'}`}>{it.label}</span>
+                  <span className={`truncate max-w-full px-0.5 text-[11px] leading-none tracking-tight transition-all duration-300 ${active ? 'font-extrabold' : 'font-semibold'}`}>{it.label}</span>
                   {it.badge > 0 && (
-                    <span className="absolute top-2 left-[calc(50%+6px)] min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-brand-dark">
+                    <span className="absolute top-1 left-[calc(50%+10px)] min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-brand-dark">
                       {it.badge > 99 ? '99+' : it.badge}
                     </span>
                   )}

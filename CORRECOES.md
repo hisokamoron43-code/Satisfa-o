@@ -511,3 +511,36 @@ campo de motivo obrigatório, pré-visualização da nova nota, confirmação e 
 com cada versão e o respetivo motivo.
 
 **Ordem de aplicação:** 1020 (corrigida) → 1021 → 1022.
+
+
+---
+
+## v40 — Login: função `login` não publicada
+
+**Sintoma:** "Sem ligação ao servidor" ao entrar. `https://<projeto>.supabase.co/functions/v1/login` respondia
+`NOT_FOUND`: a função `login` não estava publicada no projeto.
+
+**Causa:** a partir da versão do site que chama a função `login` (migrações 1017 em diante), o início de sessão
+deixou de ir direto ao Supabase Auth e passou por esta Edge Function. As migrações SQL não publicam funções; esta
+tem de ser publicada à parte (CLI ou painel). Sem ela, o navegador não recebe resposta.
+
+**Correções:**
+- `supabase/config.toml`: `verify_jwt = false` para `login` e `submit-evaluation` (o site chama-as sem Authorization;
+  com a verificação ligada o gateway devolve 401). Com o CLI, publicar com `supabase functions deploy login`.
+- Ficheiro único `login-edge-function.ts` (fora do zip) para colar no editor do painel do Supabase.
+
+## Interface: enquadramento do menu lateral e da barra inferior
+
+| Problema | Estado | Como foi resolvido |
+|---|---|---|
+| Menu lateral "flutuava" (margem de 12 px, cantos de 28 px, sombra forte) e parecia desligado do cabeçalho e do conteúdo | Corrigido (código) | Encostado ao bordo esquerdo, altura total, sem cantos arredondados no computador (cantos só do lado direito na gaveta do telemóvel). Largura do conteúdo igual à da sidebar (`lg:pl-64` / `lg:pl-[5.25rem]`) |
+| Cabeçalho e marca da sidebar com alturas diferentes | Corrigido (código) | Ambos com 4,75 rem no computador; cabeçalho com 4 rem no telemóvel |
+| Barra inferior era uma pílula flutuante (`max-w-md`) com um círculo a sair por cima | Corrigido (código) | Barra em largura total, encostada ao fundo, mesma cor da sidebar, com o destaque da aba ativa dentro da barra |
+| Gaveta fechada deixava botões focáveis fora do ecrã | Corrigido (código) | `invisible` quando fechada (com a animação preservada) |
+| Áreas seguras (notch, barra de gestos) não eram aplicadas | Corrigido (código) | `viewport-fit=cover` e `env(safe-area-inset-*)` na barra, no rodapé da sidebar e nas margens laterais |
+| Conversas e avisos flutuantes ficavam por baixo da barra inferior | Corrigido (código) | Variável `--bottom-nav-h` usada no rodapé, nas mensagens e nos avisos |
+| Cabeçalho ficava branco no modo escuro | Corrigido (código) | `html.dark .bg-white/95` |
+
+| Letras dos menus pouco legíveis. No modo escuro (ativado automaticamente pelo tema do telemóvel) a pílula do item ativo ficava azul-escura com texto verde-escuro | Corrigido (código) | Pílula ativa com cor própria, imune ao remapeamento do modo escuro. Texto dos itens em branco pleno (15 px), etiquetas de secção a 11 px com 75 % de opacidade, subtítulo da marca em verde-claro, e letras da barra inferior em branco quase pleno |
+
+Validado por tipos (`tsc --noEmit`) e build. Falta ver no telemóvel e no computador reais.

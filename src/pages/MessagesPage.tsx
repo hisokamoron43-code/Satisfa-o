@@ -333,7 +333,7 @@ export const MessagesPage: React.FC = () => {
     : '';
 
   return (
-    <div className="flex h-[calc(100vh-150px)] min-h-[560px] bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="chat-frame flex min-h-[560px] bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
       {/* ===================== LISTA DE CONVERSAS ===================== */}
       <aside className={`${selected ? 'hidden lg:flex' : 'flex'} w-full lg:w-[380px] shrink-0 flex-col border-r border-slate-200 bg-white`}>
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">

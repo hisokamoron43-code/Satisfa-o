@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Medidas do enquadramento da aplicação (menu lateral, cabeçalho e barra inferior) */
+:root {
+  --sidebar-w: 16rem;
+  --sidebar-w-collapsed: 5.25rem;
+  --shell-header-h: 4.75rem;
+  --bottom-nav-h: 4rem;
+}
+
 /* Cores da marca: fonte única de verdade para todo o sistema */
 @theme {
   --color-brand: #8CBF26;
@@ -115,8 +123,25 @@ html[data-shell="app"] .theme-fab { display: none; }
 
 /* Avisos flutuantes ficam acima da navegação inferior no telemóvel/tablet. */
 @media (max-width: 1023px) {
-  html[data-shell="app"] .fixed.bottom-6.right-6 { bottom: 6rem; right: 0.75rem; max-width: calc(100vw - 1.5rem); }
+  html[data-shell="app"] .fixed.bottom-6.right-6 {
+    bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 1rem);
+    right: 0.75rem; max-width: calc(100vw - 1.5rem);
+  }
 }
+
+/* Enquadramento: abaixo de lg o conteúdo nunca fica escondido atrás da barra inferior
+   e respeita os recortes laterais (modo horizontal em telemóveis com notch). */
+@media (max-width: 1023px) {
+  .app-shell { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+  .app-footer { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 1rem); }
+  .chat-frame { height: calc(100dvh - 150px - var(--bottom-nav-h) - env(safe-area-inset-bottom, 0px)); }
+}
+@media (min-width: 1024px) {
+  .chat-frame { height: calc(100dvh - 150px); }
+}
+
+/* Modo escuro: o cabeçalho (bg-white/95) acompanha as restantes superfícies */
+html.dark .bg-white\/95 { background-color: rgba(17, 26, 43, 0.95); }
 
 /* Foco visível consistente para quem navega com teclado (só dentro da aplicação). */
 html[data-shell="app"] button:focus-visible, html[data-shell="app"] a:focus-visible, html[data-shell="app"] summary:focus-visible { outline: 2px solid #8CBF26; outline-offset: 2px; }

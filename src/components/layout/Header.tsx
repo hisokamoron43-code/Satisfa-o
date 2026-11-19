@@ -115,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({ setMobileOpen }) => {
 
   return (
     <>
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 lg:px-8 h-16 lg:h-[4.75rem] flex items-center justify-between shadow-xs">
         {/* Left side: Mobile menu toggle & Title */}
         <div className="flex items-center gap-3 min-w-0">
           <button

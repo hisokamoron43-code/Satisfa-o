@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.notify-evaluation]
 verify_jwt = false
+
+# login: chamada ANTES de existir sessão, só com a chave pública (apikey), sem cabeçalho Authorization.
+# Com a verificação de JWT ligada o gateway responde 401 a todos os pedidos; por isso fica desligada.
+# A função valida tudo por conta própria (limites de tentativas e resolução do identificador).
+[functions.login]
+verify_jwt = false
+
+[functions.submit-evaluation]
+verify_jwt = false

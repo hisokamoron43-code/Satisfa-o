@@ -83,13 +83,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
 
       <aside
         className={`
-          fixed z-50 top-3 bottom-3 left-3 flex flex-col overflow-hidden rounded-[28px]
-          text-white shadow-[0_20px_60px_-15px_rgba(15,60,15,0.55)] ring-1 ring-white/10
+          fixed z-50 inset-y-0 left-0 flex flex-col overflow-hidden
+          rounded-r-3xl lg:rounded-none border-r border-black/20
+          text-white lg:shadow-none
           bg-gradient-to-b from-[#2D6A28] via-[#1B4D1B] to-[#0a2410]
-          transition-[transform,width] duration-500 ${EASE}
-          w-[17.5rem] max-w-[calc(100vw-1.5rem)]
+          transition-[transform,width,visibility] duration-500 ${EASE}
+          w-[17.5rem] max-w-[85vw]
           ${recolhida ? 'lg:w-[5.25rem]' : 'lg:w-64'}
-          ${mobileOpen ? 'translate-x-0' : '-translate-x-[120%] lg:translate-x-0'}
+          ${mobileOpen ? 'translate-x-0 visible shadow-2xl' : '-translate-x-full invisible lg:visible lg:translate-x-0'}
         `}
       >
         {/* Brilhos decorativos em vidro */}
@@ -98,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
         <div aria-hidden className="pointer-events-none absolute inset-0 bg-white/[0.03] backdrop-blur-[2px]" />
 
         {/* Marca */}
-        <div className={`relative z-10 flex items-center ${recolhida ? 'lg:justify-center lg:px-0' : 'justify-between'} px-5 pt-5 pb-4`}>
+        <div className={`relative z-10 flex items-center shrink-0 h-[4.75rem] ${recolhida ? 'lg:justify-center lg:px-0' : 'justify-between'} px-5`}>
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-white/10 ring-1 ring-white/20 backdrop-blur flex items-center justify-center flex-shrink-0 transition-transform duration-500 hover:rotate-6">
               <svg className="w-6 h-6" viewBox="0 0 100 100" fill="none">
@@ -118,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
             </div>
             <div className={`min-w-0 transition-all duration-300 ${recolhida ? 'lg:hidden' : ''}`}>
               <h1 className="text-base font-black tracking-[0.18em] leading-none">AETERNU</h1>
-              <p className="text-[11px] font-semibold tracking-wide text-brand mt-1.5">SICSC · Qualidade</p>
+              <p className="text-[11px] font-semibold tracking-wide text-[#C5E36B] mt-1.5">SICSC · Qualidade</p>
             </div>
           </div>
           <button
@@ -138,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
           {pill && (
             <div
               aria-hidden
-              className={`absolute left-3 right-3 rounded-2xl bg-white shadow-[0_10px_30px_-8px_rgba(140,191,38,0.6)] transition-[transform,height] duration-500 ${EASE}`}
+              className={`absolute left-3 right-3 rounded-2xl bg-[#ffffff] shadow-[0_10px_30px_-8px_rgba(140,191,38,0.6)] transition-[transform,height] duration-500 ${EASE}`}
               style={{ transform: `translateY(${pill.top}px)`, height: pill.height }}
             />
           )}
@@ -146,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
           {groups.map((group) => (
             <div key={group.section} className="mb-2">
               {groups.length > 1 && (
-                <p className={`px-3 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/50 transition-opacity duration-300 ${recolhida ? 'lg:opacity-0' : ''}`}>
+                <p className={`px-3 pt-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/75 transition-opacity duration-300 ${recolhida ? 'lg:opacity-0' : ''}`}>
                   {group.section}
                 </p>
               )}
@@ -163,9 +164,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
                       aria-current={isActive ? 'page' : undefined}
                       title={recolhida ? item.label : undefined}
                       className={`
-                        group relative z-10 w-full flex items-center gap-3 px-2.5 min-h-11 rounded-2xl text-sm font-semibold
+                        group relative z-10 w-full flex items-center gap-3 px-2.5 min-h-11 rounded-2xl text-[15px] font-semibold
                         transition-colors duration-300 ${recolhida ? 'lg:justify-center lg:px-0' : ''}
-                        ${isActive ? 'text-[#1B4D1B]' : 'text-white/85 hover:text-white'}
+                        ${isActive ? 'text-[#1B4D1B] font-bold' : 'text-white hover:text-white'}
                       `}
                     >
                       <span
@@ -173,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
                           flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0 transition-all duration-500 ${EASE}
                           ${isActive
                             ? 'bg-gradient-to-br from-[#8CBF26] to-[#2D6A28] text-white shadow-md scale-100'
-                            : 'bg-white/10 group-hover:bg-white/20 group-hover:scale-110'}
+                            : 'bg-white/15 group-hover:bg-white/25 group-hover:scale-110'}
                         `}
                       >
                         <Icon className="w-[17px] h-[17px]" />
@@ -213,7 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
         </nav>
 
         {/* Rodapé: utilizador e sessão */}
-        <div className="relative z-10 p-3">
+        <div className="relative z-10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className={`rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-md p-3 ${recolhida ? 'lg:p-2' : ''}`}>
             <div className={`flex items-center gap-2.5 ${recolhida ? 'lg:justify-center' : ''}`}>
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#8CBF26] to-[#2D6A28] flex items-center justify-center text-white font-black text-sm flex-shrink-0 shadow-md">
@@ -221,14 +222,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
               </div>
               <div className={`min-w-0 overflow-hidden transition-all duration-300 ${recolhida ? 'lg:hidden' : ''}`}>
                 <p className="text-xs font-bold text-white truncate">{currentUser?.name || 'Utilizador'}</p>
-                <p className="text-[10px] text-white/60 truncate">{currentUser?.email || 'aeternu.co.ao'}</p>
+                <p className="text-[11px] text-white/80 truncate">{currentUser?.email || 'aeternu.co.ao'}</p>
               </div>
             </div>
             <button
               type="button"
               onClick={logout}
               title="Terminar sessão"
-              className={`mt-3 w-full flex items-center justify-center gap-2 min-h-10 rounded-xl bg-white/10 hover:bg-red-500/30 text-white/90 hover:text-white text-xs font-semibold transition-colors duration-300 ring-1 ring-white/10 ${recolhida ? 'lg:px-0' : ''}`}
+              className={`mt-3 w-full flex items-center justify-center gap-2 min-h-10 rounded-xl bg-white/10 hover:bg-red-500/30 text-white text-xs font-semibold transition-colors duration-300 ring-1 ring-white/10 ${recolhida ? 'lg:px-0' : ''}`}
             >
               <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
               <span className={recolhida ? 'lg:hidden' : ''}>Terminar Sessão</span>
@@ -237,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
           <button
             type="button"
             onClick={() => { setMobileOpen(false); window.dispatchEvent(new Event('sicsc:edit-bottom-nav')); }}
-            className="lg:hidden mt-2 w-full min-h-10 rounded-xl bg-white/10 text-white/85 text-xs font-semibold ring-1 ring-white/10"
+            className="lg:hidden mt-2 w-full min-h-10 rounded-xl bg-white/10 text-white text-xs font-semibold ring-1 ring-white/10"
           >
             Personalizar barra de acesso rápido
           </button>

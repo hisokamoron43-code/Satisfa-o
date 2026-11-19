@@ -106,13 +106,13 @@ export const AppLayout: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-dvh bg-slate-100 flex flex-col lg:flex-row">
+    <div className="app-shell min-h-dvh bg-slate-100 flex flex-col lg:flex-row">
       <IdleSessionGuard />
       {/* Sidebar */}
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
 
       {/* Main Content Wrapper */}
-      <div className={`flex-1 min-w-0 flex flex-col min-h-dvh transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${sidebarCollapsed ? 'lg:pl-[6.5rem]' : 'lg:pl-[19rem]'}`}>
+      <div className={`flex-1 min-w-0 flex flex-col min-h-dvh transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${sidebarCollapsed ? 'lg:pl-[5.25rem]' : 'lg:pl-64'}`}>
         <Header setMobileOpen={setMobileOpen} />
         
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
@@ -122,7 +122,7 @@ export const AppLayout: React.FC = () => {
         </main>
 
         {/* Enterprise Footer */}
-        <footer className="bg-white border-t border-slate-200 pt-4 pb-28 lg:pb-4 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <footer className="app-footer bg-white border-t border-slate-200 pt-4 pb-4 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>SICSC — Sistema Integrado de Controlo da Satisfação de Clientes &copy; 2026 AETERNU LDA</span>
           <div className="flex items-center gap-4 text-[11px]">
             <span className="text-brand-dark font-semibold">Higiene | Segurança | Ambiente</span>
