@@ -77,49 +77,44 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
       {mobileOpen && (
         <div
           onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-xs"
+          className="fixed inset-0 bg-black/55 z-40 lg:hidden"
         />
       )}
 
       <aside
         className={`
           fixed z-50 inset-y-0 left-0 flex flex-col overflow-hidden
-          rounded-r-3xl lg:rounded-none border-r border-black/20
+          rounded-r-2xl lg:rounded-none border-r border-white/10
           text-white lg:shadow-none
-          bg-gradient-to-b from-[#2D6A28] via-[#1B4D1B] to-[#0a2410]
-          transition-[transform,width,visibility] duration-500 ${EASE}
-          w-[17.5rem] max-w-[85vw]
+          bg-gradient-to-b from-[#16301F] to-[#0B1A12]
+          transition-[transform,width,visibility] duration-300 ${EASE}
+          w-64 max-w-[80vw]
           ${recolhida ? 'lg:w-[5.25rem]' : 'lg:w-64'}
           ${mobileOpen ? 'translate-x-0 visible shadow-2xl' : '-translate-x-full invisible lg:visible lg:translate-x-0'}
         `}
       >
-        {/* Brilhos decorativos em vidro */}
-        <div aria-hidden className="pointer-events-none absolute -top-20 -left-16 w-56 h-56 rounded-full bg-brand/25 blur-3xl animate-sidebar-float" />
-        <div aria-hidden className="pointer-events-none absolute bottom-10 -right-20 w-60 h-60 rounded-full bg-brand/15 blur-3xl animate-sidebar-float-slow" />
-        <div aria-hidden className="pointer-events-none absolute inset-0 bg-white/[0.03] backdrop-blur-[2px]" />
-
         {/* Marca */}
-        <div className={`relative z-10 flex items-center shrink-0 h-[4.75rem] ${recolhida ? 'lg:justify-center lg:px-0' : 'justify-between'} px-5`}>
+        <div className={`flex items-center shrink-0 h-14 lg:h-[4.75rem] px-4 ${recolhida ? 'lg:justify-center lg:px-0' : 'justify-between'}`}>
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-white/10 ring-1 ring-white/20 backdrop-blur flex items-center justify-center flex-shrink-0 transition-transform duration-500 hover:rotate-6">
-              <svg className="w-6 h-6" viewBox="0 0 100 100" fill="none">
+            <div className="w-9 h-9 rounded-xl bg-white/10 ring-1 ring-white/15 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5" viewBox="0 0 100 100" fill="none" aria-hidden>
                 <defs>
                   <linearGradient id="sbGradL" x1="0%" y1="100%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#8CBF26" />
+                    <stop offset="0%" stopColor="#A7C47B" />
                     <stop offset="100%" stopColor="#ffffff" />
                   </linearGradient>
                   <linearGradient id="sbGradR" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#ffffff" />
-                    <stop offset="100%" stopColor="#8CBF26" />
+                    <stop offset="100%" stopColor="#A7C47B" />
                   </linearGradient>
                 </defs>
                 <path d="M 20 85 L 50 15 L 68 50 L 50 85 Z" fill="url(#sbGradL)" />
                 <path d="M 50 15 L 80 85 L 62 85 L 42 45 Z" fill="url(#sbGradR)" />
               </svg>
             </div>
-            <div className={`min-w-0 transition-all duration-300 ${recolhida ? 'lg:hidden' : ''}`}>
-              <h1 className="text-base font-black tracking-[0.18em] leading-none">AETERNU</h1>
-              <p className="text-[11px] font-semibold tracking-wide text-[#C5E36B] mt-1.5">SICSC · Qualidade</p>
+            <div className={`min-w-0 ${recolhida ? 'lg:hidden' : ''}`}>
+              <h1 className="text-sm font-black tracking-[0.18em] leading-none text-white">AETERNU</h1>
+              <p className="text-[11px] font-medium tracking-wide text-[#B4C9A0] mt-1">SICSC · Qualidade</p>
             </div>
           </div>
           <button
@@ -127,34 +122,35 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
             onClick={() => setCollapsed(!collapsed)}
             aria-label={recolhida ? 'Expandir menu' : 'Recolher menu'}
             title={recolhida ? 'Expandir menu' : 'Recolher menu'}
-            className={`hidden lg:flex w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 ring-1 ring-white/10 items-center justify-center transition-all duration-300 ${recolhida ? 'absolute top-[4.6rem] left-1/2 -translate-x-1/2' : ''}`}
+            className={`hidden lg:flex w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 ring-1 ring-white/10 items-center justify-center transition-colors duration-200 ${recolhida ? 'absolute top-[4.6rem] left-1/2 -translate-x-1/2' : ''}`}
           >
-            <ChevronLeft className={`w-4 h-4 transition-transform duration-500 ${EASE} ${recolhida ? 'rotate-180' : ''}`} />
+            <ChevronLeft className={`w-4 h-4 transition-transform duration-300 ${EASE} ${recolhida ? 'rotate-180' : ''}`} />
           </button>
         </div>
 
         {/* Navegação */}
-        <nav ref={navRef} aria-label="Menu principal" className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-2 scrollbar-none">
-          {/* Pílula branca que desliza para o item ativo */}
+        <nav ref={navRef} aria-label="Menu principal" className="relative flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 pt-1 scrollbar-none">
+          {/* Realce do item ativo (desliza até ao item) */}
           {pill && (
             <div
               aria-hidden
-              className={`absolute left-3 right-3 rounded-2xl bg-[#ffffff] shadow-[0_10px_30px_-8px_rgba(140,191,38,0.6)] transition-[transform,height] duration-500 ${EASE}`}
+              className={`absolute top-0 left-2 right-2 rounded-xl bg-white/[0.13] ring-1 ring-white/10 transition-[transform,height] duration-300 ${EASE}`}
               style={{ transform: `translateY(${pill.top}px)`, height: pill.height }}
             />
           )}
 
           {groups.map((group) => (
-            <div key={group.section} className="mb-2">
+            <div key={group.section} className="mb-1">
               {groups.length > 1 && (
-                <p className={`px-3 pt-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/75 transition-opacity duration-300 ${recolhida ? 'lg:opacity-0' : ''}`}>
+                <p className={`px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-white/60 ${recolhida ? 'lg:invisible' : ''}`}>
                   {group.section}
                 </p>
               )}
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
+                  const count = item.count && item.count > 0 ? item.count : 0;
                   return (
                     <button
                       key={item.id}
@@ -164,45 +160,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
                       aria-current={isActive ? 'page' : undefined}
                       title={recolhida ? item.label : undefined}
                       className={`
-                        group relative z-10 w-full flex items-center gap-3 px-2.5 min-h-11 rounded-2xl text-[15px] font-semibold
-                        transition-colors duration-300 ${recolhida ? 'lg:justify-center lg:px-0' : ''}
-                        ${isActive ? 'text-[#1B4D1B] font-bold' : 'text-white hover:text-white'}
+                        group relative z-10 w-full flex items-center gap-2.5 px-2 min-h-10 rounded-xl text-sm lg:text-[15px]
+                        transition-colors duration-200 ${recolhida ? 'lg:justify-center lg:px-0' : ''}
+                        ${isActive ? 'text-white font-bold' : 'text-white/90 font-medium hover:text-white hover:bg-white/[0.06]'}
                       `}
                     >
                       <span
-                        className={`
-                          flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0 transition-all duration-500 ${EASE}
-                          ${isActive
-                            ? 'bg-gradient-to-br from-[#8CBF26] to-[#2D6A28] text-white shadow-md scale-100'
-                            : 'bg-white/15 group-hover:bg-white/25 group-hover:scale-110'}
-                        `}
+                        className={`flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0 transition-colors duration-200 ${isActive ? 'bg-[#4E7D3A] text-white' : 'bg-white/[0.08] text-white/90 group-hover:bg-white/15'}`}
                       >
-                        <Icon className="w-[17px] h-[17px]" />
+                        <Icon className="w-4 h-4" />
                       </span>
 
-                      <span
-                        className={`
-                          flex-1 min-w-0 flex items-center justify-between gap-2 overflow-hidden whitespace-nowrap transition-all duration-300 ${EASE}
-                          ${recolhida ? 'lg:max-w-0 lg:opacity-0' : 'max-w-[12rem] opacity-100'}
-                        `}
-                      >
-                        <span className="truncate">{item.label}</span>
-                        {item.count && item.count > 0 ? (
-                          <span className="text-[11px] min-w-5 text-center px-1.5 py-0.5 rounded-lg bg-rose-500 text-white font-extrabold shadow-sm">
-                            {item.count}
-                          </span>
-                        ) : null}
-                      </span>
+                      <span className={`flex-1 min-w-0 truncate text-left ${recolhida ? 'lg:hidden' : ''}`}>{item.label}</span>
 
-                      {/* Contador em modo recolhido */}
-                      {recolhida && item.count && item.count > 0 ? (
-                        <span className="hidden lg:block absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[#1B4D1B]" />
-                      ) : null}
-
-                      {/* Etiqueta flutuante em modo recolhido */}
-                      {recolhida && (
-                        <span className="hidden lg:block pointer-events-none absolute left-full ml-3 px-3 py-1.5 rounded-xl bg-slate-900/95 text-white text-xs font-semibold whitespace-nowrap shadow-xl opacity-0 translate-x-[-6px] group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 ring-1 ring-white/10">
-                          {item.label}
+                      {count > 0 && (
+                        <span className={`text-[11px] min-w-5 text-center px-1.5 py-0.5 rounded-md bg-rose-600 text-white font-bold ${recolhida ? 'lg:absolute lg:top-0.5 lg:right-1 lg:min-w-0 lg:w-2.5 lg:h-2.5 lg:p-0 lg:text-[0px]' : ''}`}>
+                          {count}
                         </span>
                       )}
                     </button>
@@ -213,32 +186,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen, col
           ))}
         </nav>
 
-        {/* Rodapé: utilizador e sessão */}
-        <div className="relative z-10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className={`rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-md p-3 ${recolhida ? 'lg:p-2' : ''}`}>
-            <div className={`flex items-center gap-2.5 ${recolhida ? 'lg:justify-center' : ''}`}>
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#8CBF26] to-[#2D6A28] flex items-center justify-center text-white font-black text-sm flex-shrink-0 shadow-md">
-                {currentUser?.name ? currentUser.name.charAt(0) : 'A'}
-              </div>
-              <div className={`min-w-0 overflow-hidden transition-all duration-300 ${recolhida ? 'lg:hidden' : ''}`}>
-                <p className="text-xs font-bold text-white truncate">{currentUser?.name || 'Utilizador'}</p>
-                <p className="text-[11px] text-white/80 truncate">{currentUser?.email || 'aeternu.co.ao'}</p>
-              </div>
+        {/* Rodapé: utilizador e sessão (uma só linha) */}
+        <div className="shrink-0 border-t border-white/10 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div className={`flex items-center gap-2.5 rounded-xl bg-white/[0.07] p-2 ${recolhida ? 'lg:flex-col lg:gap-2' : ''}`}>
+            <div className="w-8 h-8 rounded-lg bg-[#3F6B2E] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+              {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'A'}
+            </div>
+            <div className={`flex-1 min-w-0 ${recolhida ? 'lg:hidden' : ''}`}>
+              <p className="text-[13px] font-semibold text-white truncate leading-tight">{currentUser?.name || 'Utilizador'}</p>
+              <p className="text-[11px] text-white/70 truncate leading-tight mt-0.5">{currentUser?.email || 'aeternu.co.ao'}</p>
             </div>
             <button
               type="button"
               onClick={logout}
               title="Terminar sessão"
-              className={`mt-3 w-full flex items-center justify-center gap-2 min-h-10 rounded-xl bg-white/10 hover:bg-red-500/30 text-white text-xs font-semibold transition-colors duration-300 ring-1 ring-white/10 ${recolhida ? 'lg:px-0' : ''}`}
+              aria-label="Terminar sessão"
+              className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-lg text-white/85 hover:text-white hover:bg-red-500/30 transition-colors duration-200"
             >
-              <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className={recolhida ? 'lg:hidden' : ''}>Terminar Sessão</span>
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
           <button
             type="button"
             onClick={() => { setMobileOpen(false); window.dispatchEvent(new Event('sicsc:edit-bottom-nav')); }}
-            className="lg:hidden mt-2 w-full min-h-10 rounded-xl bg-white/10 text-white text-xs font-semibold ring-1 ring-white/10"
+            className="lg:hidden mt-1.5 w-full min-h-9 rounded-lg text-white/75 hover:text-white hover:bg-white/[0.06] text-xs font-medium"
           >
             Personalizar barra de acesso rápido
           </button>

@@ -78,7 +78,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onMore }) => {
       {/* Barra encostada ao fundo do ecrã, em toda a largura, com a mesma cor da sidebar */}
       <nav
         aria-label="Navegação principal"
-        className="bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden bg-gradient-to-r from-brand-deep via-brand-dark to-brand-deep border-t border-white/10 shadow-[0_-6px_20px_-10px_rgba(0,0,0,0.45)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+        className="bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden bg-[#0F2417] border-t border-white/10 shadow-[0_-6px_20px_-10px_rgba(0,0,0,0.5)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       >
         <div className="relative mx-auto max-w-xl h-16">
           {/* Destaque da aba ativa: pílula que desliza até ao item selecionado (sempre dentro da barra) */}
@@ -87,7 +87,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onMore }) => {
             className="pointer-events-none absolute inset-y-0 left-0 transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
             style={{ width: `${100 / n}%`, transform: `translateX(${activeIndex * 100}%)` }}
           >
-            <div className="mx-auto mt-2 w-14 h-8 rounded-full bg-brand shadow-[0_6px_16px_-6px_rgba(140,191,38,0.8)]" />
+            <div className="mx-auto mt-2 w-14 h-8 rounded-full bg-[#4E7D3A]" />
           </div>
 
           <div className="relative z-10 flex h-full">
@@ -118,12 +118,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onMore }) => {
                   title={isMore ? 'Toque longo para personalizar a barra' : undefined}
                   className={`relative flex-1 min-w-0 h-full flex flex-col items-center pt-2 gap-1 transition-colors duration-300 ${active ? 'text-white' : 'text-white/90 hover:text-white'}`}
                 >
-                  <span className={`flex items-center justify-center w-14 h-8 transition-colors duration-300 ${active ? 'text-brand-deep' : ''}`}>
+                  <span className={`flex items-center justify-center w-14 h-8 transition-colors duration-300 ${active ? 'text-white' : ''}`}>
                     <Icon className="w-5 h-5" />
                   </span>
                   <span className={`truncate max-w-full px-0.5 text-[11px] leading-none tracking-tight transition-all duration-300 ${active ? 'font-extrabold' : 'font-semibold'}`}>{it.label}</span>
                   {it.badge > 0 && (
-                    <span className="absolute top-1 left-[calc(50%+10px)] min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-brand-dark">
+                    <span className="absolute top-1 left-[calc(50%+10px)] min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-[#0F2417]">
                       {it.badge > 99 ? '99+' : it.badge}
                     </span>
                   )}

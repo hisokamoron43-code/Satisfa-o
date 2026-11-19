@@ -542,5 +542,7 @@ tem de ser publicada à parte (CLI ou painel). Sem ela, o navegador não recebe 
 | Cabeçalho ficava branco no modo escuro | Corrigido (código) | `html.dark .bg-white/95` |
 
 | Letras dos menus pouco legíveis. No modo escuro (ativado automaticamente pelo tema do telemóvel) a pílula do item ativo ficava azul-escura com texto verde-escuro | Corrigido (código) | Pílula ativa com cor própria, imune ao remapeamento do modo escuro. Texto dos itens em branco pleno (15 px), etiquetas de secção a 11 px com 75 % de opacidade, subtítulo da marca em verde-claro, e letras da barra inferior em branco quase pleno |
+| Gaveta do telemóvel sem letras nos itens e no nome do utilizador (captura em iPhone), grande demais e com cores vivas | Corrigido (código) | Sidebar refeita: 16 rem (máx. 80 % do ecrã), itens de 40 px, rodapé numa só linha (avatar, nome, ícone de sair). Rótulos em texto simples, sem contentor `overflow-hidden`, sem `backdrop-blur` e sem brilhos animados (os suspeitos de fazer o texto desaparecer no WebKit). Paleta escura e sóbria (verde-escuro `#16301F`→`#0B1A12`, realce `#4E7D3A`), sem verde-limão na sidebar e na barra inferior |
+| Realce do item ativo desalinhado com o texto | Corrigido (código) | A pílula não tinha `top-0` e ficava 8 px abaixo do item |
 
-Validado por tipos (`tsc --noEmit`) e build. Falta ver no telemóvel e no computador reais.
+Validado por tipos (`tsc --noEmit`), build e capturas em Chromium (telemóvel claro/escuro, computador aberto/recolhido). Falta confirmar no iPhone real (WebKit).
