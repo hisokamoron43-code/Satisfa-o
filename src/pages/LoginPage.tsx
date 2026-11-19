@@ -61,7 +61,10 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       const res = await login(email, password);
-      if (!res.success) {
+      if (!res.success && (res.code === 'SERVICE_UNAVAILABLE' || res.code === 'RATE_LIMITED')) {
+        // Não é um erro de credenciais: mostra o motivo real e não conta como tentativa falhada
+        setErrorMsg(res.error || 'Não foi possível iniciar sessão neste momento. Tente novamente.');
+      } else if (!res.success) {
         const next = failures + 1;
         if (next >= 5) {
           const waitSeconds = Math.min(300, 30 * 2 ** (next - 5));

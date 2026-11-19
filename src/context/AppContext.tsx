@@ -27,6 +27,7 @@ import {
   fetchEvaluationsFromDb,
   updateEvaluationStatusInDb,
   finalizeEvaluationViaRpc,
+  rehomologateEvaluationViaRpc,
   fetchHRCasesFromDb,
   insertHRCaseInDb,
   updateHRCaseInDb,
@@ -81,7 +82,7 @@ interface AppContextType {
   systemUsers: UserProfile[];
   isAuthChecking: boolean;
   activeRole: UserRole;
-  login: (email: string, password?: string, role?: UserRole) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password?: string, role?: UserRole) => Promise<{ success: boolean; error?: string; code?: 'INVALID' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE' }>;
   logout: () => Promise<void>;
   mfaPendingMode: 'enroll' | 'verify' | null;
   refreshMfaState: () => Promise<void>;
@@ -108,6 +109,14 @@ interface AppContextType {
     thresholdOverrideReason?: string,
     auditorReview?: AuditorReview
   ) => Promise<{ success: boolean; snapshot?: EvaluationHistoricalSnapshot; error?: string }>;
+  /** Re-homologa uma avaliação já homologada. O motivo é obrigatório (mínimo 10 caracteres). */
+  rehomologateEvaluation: (
+    evaluationId: string,
+    reason: string,
+    auditorReview?: AuditorReview,
+    customThreshold?: number,
+    thresholdOverrideReason?: string
+  ) => Promise<{ success: boolean; version?: number; finalScore?: number; error?: string }>;
   
   // Worker Notifications & Result Communication
   workerNotifications: WorkerNotification[];
@@ -430,7 +439,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
   };
 
-  const login = async (email: string, password?: string, role?: UserRole): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, password?: string, role?: UserRole): Promise<{ success: boolean; error?: string; code?: 'INVALID' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE' }> => {
     const cleanEmail = email.trim();
     if (!password) {
       return { success: false, error: 'Introduza a palavra-passe.' };
@@ -447,7 +456,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     return {
       success: false,
-      error: res.error || 'Credenciais inválidas. Verifique o seu e-mail e palavra-passe no Supabase.'
+      code: res.code,
+      error: res.error || 'Credenciais inválidas. Verifique o seu identificador e a palavra-passe.'
     };
   };
 
@@ -1080,6 +1090,73 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Homologação de Avaliação Soberana no Servidor com Snapshot Imutável e Cálculo Ponderado Estrito
+  const rehomologateEvaluation = async (
+    evaluationId: string,
+    reason: string,
+    auditorReview?: AuditorReview,
+    customThreshold?: number,
+    thresholdOverrideReason?: string
+  ): Promise<{ success: boolean; version?: number; finalScore?: number; error?: string }> => {
+    if (activeRole !== 'ADMIN' && activeRole !== 'HR') {
+      return { success: false, error: 'Acesso negado: apenas Recursos Humanos ou Administradores podem re-homologar avaliações.' };
+    }
+    const target = evaluations.find(e => e.id === evaluationId);
+    if (!target) return { success: false, error: 'Avaliação não encontrada no sistema.' };
+    if (!target.finalizedAt) return { success: false, error: 'Esta avaliação ainda não foi homologada.' };
+
+    const motivo = (reason || '').trim();
+    if (motivo.length < 10) {
+      return { success: false, error: 'Indique o motivo da re-homologação (mínimo 10 caracteres).' };
+    }
+
+    const thresholdToUse =
+      customThreshold !== undefined && customThreshold !== passingThreshold && thresholdOverrideReason
+        ? customThreshold
+        : undefined;
+
+    const rpc = await rehomologateEvaluationViaRpc(
+      evaluationId,
+      motivo,
+      auditorReview,
+      thresholdToUse,
+      thresholdToUse !== undefined ? thresholdOverrideReason : undefined
+    );
+
+    if (!rpc.success || !rpc.data) {
+      const errMsg = rpc.error || 'Erro desconhecido ao re-homologar no servidor.';
+      logAction('UPDATE', 'Evaluation', evaluationId, 'DENIED', `Re-homologação rejeitada pelo servidor: ${errMsg}`);
+      return { success: false, error: errMsg };
+    }
+
+    const finalScore = Number(rpc.data.finalScore);
+    const finalClassification = rpc.data.finalClassification as 'POSITIVE' | 'NEGATIVE';
+    const version = Number(rpc.data.version);
+
+    setEvaluations(prev => prev.map(e => e.id !== evaluationId ? e : {
+      ...e,
+      status: 'REVIEWED',
+      technicalScore: finalScore,
+      finalClassification,
+      finalizedAt: rpc.data.finalizedAt || new Date().toISOString(),
+      finalizedBy: rpc.data.finalizedBy || currentUser?.email || 'Recursos Humanos',
+      criteriaSnapshot: rpc.data.snapshot ?? e.criteriaSnapshot,
+      auditorReview: auditorReview && Object.keys(auditorReview).length > 0 ? auditorReview : e.auditorReview,
+      homologationVersion: version,
+      rehomologatedAt: new Date().toISOString(),
+      rehomologatedBy: currentUser?.email || 'Recursos Humanos',
+      rehomologationReason: motivo
+    }));
+
+    logAction(
+      'UPDATE',
+      'Evaluation',
+      evaluationId,
+      'SUCCESS',
+      `Avaliação ${target.reference} re-homologada (versão ${version}): ${finalScore}% (${finalClassification}). Motivo: ${motivo.substring(0, 200)}`
+    );
+    return { success: true, version, finalScore };
+  };
+
   const finalizeEvaluation = async (
     evaluationId: string,
     ratings: Record<string, number>,
@@ -1398,6 +1475,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updateCriteria,
       updatePassingThreshold,
       finalizeEvaluation,
+      rehomologateEvaluation,
       workerNotifications,
       sendWorkerNotification,
       teams,

@@ -197,6 +197,26 @@ export interface Evaluation {
   finalizedBy?: string;
   criteriaSnapshot?: EvaluationHistoricalSnapshot;
   criterionRatings?: Record<string, number>; // Notas atribuídas por critério (ex: c1: 4, c2: 4.5, c3: 5, c4: 3)
+
+  // Re-homologação (cada revisão exige motivo; as versões anteriores ficam no histórico)
+  homologationVersion?: number; // 1 = homologação original
+  rehomologatedAt?: string;
+  rehomologatedBy?: string;
+  rehomologationReason?: string; // motivo da ÚLTIMA re-homologação
+}
+
+/** Uma homologação anterior, substituída por uma re-homologação. */
+export interface HomologationVersion {
+  id: string;
+  evaluationId: string;
+  version: number;
+  technicalScore?: number;
+  finalClassification?: 'POSITIVE' | 'NEGATIVE';
+  finalizedAt?: string;
+  finalizedBy?: string;
+  supersededAt: string;
+  supersededBy: string;
+  supersededReason: string; // motivo da re-homologação que substituiu esta versão
 }
 
 export interface EvaluationQueueCounts {

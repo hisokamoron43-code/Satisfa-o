@@ -12,10 +12,12 @@
 ALTER TABLE public.evaluations ADD COLUMN IF NOT EXISTS staff_name_input text;
 ALTER TABLE public.evaluations ADD COLUMN IF NOT EXISTS suggested_team_id uuid;
 ALTER TABLE public.evaluations ADD COLUMN IF NOT EXISTS suggested_provider_id uuid;
-ALTER TABLE public.evaluations ADD COLUMN IF NOT EXISTS attribution_confirmed boolean NOT NULL DEFAULT false;
-
--- Avaliações já existentes continuam como estão (já estavam associadas ou são históricas).
-UPDATE public.evaluations SET attribution_confirmed = true WHERE attribution_confirmed = false;
+-- Avaliações já existentes ficam como confirmadas (já estavam associadas ou são históricas).
+-- IMPORTANTE: a coluna é criada com DEFAULT true e só depois passa a false. Assim as linhas existentes
+-- ficam confirmadas SEM executar nenhum UPDATE (um UPDATE falha nas avaliações já homologadas, que são
+-- imutáveis, e foi isso que fez esta migração falhar quando já havia avaliações no sistema).
+ALTER TABLE public.evaluations ADD COLUMN IF NOT EXISTS attribution_confirmed boolean NOT NULL DEFAULT true;
+ALTER TABLE public.evaluations ALTER COLUMN attribution_confirmed SET DEFAULT false;
 
 -- 2) Normalização para comparação de nomes (minúsculas, sem acentos, sem pontuação)
 CREATE OR REPLACE FUNCTION public.sicsc_norm_text(t text)

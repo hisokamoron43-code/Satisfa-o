@@ -30,6 +30,8 @@ import {
   Mic
 } from 'lucide-react';
 import { KpiDetailModal } from '../components/analytics/KpiDetailModal';
+import { fetchHomologationHistory } from '../services/supabaseService';
+import type { HomologationVersion } from '../types';
 
 export const EvaluationAnalysisPage: React.FC = () => {
   const { 
@@ -37,6 +39,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
     criteria, 
     passingThreshold, 
     finalizeEvaluation, 
+    rehomologateEvaluation,
     services, 
     clients, 
     providers,
@@ -62,6 +65,12 @@ export const EvaluationAnalysisPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reviewRatings, setReviewRatings] = useState<Record<string, number>>({});
   const [auditorReview, setAuditorReview] = useState<AuditorReview>({});
+
+  // Re-homologação: rever uma avaliação já homologada exige sempre o motivo
+  const [isRehomologating, setIsRehomologating] = useState(false);
+  const [rehomologationReason, setRehomologationReason] = useState('');
+  const [history, setHistory] = useState<HomologationVersion[]>([]);
+  const isReasonRehomologationValid = rehomologationReason.trim().length >= 10;
   
   // Limiar Excecional
   const [isCustomThresholdEnabled, setIsCustomThresholdEnabled] = useState(false);
@@ -108,6 +117,12 @@ export const EvaluationAnalysisPage: React.FC = () => {
     setCustomThreshold(passingThreshold);
     setThresholdOverrideReason('');
     setIsConfirmModalOpen(false);
+    setIsRehomologating(false);
+    setRehomologationReason('');
+    setHistory([]);
+    if (evalItem.finalizedAt) {
+      fetchHomologationHistory(evalItem.id).then(setHistory);
+    }
 
     setInlineClientId('');
     setInlineProviderId('');
@@ -158,6 +173,10 @@ export const EvaluationAnalysisPage: React.FC = () => {
       setErrorMsg('Acesso negado: apenas utilizadores com perfil de Administrador ou Recursos Humanos podem homologar.');
       return;
     }
+    if (isRehomologating && !isReasonRehomologationValid) {
+      setErrorMsg('Indique o motivo da re-homologação (mínimo 10 caracteres).');
+      return;
+    }
     if (hasPrerequisiteBlocker) {
       setErrorMsg('Não é possível homologar: resolva as pendências de cliente oficial e funcionário.');
       return;
@@ -182,6 +201,31 @@ export const EvaluationAnalysisPage: React.FC = () => {
 
     const thresholdToApply = isThresholdChanged ? customThreshold : undefined;
     const reasonToApply = isThresholdChanged ? thresholdOverrideReason.trim() : undefined;
+
+    if (isRehomologating) {
+      const rh = await rehomologateEvaluation(selectedEval.id, rehomologationReason.trim(), auditorReview, thresholdToApply, reasonToApply);
+      setIsSubmitting(false);
+      setIsConfirmModalOpen(false);
+      if (!rh.success) {
+        setErrorMsg(rh.error || 'Erro ao re-homologar a avaliação no servidor.');
+        return;
+      }
+      const novaNota = rh.finalScore ?? liveCalculation.finalScore;
+      setSuccessMsg(`Avaliação ${selectedEval.reference} re-homologada (versão ${rh.version}). Nova nota técnica: ${Number(novaNota).toFixed(1)}%. A versão anterior ficou guardada no histórico com o motivo.`);
+      setSelectedEval(prev => prev ? {
+        ...prev,
+        technicalScore: novaNota,
+        finalClassification: liveCalculation.finalClassification,
+        finalizedAt: new Date().toISOString(),
+        finalizedBy: currentUser?.email || 'Recursos Humanos',
+        homologationVersion: rh.version,
+        rehomologationReason: rehomologationReason.trim()
+      } : null);
+      setIsRehomologating(false);
+      setRehomologationReason('');
+      fetchHomologationHistory(selectedEval.id).then(setHistory);
+      return;
+    }
 
     const res = await finalizeEvaluation(selectedEval.id, reviewRatings, thresholdToApply, reasonToApply, auditorReview);
     setIsSubmitting(false);
@@ -616,6 +660,7 @@ export const EvaluationAnalysisPage: React.FC = () => {
                   {selectedEval.finalizedAt && (
                     <p className="text-emerald-700 font-bold">
                       Homologado em {selectedEval.finalizedAt.substring(0, 10)} por {selectedEval.finalizedBy}
+                      {(selectedEval.homologationVersion ?? 1) > 1 ? ` (versão ${selectedEval.homologationVersion})` : ''}
                     </p>
                   )}
                 </div>
@@ -696,10 +741,10 @@ export const EvaluationAnalysisPage: React.FC = () => {
               </div>
 
               {/* CLASSIFICAÇÃO DO ÁUDIO E DOS ARGUMENTOS (complementa a avaliação) */}
-              <AuditorQualitativePanel evaluation={selectedEval} review={auditorReview} onReviewChange={setAuditorReview} locked={!!selectedEval.finalizedAt} />
+              <AuditorQualitativePanel evaluation={selectedEval} review={auditorReview} onReviewChange={setAuditorReview} locked={!!selectedEval.finalizedAt && !isRehomologating} />
 
               {/* OPÇÃO DE LIMIAR EXCECIONAL */}
-              {!selectedEval.finalizedAt && (
+              {(!selectedEval.finalizedAt || isRehomologating) && (
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-black text-slate-900 flex items-center gap-2 cursor-pointer">
@@ -748,6 +793,56 @@ export const EvaluationAnalysisPage: React.FC = () => {
                 </div>
               )}
 
+              {/* RE-HOMOLOGAÇÃO: motivo obrigatório */}
+              {selectedEval.finalizedAt && isRehomologating && (
+                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-300 space-y-2">
+                  <label className="block text-xs font-black text-amber-950 uppercase">
+                    Motivo da re-homologação * (mínimo 10 caracteres)
+                  </label>
+                  <textarea
+                    required
+                    rows={3}
+                    maxLength={1000}
+                    value={rehomologationReason}
+                    onChange={(e) => setRehomologationReason(e.target.value)}
+                    placeholder="Explique porque é necessário rever a homologação (ex.: erro na nota do áudio, funcionário corrigido, novos elementos...)"
+                    className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                  <p className={`text-[10px] font-bold ${isReasonRehomologationValid ? 'text-emerald-700' : 'text-amber-800'}`}>
+                    {rehomologationReason.trim().length}/1000 caracteres. A homologação atual (nota {selectedEval.technicalScore?.toFixed(1)}%) ficará guardada no histórico com este motivo.
+                  </p>
+                </div>
+              )}
+
+              {/* HISTÓRICO DE HOMOLOGAÇÕES */}
+              {selectedEval.finalizedAt && ((selectedEval.homologationVersion ?? 1) > 1 || history.length > 0) && (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                  <span className="text-[10px] font-black text-slate-500 uppercase">Histórico de homologações</span>
+                  <div className="p-2.5 bg-white rounded-xl border border-emerald-200 text-xs">
+                    <p className="font-black text-slate-900">
+                      Versão {selectedEval.homologationVersion ?? 1} (atual) — {selectedEval.technicalScore?.toFixed(1)}% · {selectedEval.finalClassification}
+                    </p>
+                    <p className="text-slate-500">
+                      {selectedEval.finalizedAt.substring(0, 10)} · {selectedEval.finalizedBy}
+                    </p>
+                    {selectedEval.rehomologationReason && (
+                      <p className="text-slate-700 mt-1"><strong>Motivo da re-homologação:</strong> {selectedEval.rehomologationReason}</p>
+                    )}
+                  </div>
+                  {history.map(h => (
+                    <div key={h.id} className="p-2.5 bg-white rounded-xl border border-slate-200 text-xs">
+                      <p className="font-black text-slate-800">
+                        Versão {h.version} (substituída) — {h.technicalScore !== undefined ? `${h.technicalScore.toFixed(1)}%` : 'n/d'} · {h.finalClassification || 'n/d'}
+                      </p>
+                      <p className="text-slate-500">
+                        Homologada em {h.finalizedAt ? h.finalizedAt.substring(0, 10) : 'n/d'} por {h.finalizedBy || 'n/d'} · substituída em {h.supersededAt.substring(0, 10)} por {h.supersededBy}
+                      </p>
+                      <p className="text-slate-700 mt-1"><strong>Motivo:</strong> {h.supersededReason}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* PAINEL DE CÁLCULO PONDERADO EM TEMPO REAL */}
               <div className="bg-slate-950 text-white p-5 rounded-2xl space-y-3 shadow-inner">
                 <div className="flex items-center justify-between">
@@ -787,6 +882,41 @@ export const EvaluationAnalysisPage: React.FC = () => {
                   Fechar
                 </button>
 
+                {selectedEval.finalizedAt && canHomologate && !isRehomologating && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                      setAuditorReview(selectedEval.auditorReview ?? {});
+                      setIsRehomologating(true);
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-xs font-black transition"
+                  >
+                    Re-homologar (rever nota)
+                  </button>
+                )}
+
+                {selectedEval.finalizedAt && canHomologate && isRehomologating && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIsRehomologating(false); setRehomologationReason(''); setAuditorReview(selectedEval.auditorReview ?? {}); }}
+                      className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                    >
+                      Cancelar revisão
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isReasonRehomologationValid || !isReasonValid || !liveCalculation.success}
+                      onClick={handleOpenConfirm}
+                      className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black transition shadow-md disabled:opacity-40 disabled:bg-slate-300"
+                    >
+                      Re-homologar Avaliação
+                    </button>
+                  </div>
+                )}
+
                 {!selectedEval.finalizedAt && canHomologate && (
                   <button
                     type="button"
@@ -813,16 +943,28 @@ export const EvaluationAnalysisPage: React.FC = () => {
                 <Lock className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-base font-black text-slate-900">Confirmar Homologação Definitiva</h4>
+                <h4 className="text-base font-black text-slate-900">{isRehomologating ? 'Confirmar Re-homologação' : 'Confirmar Homologação Definitiva'}</h4>
                 <p className="text-xs text-slate-500">Avaliação {selectedEval.reference}</p>
               </div>
             </div>
 
             <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-950 space-y-1.5">
-              <p className="font-bold">Aviso de Imutabilidade do SICSC:</p>
-              <p className="leading-relaxed">
-                Após homologar, esta avaliação tornar-se-á <strong>estritamente imutável</strong>. Um snapshot histórico auditado será gerado no servidor e nenhuma nota, funcionário ou dado poderá ser alterado ou eliminado.
-              </p>
+              {isRehomologating ? (
+                <>
+                  <p className="font-bold">Re-homologação com registo do motivo:</p>
+                  <p className="leading-relaxed">
+                    A homologação anterior (nota {selectedEval.technicalScore?.toFixed(1)}%) será <strong>guardada no histórico</strong> e a nota será recalculada no servidor. A operação fica registada na auditoria.
+                  </p>
+                  <p className="leading-relaxed"><strong>Motivo:</strong> {rehomologationReason.trim()}</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-bold">Aviso de Imutabilidade do SICSC:</p>
+                  <p className="leading-relaxed">
+                    Após homologar, esta avaliação tornar-se-á <strong>estritamente imutável</strong>. Um snapshot histórico auditado será gerado no servidor e nenhuma nota, funcionário ou dado poderá ser alterado ou eliminado, exceto por re-homologação com motivo.
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
@@ -860,12 +1002,12 @@ export const EvaluationAnalysisPage: React.FC = () => {
                 {isSubmitting ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>A homologar...</span>
+                    <span>{isRehomologating ? 'A re-homologar...' : 'A homologar...'}</span>
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Confirmar Homologação</span>
+                    <span>{isRehomologating ? 'Confirmar Re-homologação' : 'Confirmar Homologação'}</span>
                   </>
                 )}
               </button>

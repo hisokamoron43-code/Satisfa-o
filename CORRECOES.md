@@ -461,3 +461,53 @@ Nova área **«Rankings: melhores e piores»** em Relatórios, no texto (partilh
 - **Desempate:** maior média; depois mais avaliações; depois ordem alfabética.
 - O PDF do relatório passou a receber equipas, histórico e limiar (antes não recebia as equipas).
 - Código: `src/services/rankings.ts` (lógica pura), `reportBuilder.ts`, `pdfExport.ts`, `ReportsPage.tsx`. Testes: `npm run test:logic` (81 a passar).
+
+
+---
+
+## v38 — Login que deixou de funcionar depois de limpar a base de dados
+
+**Sintoma:** "Não foi possível iniciar sessão. Verifique o identificador e a palavra-passe", mesmo com conta
+confirmada e perfil ADMIN ativo.
+
+**Causa:** `resolve_login_email()` lê a linha única de `public.login_settings` (id = 1). Um script de limpeza
+que esvazia todas as tabelas apagou essa linha; sem ela a função devolvia sempre `NULL` e a Edge Function
+`login` respondia 401 a qualquer pessoa. A interface mostrava o mesmo texto genérico para este caso, para
+função não publicada e para e-mail escrito de forma diferente da conta.
+
+**Correções:**
+- `supabase/migrations/1021_reposicao_configuracao_login.sql`: repõe a linha, torna `resolve_login_email()`
+  tolerante à sua falta e impede apagar/esvaziar `login_settings` (triggers).
+- `supabase/manutencao/limpar_dados_producao.sql`: limpeza que preserva as tabelas de configuração.
+- `supabase/manutencao/criar_administrador.sql` e `diagnostico_login.sql`.
+- `signInWithSupabase` / `LoginPage`: distinguem credenciais inválidas (400/401), limite de tentativas (429) e
+  serviço indisponível (404/5xx, rede, CORS), e só as primeiras contam para o bloqueio temporário.
+
+**Para publicar:** aplicar a 1021; confirmar que a Edge Function `login` está publicada e que `ALLOWED_ORIGINS`
+inclui `https://sicsc.onrender.com`.
+
+
+---
+
+## v39 — Migração 1020 falhava com avaliações no sistema + re-homologação com motivo
+
+**1020 (corrigida):** adicionava a coluna `attribution_confirmed` com valor `false` e depois fazia
+`UPDATE public.evaluations SET attribution_confirmed = true`. O trigger `guard_finalized_evaluation` bloqueia
+qualquer alteração a avaliações homologadas, por isso o UPDATE falhava assim que existia uma avaliação
+homologada ("Avaliação homologada é imutável"). Agora a coluna nasce com `DEFAULT true` (as linhas existentes
+ficam confirmadas sem UPDATE) e só depois o valor por omissão passa a `false`. Como o editor SQL do Supabase
+corre o ficheiro numa só transação, a falha não deixou nada aplicado: basta executar a 1020 corrigida.
+
+**1022 (nova): re-homologação.** Uma avaliação homologada continua imutável, exceto através de
+`rehomologate_evaluation(id, motivo, parecer, limiar, motivo_do_limiar)`:
+- só ADMIN e HR; motivo obrigatório (10 a 1000 caracteres), validado no servidor;
+- a homologação anterior (nota, classificação, snapshot, parecer e participantes) vai para o histórico imutável
+  `evaluation_homologations`, com o motivo; a nota é recalculada pelas mesmas regras da homologação normal;
+- tudo na mesma transação: se o recálculo falhar, nada muda;
+- fica registado na auditoria. A exceção de imutabilidade só vale dentro dessa transação.
+
+**Interface (Análise Técnica & Homologação):** botão "Re-homologar (rever nota)" nas avaliações homologadas,
+campo de motivo obrigatório, pré-visualização da nova nota, confirmação e "Histórico de homologações"
+com cada versão e o respetivo motivo.
+
+**Ordem de aplicação:** 1020 (corrigida) → 1021 → 1022.

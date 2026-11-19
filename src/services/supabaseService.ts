@@ -26,7 +26,8 @@ import {
   WorkerNotification,
   ProviderPermissionAudit,
   EvaluationCriterion,
-  AuditorReview
+  AuditorReview,
+  HomologationVersion
 } from '../types';
 import { 
   MOCK_USERS, 
@@ -208,10 +209,13 @@ export async function testSupabaseConnection(): Promise<ConnectionTestResult> {
 /**
  * Signs in a user using Supabase Auth (email + password).
  */
+/** Motivo da falha de login, para a interface não dizer "credenciais inválidas" quando o problema é outro. */
+export type LoginFailureCode = 'INVALID' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE';
+
 export async function signInWithSupabase(
   email: string,
   password: string
-): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+): Promise<{ success: boolean; user?: UserProfile; error?: string; code?: LoginFailureCode }> {
   if (!isSupabaseConfigured) {
     return { success: false, error: 'Serviço de autenticação indisponível.' };
   }
@@ -228,9 +232,18 @@ export async function signInWithSupabase(
     );
     const dados = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; error?: string };
     if (!res.ok || !dados.access_token || !dados.refresh_token) {
+      if (res.status === 429) {
+        return { success: false, code: 'RATE_LIMITED', error: dados.error || 'Demasiadas tentativas. Aguarde alguns minutos e tente novamente.' };
+      }
+      // 400/401 = identificador ou palavra-passe não correspondem. Qualquer outro estado (404, 5xx, 502...)
+      // significa que a função de login não respondeu (não publicada, sem variáveis, erro do servidor).
+      if (res.status === 400 || res.status === 401) {
+        return { success: false, code: 'INVALID', error: 'Credenciais inválidas. Verifique os seus dados.' };
+      }
       return {
         success: false,
-        error: res.status === 429 && dados.error ? dados.error : 'Credenciais inválidas. Verifique os seus dados.',
+        code: 'SERVICE_UNAVAILABLE',
+        error: 'O serviço de início de sessão não respondeu (estado ' + res.status + '). Contacte o administrador do sistema.',
       };
     }
     const { data, error } = await supabase.auth.setSession({
@@ -244,7 +257,12 @@ export async function signInWithSupabase(
     return { success: true, user: profile };
   } catch (err: any) {
     await signOutFromSupabase();
-    return { success: false, error: traduzirErro(err, 'Erro inesperado durante a autenticação.') };
+    // Falha de rede, CORS (origem não autorizada na função) ou tempo esgotado: não é um erro de credenciais
+    return {
+      success: false,
+      code: 'SERVICE_UNAVAILABLE',
+      error: traduzirErro(err, 'Não foi possível contactar o serviço de início de sessão. Verifique a ligação e tente novamente.'),
+    };
   }
 }
 
@@ -848,6 +866,10 @@ export async function fetchEvaluationsFromDb(): Promise<Evaluation[] | null> {
       finalClassification: item.final_classification || undefined,
       finalizedAt: item.finalized_at || undefined,
       finalizedBy: item.finalized_by || undefined,
+      homologationVersion: item.homologation_version ? Number(item.homologation_version) : undefined,
+      rehomologatedAt: item.rehomologated_at || undefined,
+      rehomologatedBy: item.rehomologated_by || undefined,
+      rehomologationReason: item.rehomologation_reason || undefined,
       criteriaSnapshot: item.criteria_snapshot || undefined,
       criterionRatings: item.criterion_ratings || undefined,
       audioRecordingUrl: item.audio_recording_url || undefined,
@@ -906,6 +928,66 @@ export async function finalizeEvaluationViaRpc(
     return { success: true, data };
   } catch (err: any) {
     return { success: false, error: traduzirErro(err, 'Falha de comunicação com o servidor Supabase.') };
+  }
+}
+
+/**
+ * Re-homologa uma avaliação já homologada. O motivo é obrigatório (mínimo 10 caracteres) e é validado
+ * outra vez no servidor, que guarda a versão anterior no histórico e recalcula a nota.
+ */
+export async function rehomologateEvaluationViaRpc(
+  evaluationId: string,
+  reason: string,
+  auditorReview?: AuditorReview,
+  customThreshold?: number,
+  thresholdOverrideReason?: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  const motivo = (reason || '').trim();
+  if (motivo.length < 10) {
+    return { success: false, error: 'Indique o motivo da re-homologação (mínimo 10 caracteres).' };
+  }
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'A re-homologação só está disponível com a ligação ao servidor ativa.' };
+  }
+  try {
+    const { data, error } = await supabase.rpc('rehomologate_evaluation', {
+      p_evaluation_id: evaluationId,
+      p_reason: motivo,
+      p_auditor_review: auditorReview && Object.keys(auditorReview).length > 0 ? auditorReview : null,
+      p_custom_threshold: customThreshold !== undefined ? customThreshold : null,
+      p_threshold_override_reason: thresholdOverrideReason || null
+    });
+    if (error) return { success: false, error: traduzirErro(error) };
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: traduzirErro(err, 'Falha de comunicação com o servidor.') };
+  }
+}
+
+/** Versões anteriores de uma avaliação (da mais recente para a mais antiga). */
+export async function fetchHomologationHistory(evaluationId: string): Promise<HomologationVersion[]> {
+  if (!isSupabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('evaluation_homologations')
+      .select('id, evaluation_id, version, technical_score, final_classification, finalized_at, finalized_by, superseded_at, superseded_by, superseded_reason')
+      .eq('evaluation_id', evaluationId)
+      .order('version', { ascending: false });
+    if (error || !data) return [];
+    return data.map((r: any): HomologationVersion => ({
+      id: r.id,
+      evaluationId: r.evaluation_id,
+      version: Number(r.version),
+      technicalScore: r.technical_score !== null && r.technical_score !== undefined ? Number(r.technical_score) : undefined,
+      finalClassification: r.final_classification || undefined,
+      finalizedAt: r.finalized_at || undefined,
+      finalizedBy: r.finalized_by || undefined,
+      supersededAt: r.superseded_at,
+      supersededBy: r.superseded_by,
+      supersededReason: r.superseded_reason
+    }));
+  } catch {
+    return [];
   }
 }
 
